@@ -754,7 +754,7 @@ export const QUESTION_BANK: Record<string, Record<string, LessonData>> = {
           type: "fill",
           instruction: "Complete the condition to check if age is 18 or over",
           codeLines: ["age = 20", "if age ___ 18:", "    print('Adult')"],
-          tiles: [">=", "=>", "=>", "="],
+          tiles: [">=", "<=", ">", "="],
           answer: ">=",
           explanation: ">= means 'greater than or equal to'",
           consoleOutput: "Adult",
