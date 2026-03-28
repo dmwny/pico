@@ -98,7 +98,7 @@ export default function Home() {
             <span className="text-green-500">Actually finish it.</span>
           </h1>
           <p className="text-gray-500 font-semibold text-base leading-relaxed mb-8 max-w-sm">
-            Short interactive lessons, instant feedback, and a streak to keep you honest. Pick a language and go — no setup needed.
+            Five minutes a day. Real code. No fluff. Pick a language and start.
           </p>
 
           <div className="flex items-center gap-4 mb-10">
@@ -107,7 +107,7 @@ export default function Home() {
               className="bg-green-500 text-white font-extrabold text-base px-8 py-3.5 rounded-2xl hover:bg-green-600 transition"
               style={{ boxShadow: "0 4px 0 #16a34a" }}
             >
-              Start learning — free
+              Start learning for free!
             </Link>
             <Link
               href="/signup"
@@ -132,79 +132,79 @@ export default function Home() {
           <Pico size={140} mood="happy" />
           <div className="bg-white rounded-3xl border border-gray-200 p-5 shadow-sm w-full -mt-4">
 
-          {/* Language switcher */}
-          <div className="flex gap-2 mb-5">
-            {LANGUAGES.map((l, i) => (
-              <button
-                key={l.label}
-                onClick={() => switchLang(i)}
-                className={`text-xs font-extrabold px-3 py-1.5 rounded-xl border transition ${
-                  i === langIndex
-                    ? "bg-green-500 text-white border-green-500"
-                    : "bg-white text-gray-500 border-gray-200 hover:border-green-400 hover:text-green-600"
-                }`}
-              >
-                {l.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Progress bar */}
-          <div className="flex items-center gap-3 mb-5">
-            <span className="text-xs font-extrabold text-orange-500 bg-orange-50 border border-orange-200 px-3 py-1.5 rounded-xl whitespace-nowrap">
-              7 day streak
-            </span>
-            <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
-              <div className="h-full bg-green-500 rounded-full transition-all duration-500" style={{ width: "55%" }} />
-            </div>
-            <div className="flex gap-0.5">
-              {[0, 1, 2].map(i => (
-                <span key={i} className="text-base">{"❤️"}</span>
+            {/* Language switcher */}
+            <div className="flex gap-2 mb-5">
+              {LANGUAGES.map((l, i) => (
+                <button
+                  key={l.label}
+                  onClick={() => switchLang(i)}
+                  className={`text-xs font-extrabold px-3 py-1.5 rounded-xl border transition ${
+                    i === langIndex
+                      ? "bg-green-500 text-white border-green-500"
+                      : "bg-white text-gray-500 border-gray-200 hover:border-green-400 hover:text-green-600"
+                  }`}
+                >
+                  {l.label}
+                </button>
               ))}
             </div>
-          </div>
 
-          <p className="text-xs font-extrabold text-green-500 uppercase tracking-widest mb-1">
-            Unit 1 · Hello World
-          </p>
-          <p className="text-base font-extrabold text-gray-900 mb-3">
-            {lang.question}
-          </p>
-
-          <div className="bg-gray-900 rounded-2xl px-4 py-3 mb-4 font-mono text-sm font-bold text-green-400 whitespace-pre">
-            {lang.code}
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 mb-3">
-            {lang.options.map((opt, i) => {
-              let cls = "w-full text-left px-4 py-3 rounded-2xl border-2 border-b-4 text-sm font-bold transition ";
-              if (!revealed) {
-                cls += "border-gray-200 bg-white text-gray-800 hover:border-green-400 hover:bg-green-50 hover:text-green-700";
-              } else if (i === lang.correctIndex) {
-                cls += "border-green-400 bg-green-50 text-green-700";
-              } else if (i === selected) {
-                cls += "border-red-400 bg-red-50 text-red-600";
-              } else {
-                cls += "border-gray-200 bg-white text-gray-400";
-              }
-              return (
-                <button key={i} className={cls} onClick={() => pick(i)}>
-                  {opt}
-                </button>
-              );
-            })}
-          </div>
-
-          {revealed && (
-            <div className={`rounded-2xl px-4 py-3 text-sm font-bold ${
-              selected === lang.correctIndex
-                ? "bg-green-50 border border-green-200 text-green-700"
-                : "bg-red-50 border border-red-200 text-red-600"
-            }`}>
-              {selected === lang.correctIndex ? lang.correct : lang.wrong}
+            {/* Progress bar */}
+            <div className="flex items-center gap-3 mb-5">
+              <span className="text-xs font-extrabold text-orange-500 bg-orange-50 border border-orange-200 px-3 py-1.5 rounded-xl whitespace-nowrap">
+                7 day streak
+              </span>
+              <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                <div className="h-full bg-green-500 rounded-full transition-all duration-500" style={{ width: "55%" }} />
+              </div>
+              <div className="flex gap-0.5">
+                {[0, 1, 2].map(i => (
+                  <span key={i} className="text-base">{"❤️"}</span>
+                ))}
+              </div>
             </div>
-          )}
-        </div>
+
+            <p className="text-xs font-extrabold text-green-500 uppercase tracking-widest mb-1">
+              Unit 1 · Hello World
+            </p>
+            <p className="text-base font-extrabold text-gray-900 mb-3">
+              {lang.question}
+            </p>
+
+            <div className="bg-gray-900 rounded-2xl px-4 py-3 mb-4 font-mono text-sm font-bold text-green-400 whitespace-pre">
+              {lang.code}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              {lang.options.map((opt, i) => {
+                let cls = "w-full text-left px-4 py-3 rounded-2xl border-2 border-b-4 text-sm font-bold transition ";
+                if (!revealed) {
+                  cls += "border-gray-200 bg-white text-gray-800 hover:border-green-400 hover:bg-green-50 hover:text-green-700";
+                } else if (i === lang.correctIndex) {
+                  cls += "border-green-400 bg-green-50 text-green-700";
+                } else if (i === selected) {
+                  cls += "border-red-400 bg-red-50 text-red-600";
+                } else {
+                  cls += "border-gray-200 bg-white text-gray-400";
+                }
+                return (
+                  <button key={i} className={cls} onClick={() => pick(i)}>
+                    {opt}
+                  </button>
+                );
+              })}
+            </div>
+
+            {revealed && (
+              <div className={`rounded-2xl px-4 py-3 text-sm font-bold ${
+                selected === lang.correctIndex
+                  ? "bg-green-50 border border-green-200 text-green-700"
+                  : "bg-red-50 border border-red-200 text-red-600"
+              }`}>
+                {selected === lang.correctIndex ? lang.correct : lang.wrong}
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
@@ -220,17 +220,17 @@ export default function Home() {
               {
                 num: "01",
                 title: "You'll actually finish it",
-                body: "Lessons take under 5 minutes. Streaks and XP create the habit loop that keeps you coming back until it clicks.",
+                body: "Lessons are short on purpose. The streak does the rest it's weirdly hard to break once you start be because of how engaging it is .",
               },
               {
                 num: "02",
                 title: "Fresh questions every time",
-                body: "AI generates unique challenges on every run — no memorising answers. Every attempt tests real understanding.",
+                body: "Questions are made to perfection so you learn the most possible..",
               },
               {
                 num: "03",
                 title: "Start at the right level",
-                body: "A 2-minute placement test skips what you already know and drops you straight into the unit that's actually challenging.",
+                body: "If you already know some code, a quick test skips the boring stuff and puts you where you'll actually learn something.",
               },
             ].map(({ num, title, body }) => (
               <div key={num} className="bg-gray-50 rounded-3xl p-6 border border-gray-100">
@@ -255,12 +255,12 @@ export default function Home() {
               {
                 n: "1",
                 title: "Pick your language",
-                body: "Start with Python, JavaScript, SQL, or whatever fits your goals. Switch anytime — your progress is tracked per language.",
+                body: "Start with Python; JavaScript, SQL and much more will be added very soon..",
               },
               {
                 n: "2",
                 title: "Learn by doing",
-                body: "Each lesson teaches one concept then drills it immediately — fill-in, arrange, and real code challenges.",
+                body: "Each lesson teaches one concept then drills it immediately",
               },
               {
                 n: "3",
@@ -286,7 +286,7 @@ export default function Home() {
       {/* ── CTA banner ── */}
       <section className="bg-green-500 py-16 text-center">
         <h2 className="text-3xl font-black text-white tracking-tight mb-2">
-          Your coding journey starts in 30 seconds.
+          You could have written your first line of code by now.
         </h2>
         <p className="text-green-100 font-semibold text-base mb-8">
           Free to start. No credit card. No download.

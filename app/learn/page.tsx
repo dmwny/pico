@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import Pico from "@/components/Pico";
+import { ACHIEVEMENTS } from "@/lib/achievements";
 
 const SECTIONS = [
   {
@@ -60,15 +62,72 @@ const SECTIONS = [
 
 const PATH_POSITIONS = ["ml-24", "ml-40", "ml-52", "ml-40", "ml-24"];
 
-export default function Learn() {
+// ── Inner component that uses useSearchParams ─────────────────────────────────
+function LearnInner() {
+  const searchParams = useSearchParams();
   const [completedLessons, setCompletedLessons] = useState<string[]>([]);
   const [xp, setXp] = useState(0);
   const [streak, setStreak] = useState(0);
+  const [todayXp, setTodayXp] = useState(0);
+  const [todayLessons, setTodayLessons] = useState(0);
+  const [todayPerfect, setTodayPerfect] = useState(0);
+  const [earnedAchievements, setEarnedAchievements] = useState<string[]>([]);
   const [tooltip, setTooltip] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [guidebook, setGuidebook] = useState<any>(null);
+  const [mounted, setMounted] = useState(false);
+useEffect(() => setMounted(true), []);
+  const QUEST_POOL = [
+  // XP quests
+  { id: "xp_50",  label: "Earn 50 XP",              current: () => Math.min(todayXp, 50),  total: 50,  color: "bg-yellow-400" },
+  { id: "xp_100", label: "Earn 100 XP",             current: () => Math.min(todayXp, 100), total: 100, color: "bg-yellow-400" },
+  { id: "xp_200", label: "Earn 200 XP",             current: () => Math.min(todayXp, 200), total: 200, color: "bg-yellow-400" },
+ 
+  // Lesson quests
+  { id: "les_1",  label: "Complete 1 lesson",        current: () => Math.min(todayLessons, 1), total: 1, color: "bg-green-500" },
+  { id: "les_3",  label: "Complete 3 lessons",       current: () => Math.min(todayLessons, 3), total: 3, color: "bg-green-500" },
+  { id: "les_5",  label: "Complete 5 lessons",       current: () => Math.min(todayLessons, 5), total: 5, color: "bg-green-500" },
+ 
+  // Perfect lesson quests
+  { id: "perf_1", label: "Get 1 perfect lesson",     current: () => Math.min(todayPerfect, 1), total: 1, color: "bg-blue-400" },
+  { id: "perf_2", label: "Get 2 perfect lessons",    current: () => Math.min(todayPerfect, 2), total: 2, color: "bg-blue-400" },
+];
+ 
+// Seed random selection by date so quests change daily but are consistent within a day
+const dailyQuests = useMemo(() => {
+  const today = new Date().toISOString().split("T")[0];
+  const seed = today.split("-").reduce((acc, n) => acc + parseInt(n), 0);
 
-  useEffect(() => { loadProgress(); }, []);
+  const pool = [...QUEST_POOL];
+
+  if (streak === 0) {
+    pool.push({
+      id: "streak_start",
+      label: "Start a streak",
+      current: () => Math.min(streak, 1),
+      total: 1,
+      color: "bg-orange-400",
+    });
+  }
+
+  const shuffled = pool
+    .map((q, i) => ({ q, sort: (seed * (i + 1) * 2654435761) % pool.length }))
+    .sort((a, b) => a.sort - b.sort)
+    .map(({ q }) => q);
+
+  const xp       = shuffled.find(q => q.id.startsWith("xp_"));
+  const lessons  = shuffled.find(q => q.id.startsWith("les_"));
+  const perfect  = shuffled.find(q => q.id.startsWith("perf_"));
+  const streakQ  = shuffled.find(q => q.id === "streak_start");
+
+  return [xp, lessons, perfect, streakQ].filter(Boolean).slice(0, 3) as typeof QUEST_POOL;
+}, [streak]);
+ 
+ 
+  // ── FIXED: re-fetch every time ?t= changes (i.e. after returning from a lesson) ──
+  useEffect(() => {
+    loadProgress();
+  }, [searchParams]);
 
   useEffect(() => {
     if (window.location.hash) {
@@ -80,13 +139,22 @@ export default function Learn() {
   }, [loading]);
 
   const loadProgress = async () => {
+    
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
-    const { data } = await supabase.from("pico_progress").select("*").eq("user_id", user.id).single();
+    const { data } = await supabase
+      .from("pico_progress")
+      .select("*")
+      .eq("user_id", user.id)
+      .single();
+    setTodayPerfect(data.today_perfect || 0)
     if (data) {
       setCompletedLessons(JSON.parse(data.completed_lessons || "[]"));
       setXp(data.xp || 0);
       setStreak(data.streak || 0);
+      setTodayXp(data.today_xp || 0);
+      setTodayLessons(data.today_lessons || 0);
+      setEarnedAchievements(JSON.parse(data.achievements || "[]"));
     }
     setLoading(false);
   };
@@ -121,7 +189,6 @@ export default function Learn() {
   const totalLessons = SECTIONS.flatMap(s => s.units.flatMap(u => u.lessons)).length;
   const completedCount = completedLessons.length;
 
-  // Find current unit for the top banner
   const findCurrentUnit = () => {
     for (const section of SECTIONS) {
       for (const unit of section.units) {
@@ -188,8 +255,8 @@ export default function Learn() {
     <>
       <style>{`
         @keyframes pulse-node {
-          0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(88,204,2,0.5); }
-          50% { transform: scale(1.08); box-shadow: 0 0 0 10px rgba(88,204,2,0); }
+          0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(88,204,2,0.4); }
+          50% { transform: scale(1.08); box-shadow: 0 0 0 12px rgba(88,204,2,0); }
         }
         @keyframes bob { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
         .node-pulse { animation: pulse-node 2s ease-in-out infinite; }
@@ -204,26 +271,30 @@ export default function Learn() {
             <a href="/" className="text-xl font-black text-green-500">Pico</a>
             <div className="flex items-center gap-6 text-sm font-extrabold">
               <span className="text-green-500">{xp} XP</span>
-              <span className="text-orange-400">{streak} day streak</span>
+              {streak > 0 ? (
+                <span className="text-orange-400">{streak} day streak</span>
+              ) : (
+                <span className="text-gray-300 font-bold">No streak yet</span>
+              )}
             </div>
           </div>
         </nav>
 
-        {/* ── Current unit banner (like Duolingo's top unit strip) ── */}
+        {/* ── Current unit banner ── */}
         {currentUnitInfo && (
-          <div className={`${currentUnitInfo.section.color} sticky top-14 z-10 shadow-md`}>
+          <div className={`${currentUnitInfo.section.color} sticky top-14 z-10 shadow-sm`}>
             <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <span className="text-white text-xs font-extrabold uppercase tracking-wider opacity-80">
+                <span className="text-white text-xs font-extrabold uppercase tracking-wider opacity-75">
                   {currentUnitInfo.section.level}, Unit {currentUnitInfo.unit.id}
                 </span>
-                <span className="text-white font-extrabold text-base">{currentUnitInfo.unit.title}</span>
+                <span className="text-white font-extrabold text-sm">{currentUnitInfo.unit.title}</span>
               </div>
               <button
                 onClick={() => openGuidebook(currentUnitInfo.unit)}
-                className="bg-white bg-opacity-20 border-2 border-white border-opacity-40 text-white text-xs font-extrabold px-4 py-1.5 rounded-xl hover:bg-opacity-30 transition"
+                className="bg-white bg-opacity-20 border border-white border-opacity-40 text-white text-xs font-extrabold px-4 py-1.5 rounded-xl hover:bg-opacity-30 transition"
               >
-                Guidebook
+                Review unit
               </button>
             </div>
           </div>
@@ -249,6 +320,10 @@ export default function Learn() {
             <a href="/placement" className="flex items-center gap-3 px-4 py-3 rounded-2xl text-gray-500 font-extrabold text-sm hover:bg-gray-100 transition">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               Placement Test
+            </a>
+            <a href="/achievements" className="flex items-center gap-3 px-4 py-3 rounded-2xl text-gray-500 font-extrabold text-sm hover:bg-gray-100 transition">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" /></svg>
+              Achievements
             </a>
 
             {/* Overall progress */}
@@ -289,8 +364,6 @@ export default function Learn() {
 
                   return (
                     <div key={section.id} className="mb-6">
-
-                      {/* Section header card */}
                       <div className={`rounded-3xl p-5 mb-6 border-2 ${
                         sectionComplete ? "bg-green-50 border-green-200"
                         : sectionUnlocked ? `${section.bgTheme} border-gray-100`
@@ -299,7 +372,7 @@ export default function Learn() {
                         <p className={`text-xs font-extrabold uppercase tracking-widest mb-1 ${sectionUnlocked ? section.textAccent : "text-gray-400"}`}>{section.level}</p>
                         <div className="flex justify-between items-center">
                           <h2 className="text-xl font-extrabold text-gray-900">{section.title}</h2>
-                          {sectionComplete && <span className="text-green-500 font-extrabold text-xs">Completed!</span>}
+                          {sectionComplete && <span className="text-green-500 font-extrabold text-xs">Completed</span>}
                           {!sectionUnlocked && <span className="text-gray-400 font-bold text-xs">Locked</span>}
                         </div>
                         {sectionUnlocked && !sectionComplete && (
@@ -312,7 +385,6 @@ export default function Learn() {
                         )}
                       </div>
 
-                      {/* Pico speech bubble for active section */}
                       {sectionUnlocked && !sectionComplete && sectionHasCurrent && (
                         <div className="flex items-end gap-3 mb-6 ml-6">
                           <Pico size={64} mood="happy" />
@@ -324,7 +396,6 @@ export default function Learn() {
 
                       {sectionUnlocked && section.units.map((unit) => (
                         <div key={unit.id} className="mb-6">
-                          {/* Unit pill */}
                           <div id={`unit-${unit.id}`} className={`${section.color} rounded-2xl px-5 py-3.5 mb-5 flex justify-between items-center shadow-md`}>
                             <div>
                               <p className="text-white font-extrabold">Unit {unit.id}: {unit.title}</p>
@@ -337,12 +408,11 @@ export default function Learn() {
                                 </span>
                               </div>
                               <button onClick={() => openGuidebook(unit)} className="bg-white text-green-600 text-xs font-extrabold px-3 py-0.5 rounded-xl hover:bg-green-50 transition">
-                                Guidebook
+                                Review
                               </button>
                             </div>
                           </div>
 
-                          {/* Lesson nodes */}
                           <div className="flex flex-col gap-3 mb-4">
                             {unit.lessons.map((lesson, index) => {
                               const unlocked = isUnlocked(unit.id, lesson.id);
@@ -354,15 +424,17 @@ export default function Learn() {
                               return (
                                 <div key={lesson.id} className={`flex ${PATH_POSITIONS[index]}`}>
                                   <div className="relative">
-                                    {isCurrent && (
-                                      <div className="absolute -right-16 -top-6 z-10">
-                                        <Pico size={48} mood="happy" />
-                                      </div>
-                                    )}
                                     {tooltip === key && (
                                       <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs font-bold px-3 py-1.5 rounded-xl whitespace-nowrap z-20 shadow-lg">
                                         {lesson.title}
                                         <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
+                                      </div>
+                                    )}
+                                    {isCurrent && (
+                                      <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap">
+                                        <span className="bg-gray-900 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-lg uppercase tracking-wider">
+                                          Start
+                                        </span>
                                       </div>
                                     )}
                                     <a
@@ -370,11 +442,15 @@ export default function Learn() {
                                       onMouseEnter={() => setTooltip(key)}
                                       onMouseLeave={() => setTooltip(null)}
                                       className={`w-14 h-14 rounded-full flex items-center justify-center font-extrabold border-b-4 transition-all duration-150 active:border-b-0 active:translate-y-1 ${
-                                        isCurrent ? `${section.color} ${section.borderColor} text-white shadow-lg node-pulse`
-                                        : completed ? `${section.color} ${section.borderColor} text-white shadow-md`
-                                        : unlocked ? isChallenge ? "bg-yellow-400 border-yellow-500 text-white shadow-md hover:brightness-110"
-                                          : `${section.color} ${section.borderColor} text-white shadow-md hover:brightness-110`
-                                        : "bg-gray-200 border-gray-300 text-gray-400 cursor-not-allowed"
+                                        isCurrent
+                                          ? `${section.color} ${section.borderColor} text-white shadow-lg node-pulse ring-4 ring-white ring-offset-2`
+                                          : completed
+                                          ? `${section.color} ${section.borderColor} text-white shadow-md`
+                                          : unlocked
+                                          ? isChallenge
+                                            ? "bg-yellow-400 border-yellow-500 text-white shadow-md hover:brightness-110"
+                                            : `${section.color} ${section.borderColor} text-white shadow-md hover:brightness-110`
+                                          : "bg-gray-200 border-gray-300 text-gray-400 cursor-not-allowed"
                                       }`}
                                     >
                                       {completed ? (
@@ -406,7 +482,6 @@ export default function Learn() {
                   );
                 })}
 
-                {/* Daily Challenge */}
                 <div className={`rounded-3xl p-5 mb-8 border-2 ${allComplete ? "bg-white border-gray-100" : "bg-gray-100 border-gray-200 opacity-60"}`}>
                   <p className="text-xs font-extrabold uppercase tracking-widest mb-1 text-green-500">Daily Refresh</p>
                   <div className="flex justify-between items-center">
@@ -425,45 +500,88 @@ export default function Learn() {
           {/* ── RIGHT SIDEBAR ── */}
           <aside className="sticky top-32 space-y-4">
 
-            {/* XP & Streak stats */}
+            {/* XP & Streak */}
             <div className="bg-white rounded-2xl border border-gray-100 p-4">
-              <div className="flex justify-between items-center mb-3">
-                <p className="text-xs font-extrabold text-gray-400 uppercase tracking-wider">Your stats</p>
-              </div>
+              <p className="text-xs font-extrabold text-gray-400 uppercase tracking-wider mb-3">Your stats</p>
               <div className="flex gap-4">
                 <div className="flex-1 bg-green-50 rounded-xl p-3 text-center border border-green-100">
                   <p className="text-xl font-black text-green-500">{xp}</p>
                   <p className="text-xs font-extrabold text-green-400 uppercase tracking-wide">XP</p>
                 </div>
-                <div className="flex-1 bg-orange-50 rounded-xl p-3 text-center border border-orange-100">
-                  <p className="text-xl font-black text-orange-400">{streak}</p>
-                  <p className="text-xs font-extrabold text-orange-300 uppercase tracking-wide">Streak</p>
+                <div className={`flex-1 rounded-xl p-3 text-center border ${streak > 0 ? "bg-orange-50 border-orange-100" : "bg-gray-50 border-gray-100"}`}>
+                  <p className={`text-xl font-black ${streak > 0 ? "text-orange-400" : "text-gray-300"}`}>{streak}</p>
+                  <p className={`text-xs font-extrabold uppercase tracking-wide ${streak > 0 ? "text-orange-300" : "text-gray-300"}`}>
+                    {streak > 0 ? "Streak" : "No streak"}
+                  </p>
                 </div>
               </div>
             </div>
 
             {/* Daily quests */}
+<div className="bg-white rounded-2xl border border-gray-100 p-4">
+  <p className="text-xs font-extrabold text-gray-400 uppercase tracking-wider mb-3">Daily quests</p>
+  <div className="space-y-3">
+    {mounted ? dailyQuests.map((quest) => (
+      <div key={quest.id}>
+        <div className="flex justify-between items-center mb-1">
+          <p className="text-xs font-extrabold text-gray-700">{quest.label}</p>
+          <p className="text-xs font-bold text-gray-400">{quest.current()}/{quest.total}</p>
+        </div>
+        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+          <div
+            className={`h-full ${quest.color} rounded-full transition-all`}
+            style={{ width: `${(quest.current() / quest.total) * 100}%` }}
+          />
+        </div>
+      </div>
+    )) : (
+      <div className="space-y-3">
+        {[1,2,3].map(i => (
+          <div key={i} className="h-8 bg-gray-100 rounded-xl animate-pulse" />
+        ))}
+      </div>
+    )}
+  </div>
+</div>
+
+            {/* Achievements panel */}
             <div className="bg-white rounded-2xl border border-gray-100 p-4">
-              <div className="flex justify-between items-center mb-3">
-                <p className="text-xs font-extrabold text-gray-400 uppercase tracking-wider">Daily quests</p>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-extrabold text-gray-400 uppercase tracking-wider">Achievements</p>
+                <a href="/achievements" className="text-xs font-extrabold text-green-500 hover:text-green-600 transition">
+                  View all
+                </a>
               </div>
-              <div className="space-y-3">
-                {[
-                  { label: "Earn 20 XP", current: Math.min(xp, 20), total: 20, color: "bg-yellow-400" },
-                  { label: "Complete 3 lessons", current: Math.min(completedCount, 3), total: 3, color: "bg-green-500" },
-                  { label: "Keep your streak", current: streak > 0 ? 1 : 0, total: 1, color: "bg-orange-400" },
-                ].map((quest) => (
-                  <div key={quest.label}>
-                    <div className="flex justify-between items-center mb-1">
-                      <p className="text-xs font-extrabold text-gray-700">{quest.label}</p>
-                      <p className="text-xs font-bold text-gray-400">{quest.current}/{quest.total}</p>
+              {earnedAchievements.length === 0 ? (
+                <p className="text-xs font-semibold text-gray-300 text-center py-2">
+                  Complete lessons to earn badges
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {ACHIEVEMENTS
+                    .filter((a: any) => earnedAchievements.includes(a.id))
+                    .slice(-6)
+                    .map((a: any) => (
+                      <div
+                        key={a.id}
+                        title={a.title}
+                        className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg ${a.color} cursor-default`}
+                      >
+                        {a.icon}
+                      </div>
+                    ))}
+                  {Array.from({ length: Math.max(0, 6 - earnedAchievements.length) }).map((_, i) => (
+                    <div key={i} className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center">
+                      <svg className="w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                      </svg>
                     </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className={`h-full ${quest.color} rounded-full transition-all`} style={{ width: `${(quest.current / quest.total) * 100}%` }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs font-semibold text-gray-300 mt-3">
+                {earnedAchievements.length} / {ACHIEVEMENTS.length} unlocked
+              </p>
             </div>
 
             {/* Pico card */}
@@ -473,7 +591,9 @@ export default function Learn() {
                 {streak >= 7 ? "You're on fire!" : streak >= 3 ? "Great streak!" : "Keep it up!"}
               </p>
               <p className="text-xs font-semibold text-gray-400 mt-1">
-                {streak >= 1 ? `${streak} day streak` : "Start your streak today"}
+                {streak >= 1
+                  ? `${streak} day streak`
+                  : "Complete a lesson to start your streak"}
               </p>
             </div>
 
@@ -481,5 +601,18 @@ export default function Learn() {
         </div>
       </div>
     </>
+  );
+}
+
+// ── Export: wrap in Suspense because useSearchParams requires it ───────────────
+export default function Learn() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="animate-spin h-8 w-8 border-4 border-green-500 border-t-transparent rounded-full" />
+      </div>
+    }>
+      <LearnInner />
+    </Suspense>
   );
 }

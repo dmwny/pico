@@ -4,23 +4,24 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import Pico from "@/components/Pico";
+import { checkAchievements, ACHIEVEMENTS } from "@/lib/achievements";
 
 // ── Lesson topics ────────────────────────────────────────────────────────────
 const LESSON_TOPICS: Record<string, Record<string, string>> = {
   "1": {
-    "1": "the print() function in Python — how to display text on the screen using print('hello')",
+    "1": "the print() function in Python and how to display text on the screen using print('hello')",
     "2": "printing numbers in Python using print() with integers and floats like print(42)",
     "3": "printing multiple things in Python using commas in print() like print('hello', 'world')",
     "4": "comments in Python using the # symbol to write notes in code",
   },
   "2": {
     "1": "creating variables in Python like name = 'Alice' or age = 25",
-    "2": "rules for naming variables in Python — no spaces, no special characters, case sensitive",
+    "2": "rules for naming variables in Python. No spaces, no special characters, case sensitive",
     "3": "changing a variable value in Python by reassigning it",
     "4": "printing variables in Python using print(variable_name)",
   },
   "3": {
-    "1": "the input() function in Python — how to get text from the user using input('Enter your name: ')",
+    "1": "the input() function in Python is how to get text from the user using input('Enter your name: ')",
     "2": "storing user input in a variable like name = input('Your name: ')",
     "3": "converting input to a number using int(input()) or float(input())",
     "4": "using input values inside print() statements",
@@ -71,10 +72,10 @@ const LESSON_TOPICS: Record<string, Record<string, string>> = {
     "1": "defining a class in Python using the class keyword like class Dog:",
     "2": "the __init__ method in Python classes to set up attributes",
     "3": "class attributes in Python using self.name = name",
-    "4": "class methods in Python — functions that belong to a class",
+    "4": "class methods in Python are functions that belong to a class",
   },
   "12": {
-    "1": "planning a Python project — breaking a problem into small steps before writing any code",
+    "1": "planning a Python project is breaking a problem into small steps before writing any code",
     "2": "building the structure of a Python program using functions and variables together",
     "3": "adding features to a Python program step by step using everything learned so far",
     "4": "testing and fixing bugs in a Python program using print statements and logic checks",
@@ -225,7 +226,6 @@ export default function LessonPage() {
       const blanks = (q.codeLines || []).join("").split(/_{2,}/).length - 1;
       setArrangedTiles(new Array(blanks).fill(""));
     } else if (q.type === "fill" || q.type === "multiple_choice" || q.type === "output") {
-      // Shuffle options/tiles for fill and MC questions
       if (q.tiles) q.tiles = [...q.tiles].sort(() => Math.random() - 0.5);
       if (q.options) q.options = [...q.options].sort(() => Math.random() - 0.5);
     }
@@ -281,7 +281,6 @@ export default function LessonPage() {
       setFlashState("correct");
       setTimeout(() => setFlashState("none"), 600);
 
-      // Achievements
       if (newStreak === 3) triggerAchievement("On Fire! 3 in a row");
     } else {
       setStreak(0);
@@ -296,7 +295,10 @@ export default function LessonPage() {
     setAchievement(name);
   };
 
-
+  // ── FIXED: cache-busting navigation so learn page re-fetches on return ──
+  const goBack = useCallback(() => {
+    router.push(`/learn?t=${Date.now()}#unit-${unitId}`);
+  }, [router, unitId]);
 
   const next = useCallback(() => {
     if (current + 1 >= TOTAL_QUESTIONS) {
@@ -316,7 +318,7 @@ export default function LessonPage() {
     }
   }, [current, feedback, correctCount]);
 
-  const saveProgress = async () => {
+ const saveProgress = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     const lessonKey = `${unitId}-${lessonId}`;
@@ -326,27 +328,87 @@ export default function LessonPage() {
       .eq("user_id", user.id)
       .single();
 
+    const timeTaken = Math.round((Date.now() - startTime) / 1000);
+    const perfect = correctCount === TOTAL_QUESTIONS;
+
     if (existing) {
-      const completed = JSON.parse(existing.completed_lessons || "[]");
-      if (!completed.includes(lessonKey)) completed.push(lessonKey);
+      const completed: string[] = JSON.parse(existing.completed_lessons || "[]");
+      const alreadyDone = completed.includes(lessonKey);
+      if (!alreadyDone) completed.push(lessonKey);
+
+      const newXp = existing.xp + xp;
+      const alreadyEarned: string[] = JSON.parse(existing.achievements || "[]");
+
+      const shouldEarn = checkAchievements(
+        completed,
+        newXp,
+        existing.streak || 0,
+        perfect,
+        timeTaken,
+        streak,
+      );
+
+      const newlyEarned = shouldEarn.filter((id: string) => !alreadyEarned.includes(id));
+      const allEarned = [...alreadyEarned, ...newlyEarned];
+
+      // ── Streak logic ────────────────────────────────────────────────────
+      const today = new Date().toISOString().split("T")[0];
+      const lastPlayed = existing.last_played || "";
+      const isNewDay = lastPlayed !== today;
+      const isConsecutive = (() => {
+        if (!lastPlayed) return false;
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        return lastPlayed === yesterday.toISOString().split("T")[0];
+      })();
+
+      const newStreak = isNewDay
+        ? isConsecutive ? (existing.streak || 0) + 1 : 1
+        : existing.streak || 0;
+
       await supabase
         .from("pico_progress")
-        .update({ xp: existing.xp + xp, completed_lessons: JSON.stringify(completed) })
+        .update({
+          xp: newXp,
+          streak: newStreak,
+          last_played: today,
+          completed_lessons: JSON.stringify(completed),
+          achievements: JSON.stringify(allEarned),
+          today_xp: (existing.today_xp || 0) + xp,
+          today_lessons: (existing.today_lessons || 0) + 1,
+          today_perfect: (existing.today_perfect || 0) + (perfect ? 1 : 0), // ← new
+        })
         .eq("user_id", user.id);
+
+      if (newlyEarned.length > 0) {
+        const achievementData = ACHIEVEMENTS.find((a: any) => a.id === newlyEarned[0]);
+        if (achievementData) triggerAchievement(achievementData.title);
+      }
     } else {
+      const today = new Date().toISOString().split("T")[0];
+      const shouldEarn = checkAchievements([lessonKey], xp, 0, perfect, timeTaken, streak);
+
       await supabase
         .from("pico_progress")
         .insert({
           user_id: user.id,
           xp,
-          streak: 0,
+          streak: 1,
+          last_played: today,
           completed_lessons: JSON.stringify([lessonKey]),
+          achievements: JSON.stringify(shouldEarn),
+          today_xp: xp,
+          today_lessons: 1,
+          today_perfect: perfect ? 1 : 0, // ← new
           language: "python",
         });
+
+      if (shouldEarn.length > 0) {
+        const achievementData = ACHIEVEMENTS.find((a: any) => a.id === shouldEarn[0]);
+        if (achievementData) triggerAchievement(achievementData.title);
+      }
     }
   };
-
-  const goBack = () => router.push(`/learn#unit-${unitId}`);
 
   // ── Render: arrange code lines ──────────────────────────────────────────────
   const renderArrangeCode = (q: any) => {
@@ -454,7 +516,7 @@ export default function LessonPage() {
   }
 
   // ── Done phase ───────────────────────────────────────────────────────────────
-if (phase === "done") {
+  if (phase === "done") {
     const timeTaken = Math.round((Date.now() - startTime) / 1000);
     const perfect = correctCount === TOTAL_QUESTIONS;
     return (
@@ -476,6 +538,7 @@ if (phase === "done") {
                   <p className="text-yellow-700 font-extrabold">No mistakes! Amazing work.</p>
                 </div>
               )}
+              {/* FIXED: uses goBack with cache-bust so learn page re-fetches */}
               <button
                 onClick={goBack}
                 className="w-full bg-green-500 text-white font-extrabold py-4 rounded-2xl hover:bg-green-600 transition shadow-md text-lg"
@@ -544,7 +607,7 @@ if (phase === "done") {
               <p className="text-lg font-extrabold text-gray-900">{question?.instruction}</p>
             </div>
           </div>
-          
+
           {/* Arrange */}
           {question?.type === "arrange" && (
             <>
@@ -623,7 +686,6 @@ if (phase === "done") {
                   ))}
                 </div>
               )}
-    
               <div className="space-y-3 mb-4">
                 {(question.options || []).map((option: string, i: number) => (
                   <button
@@ -671,13 +733,12 @@ if (phase === "done") {
             </div>
           )}
 
-{/* Buttons */}
+          {/* Buttons */}
           <button
             onClick={feedback ? next : checkAnswer}
             disabled={
               checking ||
-              (!feedback &&
-                question?.type === "arrange" && arrangedTiles.every((t) => !t)) ||
+              (!feedback && question?.type === "arrange" && arrangedTiles.every((t) => !t)) ||
               (!feedback && question?.type === "fill" && !selectedFill) ||
               (!feedback && (question?.type === "multiple_choice" || question?.type === "output") && !selectedOption)
             }
@@ -692,7 +753,15 @@ if (phase === "done") {
               <h2 className="text-2xl font-extrabold text-gray-900 mb-2">Out of lives!</h2>
               <p className="text-gray-500 font-semibold mb-6">Take a break and come back stronger.</p>
               <button
-                onClick={() => { setLives(3); setStreak(0); setCurrent(0); setFeedback(null); setSelectedOption(null); setSelectedFill(null); setArrangedTiles([]); }}
+                onClick={() => {
+                  setLives(3);
+                  setStreak(0);
+                  setCurrent(0);
+                  setFeedback(null);
+                  setSelectedOption(null);
+                  setSelectedFill(null);
+                  setArrangedTiles([]);
+                }}
                 className="bg-black text-white px-6 py-3 rounded-xl hover:bg-gray-800 transition font-extrabold"
               >
                 Try Again
@@ -703,7 +772,7 @@ if (phase === "done") {
           <p className="text-center text-gray-300 text-xs font-semibold mt-2 mb-8">
             Press Enter to continue
           </p>
-        </div>  {/* closes question div */}
+        </div>
       </main>
     </>
   );
