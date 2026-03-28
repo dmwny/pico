@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import Pico from "@/components/Pico";
 
 // ── Lesson topics ────────────────────────────────────────────────────────────
 const LESSON_TOPICS: Record<string, Record<string, string>> = {
@@ -395,6 +396,7 @@ export default function LessonPage() {
     return (
       <main className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
+          <Pico size={100} mood="happy" className="mx-auto mb-2" />
           <div className="animate-spin h-10 w-10 border-4 border-green-500 border-t-transparent rounded-full mx-auto mb-4" />
           <p className="text-gray-500 font-semibold">Preparing your lesson...</p>
         </div>
@@ -411,11 +413,14 @@ export default function LessonPage() {
             Back
           </button>
 
-          <div className="bg-green-500 rounded-3xl p-6 mb-6 shadow-md">
-            <p className="text-white text-xs font-extrabold uppercase tracking-wider mb-1">
-              Unit {unitId} · Lesson {lessonId}
-            </p>
-            <h1 className="text-2xl font-extrabold text-white">{teaching.title}</h1>
+          <div className="flex items-end gap-4 mb-6">
+            <Pico size={100} mood="happy" />
+            <div className="bg-green-500 rounded-3xl rounded-bl-none p-6 shadow-md flex-1">
+              <p className="text-white text-xs font-extrabold uppercase tracking-wider mb-1">
+                Unit {unitId} · Lesson {lessonId}
+              </p>
+              <h1 className="text-2xl font-extrabold text-white">{teaching.title}</h1>
+            </div>
           </div>
 
           <div className="bg-white rounded-3xl shadow-sm p-8 mb-4 space-y-4">
@@ -449,7 +454,7 @@ export default function LessonPage() {
   }
 
   // ── Done phase ───────────────────────────────────────────────────────────────
-  if (phase === "done") {
+if (phase === "done") {
     const timeTaken = Math.round((Date.now() - startTime) / 1000);
     const perfect = correctCount === TOTAL_QUESTIONS;
     return (
@@ -457,27 +462,27 @@ export default function LessonPage() {
         <Confetti active={showConfetti} />
         <AchievementToast achievement={achievement} onDone={() => setAchievement(null)} />
         <main className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-          <div className="bg-white rounded-3xl shadow-sm p-12 max-w-md w-full text-center">
-            <div className={`w-20 h-20 ${perfect ? "bg-yellow-400" : "bg-green-500"} rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg`}>
-              <span className="text-4xl">{perfect ? "⭐" : "✓"}</span>
+          <div className="max-w-md w-full text-center">
+            <Pico size={150} mood={perfect ? "celebrate" : "happy"} className="mx-auto" />
+            <div className="bg-white rounded-3xl shadow-sm py-10 px-12 -mt-6">
+              <h2 className="text-3xl font-extrabold text-gray-900 mb-2">
+                {perfect ? "Perfect!" : "Lesson Complete!"}
+              </h2>
+              <p className="text-gray-500 font-semibold mb-6">
+                {correctCount} of {TOTAL_QUESTIONS} correct · {timeTaken}s · +{xp} XP
+              </p>
+              {perfect && (
+                <div className="bg-yellow-50 border-2 border-yellow-200 rounded-2xl p-4 mb-6">
+                  <p className="text-yellow-700 font-extrabold">No mistakes! Amazing work.</p>
+                </div>
+              )}
+              <button
+                onClick={goBack}
+                className="w-full bg-green-500 text-white font-extrabold py-4 rounded-2xl hover:bg-green-600 transition shadow-md text-lg"
+              >
+                Continue
+              </button>
             </div>
-            <h2 className="text-3xl font-extrabold text-gray-900 mb-2">
-              {perfect ? "Perfect!" : "Lesson Complete!"}
-            </h2>
-            <p className="text-gray-500 font-semibold mb-6">
-              {correctCount} of {TOTAL_QUESTIONS} correct · {timeTaken}s · +{xp} XP
-            </p>
-            {perfect && (
-              <div className="bg-yellow-50 border-2 border-yellow-200 rounded-2xl p-4 mb-6">
-                <p className="text-yellow-700 font-extrabold">No mistakes! Amazing work.</p>
-              </div>
-            )}
-            <button
-              onClick={goBack}
-              className="w-full bg-green-500 text-white font-extrabold py-4 rounded-2xl hover:bg-green-600 transition shadow-md text-lg"
-            >
-              Continue
-            </button>
           </div>
         </main>
       </>
@@ -530,8 +535,16 @@ export default function LessonPage() {
 
         {/* Question */}
         <div className="max-w-2xl mx-auto w-full px-4 flex-1" key={`${current}-${shakeKey}`}>
-          <p className="text-xl font-extrabold text-gray-900 mb-4">{question?.instruction}</p>
-
+          <div className="flex items-end gap-3 mb-6">
+            <Pico
+              size={90}
+              mood={feedback ? (feedback.correct ? "celebrate" : "sad") : "happy"}
+            />
+            <div className="relative bg-white border-2 border-gray-200 rounded-3xl rounded-bl-none px-5 py-4 shadow-sm flex-1">
+              <p className="text-lg font-extrabold text-gray-900">{question?.instruction}</p>
+            </div>
+          </div>
+          
           {/* Arrange */}
           {question?.type === "arrange" && (
             <>
