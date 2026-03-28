@@ -103,14 +103,14 @@ export default function Home() {
 
           <div className="flex items-center gap-4 mb-10">
             <Link
-              href="/learn"
+              href="/signup"
               className="bg-green-500 text-white font-extrabold text-base px-8 py-3.5 rounded-2xl hover:bg-green-600 transition"
               style={{ boxShadow: "0 4px 0 #16a34a" }}
             >
               Start learning — free
             </Link>
             <Link
-              href="/learn"
+              href="/signup"
               className="text-green-600 font-bold text-sm border-b-2 border-green-200 hover:border-green-500 transition pb-0.5"
             >
               See the curriculum
