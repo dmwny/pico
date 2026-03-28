@@ -340,6 +340,15 @@ export default function Learn() {
 
       <div className="max-w-lg mx-auto px-4 py-12">
         <h1 className="text-3xl font-extrabold text-gray-900 mb-1 text-center">Python</h1>
+        {completedLessons.length === 0 && !loading && (
+  <div className="bg-white rounded-3xl shadow-sm p-6 mb-8 border-2 border-green-100">
+    <p className="font-extrabold text-gray-900 mb-1">Already know some Python?</p>
+    <p className="text-gray-500 font-semibold text-sm mb-4">Take a quick test to skip ahead to the right level.</p>
+    <a href="/placement" className="block w-full bg-green-500 text-white font-extrabold py-3 rounded-2xl hover:bg-green-600 transition text-center shadow-md">
+      Take placement test
+    </a>
+  </div>
+)}
         <p className="text-gray-400 font-semibold mb-12 text-center">Your learning path</p>
 
         {loading ? (
