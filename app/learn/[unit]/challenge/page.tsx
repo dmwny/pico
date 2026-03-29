@@ -31,7 +31,7 @@ export default function ChallengePage() {
   }, [requestedLanguage]);
 
   const checkCode = async () => {
-    if (!code.trim()) return;
+    if (!challenge || !code.trim()) return;
     setChecking(true);
 
     const res = await fetch("/api/challenge-check", {

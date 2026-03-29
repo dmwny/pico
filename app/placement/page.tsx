@@ -329,6 +329,7 @@ export default function PlacementTest() {
     () => currentLanguage === "javascript" ? JAVASCRIPT_PLACEMENT_QUESTIONS : PYTHON_PLACEMENT_QUESTIONS,
     [currentLanguage]
   );
+  const displayLanguage = currentLanguage ?? "python";
 
   const question = questions[current];
   const progress = ((current + (answered ? 1 : 0)) / questions.length) * 100;
@@ -433,7 +434,7 @@ export default function PlacementTest() {
             <h1 className="text-3xl font-extrabold text-gray-900 mb-3">What&apos;s your level?</h1>
             <p className="text-gray-500 font-semibold mb-4 leading-relaxed">
               {mounted
-                ? `Take a quick 12-question ${getLanguageLabel(currentLanguage)} test to find out where to start.`
+                ? `Take a quick 12-question ${getLanguageLabel(displayLanguage)} test to find out where to start.`
                 : "Take a quick 12-question test to find out where to start."}
             </p>
             <div className="bg-green-50 border border-green-100 rounded-2xl p-4 mb-8 text-left">
@@ -490,7 +491,7 @@ export default function PlacementTest() {
             <div className="bg-green-50 border-2 border-green-200 rounded-2xl p-6 mb-8">
               <p className="text-green-600 text-xs font-extrabold uppercase tracking-wider mb-1">Your starting point</p>
               <p className="text-2xl font-extrabold text-gray-900">
-                Unit {placement}: {UNIT_NAMES[currentLanguage][placement]}
+                Unit {placement}: {UNIT_NAMES[displayLanguage][placement]}
               </p>
               {placement > 1 && (
                 <p className="text-gray-500 font-semibold text-sm mt-2">
@@ -546,7 +547,7 @@ export default function PlacementTest() {
           <p className="text-sm font-extrabold text-gray-400 min-w-12 text-right">{current + 1}/{questions.length}</p>
         </div>
         <p className="text-xs font-extrabold text-green-500 uppercase tracking-[0.18em] mt-2">
-          Unit {question.unit}: {UNIT_NAMES[currentLanguage][question.unit]}
+          Unit {question.unit}: {UNIT_NAMES[displayLanguage][question.unit]}
         </p>
       </div>
 
