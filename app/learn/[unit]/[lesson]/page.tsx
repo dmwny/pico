@@ -1,88 +1,44 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import Pico from "@/components/Pico";
 import { checkAchievements, ACHIEVEMENTS } from "@/lib/achievements";
-
-// ── Lesson topics ────────────────────────────────────────────────────────────
-const LESSON_TOPICS: Record<string, Record<string, string>> = {
-  "1": {
-    "1": "the print() function in Python and how to display text on the screen using print('hello')",
-    "2": "printing numbers in Python using print() with integers and floats like print(42)",
-    "3": "printing multiple things in Python using commas in print() like print('hello', 'world')",
-    "4": "comments in Python using the # symbol to write notes in code",
-  },
-  "2": {
-    "1": "creating variables in Python like name = 'Alice' or age = 25",
-    "2": "rules for naming variables in Python. No spaces, no special characters, case sensitive",
-    "3": "changing a variable value in Python by reassigning it",
-    "4": "printing variables in Python using print(variable_name)",
-  },
-  "3": {
-    "1": "the input() function in Python is how to get text from the user using input('Enter your name: ')",
-    "2": "storing user input in a variable like name = input('Your name: ')",
-    "3": "converting input to a number using int(input()) or float(input())",
-    "4": "using input values inside print() statements",
-  },
-  "4": {
-    "1": "joining strings in Python using the + operator like 'hello' + ' world'",
-    "2": "string length in Python using the len() function",
-    "3": "upper() and lower() string methods in Python",
-    "4": "f-strings in Python like f'Hello {name}' to insert variables into strings",
-  },
-  "5": {
-    "1": "if statements in Python to run code only when a condition is True",
-    "2": "else statements in Python to run code when the if condition is False",
-    "3": "elif statements in Python to check multiple conditions",
-    "4": "combining conditions in Python using and, or, not",
-  },
-  "6": {
-    "1": "while loops in Python to repeat code while a condition is True",
-    "2": "for loops in Python to repeat code a set number of times",
-    "3": "the range() function in Python for loops like for i in range(5)",
-    "4": "break and continue in Python to control loops",
-  },
-  "7": {
-    "1": "defining a function in Python using the def keyword like def greet():",
-    "2": "calling a function in Python by writing its name like greet()",
-    "3": "function parameters in Python like def add(a, b):",
-    "4": "return values in Python using the return keyword",
-  },
-  "8": {
-    "1": "creating a list in Python like fruits = ['apple', 'banana', 'cherry']",
-    "2": "accessing list items in Python using index like fruits[0]",
-    "3": "adding and removing items from a list using append() and remove()",
-    "4": "looping through a list in Python using a for loop",
-  },
-  "9": {
-    "1": "creating a dictionary in Python like person = {'name': 'Alice', 'age': 25}",
-    "2": "accessing dictionary values in Python using keys like person['name']",
-    "3": "adding and updating dictionary entries in Python",
-    "4": "looping through a dictionary in Python using for key in dict",
-  },
-  "10": {
-    "1": "opening a file in Python using open() with read mode 'r' or write mode 'w'",
-    "2": "reading a file in Python using file.read() or file.readlines()",
-    "3": "writing to a file in Python using file.write()",
-    "4": "closing files properly in Python using file.close() or with open()",
-  },
-  "11": {
-    "1": "defining a class in Python using the class keyword like class Dog:",
-    "2": "the __init__ method in Python classes to set up attributes",
-    "3": "class attributes in Python using self.name = name",
-    "4": "class methods in Python are functions that belong to a class",
-  },
-  "12": {
-    "1": "planning a Python project is breaking a problem into small steps before writing any code",
-    "2": "building the structure of a Python program using functions and variables together",
-    "3": "adding features to a Python program step by step using everything learned so far",
-    "4": "testing and fixing bugs in a Python program using print statements and logic checks",
-  },
-};
+import { getLessonTopic, LearningLanguage, normalizeLanguage } from "@/lib/courseContent";
+import { resolveActiveLanguage, setStoredLanguageProgress, mergeProgressSources, getStoredLanguageProgress } from "@/lib/progress";
 
 const TOTAL_QUESTIONS = 4;
+
+function countBlankMarkers(codeLines: string[] = []) {
+  return codeLines.reduce((count, line) => count + (line.match(/_{2,}/g) || []).length, 0);
+}
+
+function getArrangeBlankCount(question: any) {
+  const markerCount = countBlankMarkers(question?.codeLines || []);
+  const answerCount = Array.isArray(question?.answer) ? question.answer.length : 0;
+  return answerCount > 0 ? Math.min(markerCount, answerCount) : markerCount;
+}
+
+function getSupabaseErrorDetails(error: unknown) {
+  if (!error || typeof error !== "object") return null;
+
+  const maybeError = error as {
+    message?: string;
+    code?: string;
+    details?: string;
+    hint?: string;
+  };
+
+  const details = {
+    message: maybeError.message || null,
+    code: maybeError.code || null,
+    details: maybeError.details || null,
+    hint: maybeError.hint || null,
+  };
+
+  return Object.values(details).some(Boolean) ? details : null;
+}
 
 // ── Confetti ─────────────────────────────────────────────────────────────────
 function Confetti({ active }: { active: boolean }) {
@@ -183,9 +139,12 @@ function AchievementToast({ achievement, onDone }: { achievement: string | null;
 export default function LessonPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const unitId = params.unit as string;
   const lessonId = params.lesson as string;
-  const topic = LESSON_TOPICS[unitId]?.[lessonId] || "Python basics";
+  const requestedLanguageParam = searchParams.get("lang");
+  const requestedLanguage = requestedLanguageParam ? normalizeLanguage(requestedLanguageParam) : null;
+  const [currentLanguage, setCurrentLanguage] = useState<LearningLanguage | null>(null);
 
   // State
   const [phase, setPhase] = useState<"teaching" | "quiz" | "done">("teaching");
@@ -227,11 +186,13 @@ export default function LessonPage() {
   const loadEarnedAchievements = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
+    const activeLanguage = await resolveActiveLanguage(user.id);
     const { data } = await supabase
       .from("pico_progress")
       .select("achievements")
       .eq("user_id", user.id)
-      .single();
+      .eq("language", activeLanguage)
+      .maybeSingle();
     if (data) {
       setAlreadyEarnedAchievements(JSON.parse(data.achievements || "[]"));
     }
@@ -255,7 +216,7 @@ export default function LessonPage() {
     if (q.type === "arrange") {
       const shuffled = [...(q.tiles || [])].sort(() => Math.random() - 0.5);
       setAvailableArrangeTiles(shuffled);
-      const blanks = (q.codeLines || []).join("").split(/_{2,}/).length - 1;
+      const blanks = getArrangeBlankCount(q);
       setArrangedTiles(new Array(blanks).fill(""));
     } else if (q.type === "fill" || q.type === "multiple_choice" || q.type === "output") {
       if (q.tiles) q.tiles = [...q.tiles].sort(() => Math.random() - 0.5);
@@ -266,9 +227,22 @@ export default function LessonPage() {
   const loadLesson = async () => {
     setLoading(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      let lessonLanguage: LearningLanguage = "python";
+      if (user) {
+        lessonLanguage = requestedLanguage ?? await resolveActiveLanguage(user.id);
+        setCurrentLanguage(lessonLanguage);
+      }
+
       const res = await fetch("/api/lesson", {
         method: "POST",
-        body: JSON.stringify({ topic, unitId, lessonId, count: TOTAL_QUESTIONS }),
+        body: JSON.stringify({
+          topic: getLessonTopic(lessonLanguage, unitId, lessonId),
+          unitId,
+          lessonId,
+          count: TOTAL_QUESTIONS,
+          language: lessonLanguage,
+        }),
       });
       const data = await res.json();
       setTeaching(data.teaching);
@@ -340,9 +314,11 @@ export default function LessonPage() {
 
     if (q.type === "arrange" && Array.isArray(q.answer) && Array.isArray(q.codeLines)) {
       let index = 0;
+      const maxBlanks = getArrangeBlankCount(q);
       return q.codeLines
         .map((line: string) =>
           line.replace(/_{2,}/g, () => {
+            if (index >= maxBlanks) return "___";
             const replacement = q.answer[index++];
             return replacement !== undefined ? replacement : "___";
           })
@@ -362,9 +338,9 @@ export default function LessonPage() {
     return String(q.answer);
   };
 
-  const next = useCallback(() => {
+  const next = useCallback(async () => {
     if (current + 1 >= TOTAL_QUESTIONS) {
-      saveProgress();
+      await saveProgress();
       setShowConfetti(true);
       setTimeout(() => setShowConfetti(false), 3000);
       if (correctCount + (feedback?.correct ? 1 : 0) === TOTAL_QUESTIONS && !alreadyEarnedAchievements.includes("perfect_lesson")) {
@@ -379,20 +355,23 @@ export default function LessonPage() {
       setSelectedFill(null);
       setArrangedTiles([]);
     }
-  }, [current, feedback, correctCount]);
+  }, [current, feedback, correctCount, alreadyEarnedAchievements]);
 
- const saveProgress = async () => {
+  const saveProgress = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
+    const lessonLanguage = currentLanguage ?? requestedLanguage ?? await resolveActiveLanguage(user.id);
     const lessonKey = `${unitId}-${lessonId}`;
     const { data: existing } = await supabase
       .from("pico_progress")
       .select("*")
       .eq("user_id", user.id)
-      .single();
+      .eq("language", lessonLanguage)
+      .maybeSingle();
 
     const timeTaken = Math.round((Date.now() - startTime) / 1000);
     const perfect = correctCount === TOTAL_QUESTIONS;
+    const localProgress = getStoredLanguageProgress(user.id, lessonLanguage);
 
     if (existing) {
       const completed: string[] = JSON.parse(existing.completed_lessons || "[]");
@@ -432,19 +411,39 @@ export default function LessonPage() {
         ? isConsecutive ? (existing.streak || 0) + 1 : 1
         : existing.streak || 0;
 
-      await supabase
-        .from("pico_progress")
-        .update({
-          xp: newXp,
-          streak: newStreak,
-          last_played: today,
-          completed_lessons: JSON.stringify(completed),
-          achievements: JSON.stringify(allEarned),
-          today_xp: (existing.today_xp || 0) + xp,
-          today_lessons: (existing.today_lessons || 0) + 1,
-          today_perfect: (existing.today_perfect || 0) + (perfect ? 1 : 0), // ← new
-        })
-        .eq("user_id", user.id);
+      const updatedProgress = {
+        completed_lessons: JSON.stringify(completed),
+        xp: newXp,
+        streak: newStreak,
+        achievements: JSON.stringify(allEarned),
+        today_xp: (existing.today_xp || 0) + xp,
+        today_lessons: (existing.today_lessons || 0) + 1,
+        today_perfect: (existing.today_perfect || 0) + (perfect ? 1 : 0),
+        last_played: today,
+      };
+
+      const syncResponse = await fetch("/api/progress", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: user.id,
+          language: lessonLanguage,
+          values: updatedProgress,
+        }),
+      });
+      const { error } = await syncResponse.json();
+
+      const merged = mergeProgressSources(lessonLanguage, { ...existing, ...updatedProgress }, localProgress);
+      setStoredLanguageProgress(user.id, lessonLanguage, merged);
+
+      if (error) {
+        const details = getSupabaseErrorDetails(error);
+        console.warn(
+          details
+            ? "Supabase progress sync failed. Local progress was saved, but cross-device sync may still be blocked."
+            : "Supabase progress sync failed. Local progress was saved. If this keeps happening, the pico_progress table may still be missing the (user_id, language) unique constraint.",
+          details ?? undefined
+        );
+      }
 
       // Only show toast for achievements not already triggered in-lesson
       if (newlyEarned.length > 0) {
@@ -459,20 +458,50 @@ export default function LessonPage() {
       const today = new Date().toISOString().split("T")[0];
       const shouldEarn = checkAchievements([lessonKey], xp, 0, perfect, timeTaken, streak, perfect ? 1 : 0);
 
-      await supabase
-        .from("pico_progress")
-        .insert({
-          user_id: user.id,
-          xp,
-          streak: 1,
-          last_played: today,
-          completed_lessons: JSON.stringify([lessonKey]),
-          achievements: JSON.stringify(shouldEarn),
-          today_xp: xp,
-          today_lessons: 1,
-          today_perfect: perfect ? 1 : 0, // ← new
-          language: "python",
-        });
+      const insertedProgress = {
+        user_id: user.id,
+        xp,
+        streak: 1,
+        last_played: today,
+        completed_lessons: JSON.stringify([lessonKey]),
+        achievements: JSON.stringify(shouldEarn),
+        today_xp: xp,
+        today_lessons: 1,
+        today_perfect: perfect ? 1 : 0,
+        language: lessonLanguage,
+      };
+
+      const syncResponse = await fetch("/api/progress", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: user.id,
+          language: lessonLanguage,
+          values: {
+            xp,
+            streak: 1,
+            last_played: today,
+            completed_lessons: JSON.stringify([lessonKey]),
+            achievements: JSON.stringify(shouldEarn),
+            today_xp: xp,
+            today_lessons: 1,
+            today_perfect: perfect ? 1 : 0,
+          },
+        }),
+      });
+      const { error } = await syncResponse.json();
+
+      const merged = mergeProgressSources(lessonLanguage, insertedProgress, localProgress);
+      setStoredLanguageProgress(user.id, lessonLanguage, merged);
+
+      if (error) {
+        const details = getSupabaseErrorDetails(error);
+        console.warn(
+          details
+            ? "Supabase progress sync failed. Local progress was saved, but cross-device sync may still be blocked."
+            : "Supabase progress sync failed. Local progress was saved. If this keeps happening, the pico_progress table may still be missing the (user_id, language) unique constraint.",
+          details ?? undefined
+        );
+      }
 
       if (shouldEarn.length > 0) {
         const achievementData = ACHIEVEMENTS.find((a: any) => a.id === shouldEarn[0]);
@@ -483,6 +512,7 @@ export default function LessonPage() {
 
   // ── Render: arrange code lines ──────────────────────────────────────────────
   const renderArrangeCode = (q: any) => {
+    const maxBlanks = getArrangeBlankCount(q);
     let blankIndex = 0;
     return (q.codeLines || []).map((line: string, li: number) => {
       const parts = line.split(/_{2,}/);
@@ -490,12 +520,14 @@ export default function LessonPage() {
         <div key={li} className="flex gap-2 flex-wrap items-center">
           <span className="text-gray-500 font-mono text-sm select-none">{li + 1}</span>
           {parts.map((part: string, pi: number) => {
+            const hasBlankAfter = pi < parts.length - 1;
             const currentBlank = blankIndex;
-            if (pi < parts.length - 1) blankIndex++;
+            const shouldRenderBlank = hasBlankAfter && blankIndex < maxBlanks;
+            if (shouldRenderBlank) blankIndex++;
             return (
               <span key={pi} className="flex items-center gap-1">
                 <span className="text-green-400 font-mono text-sm">{part}</span>
-                {pi < parts.length - 1 && (
+                {hasBlankAfter && shouldRenderBlank && (
                   <span
                     className={`inline-flex items-center justify-center min-w-[60px] h-8 px-2 rounded-lg border-2 font-mono text-sm cursor-pointer transition ${
                       arrangedTiles[currentBlank]
@@ -515,6 +547,9 @@ export default function LessonPage() {
                   >
                     {arrangedTiles[currentBlank] || "___"}
                   </span>
+                )}
+                {hasBlankAfter && !shouldRenderBlank && (
+                  <span className="text-green-400 font-mono text-sm">___</span>
                 )}
               </span>
             );

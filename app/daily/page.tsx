@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { resolveActiveLanguage } from "@/lib/progress";
 
 export default function DailyChallenge() {
   const router = useRouter();
@@ -13,6 +14,7 @@ export default function DailyChallenge() {
   const [checking, setChecking] = useState(false);
   const [done, setDone] = useState(false);
   const [alreadyDone, setAlreadyDone] = useState(false);
+  const [currentLanguage, setCurrentLanguage] = useState<"python" | "javascript">("python");
 
   useEffect(() => {
     checkAndLoad();
@@ -21,12 +23,15 @@ export default function DailyChallenge() {
   const checkAndLoad = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push("/login"); return; }
+    const activeLanguage = await resolveActiveLanguage(user.id);
+    setCurrentLanguage(activeLanguage);
 
     const { data } = await supabase
       .from("pico_progress")
       .select("*")
       .eq("user_id", user.id)
-      .single();
+      .eq("language", activeLanguage)
+      .maybeSingle();
 
     const today = new Date().toDateString();
     if (data?.last_played === today) {
@@ -75,7 +80,8 @@ export default function DailyChallenge() {
       .from("pico_progress")
       .select("*")
       .eq("user_id", user.id)
-      .single();
+      .eq("language", currentLanguage)
+      .maybeSingle();
 
     if (existing) {
       const newStreak = existing.last_played === yesterday.toDateString()
@@ -85,7 +91,8 @@ export default function DailyChallenge() {
       await supabase
         .from("pico_progress")
         .update({ streak: newStreak, last_played: today, xp: existing.xp + 50 })
-        .eq("user_id", user.id);
+        .eq("user_id", user.id)
+        .eq("language", currentLanguage);
     }
   };
 
@@ -154,7 +161,7 @@ export default function DailyChallenge() {
           <h2 className="text-lg font-extrabold text-gray-900 mb-3">Write your code</h2>
           <textarea
             className="w-full h-48 p-4 bg-gray-900 text-green-400 font-mono text-sm rounded-2xl border-0 focus:outline-none focus:ring-2 focus:ring-green-400 resize-none"
-            placeholder="# Write your Python code here..."
+            placeholder={`${currentLanguage === "python" ? "# Write your" : "// Write your"} ${currentLanguage === "python" ? "Python" : "JavaScript"} code here...`}
             value={code}
             onChange={(e) => setCode(e.target.value)}
           />

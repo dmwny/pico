@@ -1,9 +1,13 @@
 import { QUESTION_BANK } from "./questionBank";
+import { JAVASCRIPT_QUESTION_BANK } from "./javascriptQuestionBank";
+import { getLanguageLabel, normalizeLanguage } from "@/lib/courseContent";
 
 export async function POST(req: Request) {
-  const { topic, unitId, lessonId } = await req.json();
+  const { topic, unitId, lessonId, language } = await req.json();
+  const currentLanguage = normalizeLanguage(language);
 
-  const unitData = QUESTION_BANK[unitId]?.[lessonId];
+  const bank = currentLanguage === "javascript" ? JAVASCRIPT_QUESTION_BANK : QUESTION_BANK;
+  const unitData = bank[unitId]?.[lessonId];
 
   if (unitData) {
     const shuffled = [...unitData.questions].sort(() => Math.random() - 0.5);
@@ -16,6 +20,7 @@ export async function POST(req: Request) {
   // Fallback to AI if no hardcoded questions exist
   const prompt = `You are teaching a complete beginner about ${topic}.
 Use simple, friendly language. No jargon. Talk like a kind friend. REMEMBER THERE CAN BE MULTIPLE SELECTS.
+Everything must be for ${getLanguageLabel(currentLanguage)} only. Do not use syntax from other languages.
 
 Generate a teaching intro and exactly 4 questions. Mix these question types:
 - "arrange": show code with blanks, student fills in the missing parts
@@ -70,7 +75,7 @@ Rules:
   try {
     const clean = text.replace(/```json|```/g, "").trim();
     return Response.json(JSON.parse(clean));
-  } catch (e) {
+  } catch {
     return Response.json({ teaching: null, questions: [] });
   }
 }

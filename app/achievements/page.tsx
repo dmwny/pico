@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { ACHIEVEMENTS, Achievement } from "@/lib/achievements";
+import { resolveActiveLanguage } from "@/lib/progress";
 
 // ── SVG Icon Map ──────────────────────────────────────────────────────────────
 function AchievementIcon({ name, className = "" }: { name: string; className?: string }) {
@@ -115,11 +116,13 @@ export default function AchievementsPage() {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
+      const activeLanguage = await resolveActiveLanguage(user.id);
       const { data } = await supabase
         .from("pico_progress")
         .select("achievements")
         .eq("user_id", user.id)
-        .single();
+        .eq("language", activeLanguage)
+        .maybeSingle();
       if (data) setEarned(JSON.parse(data.achievements || "[]"));
       setLoading(false);
     };

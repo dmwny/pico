@@ -1,9 +1,13 @@
-export async function POST(req: Request) {
-  const { unitTitle, unitDescription } = await req.json();
+import { getLanguageLabel, normalizeLanguage } from "@/lib/courseContent";
 
-  const prompt = `Write a detailed, beginner-friendly guidebook entry for a Python lesson about: ${unitTitle} — ${unitDescription}
+export async function POST(req: Request) {
+  const { unitTitle, unitDescription, language } = await req.json();
+  const currentLanguage = normalizeLanguage(language);
+
+  const prompt = `Write a detailed, beginner-friendly guidebook entry for a ${getLanguageLabel(currentLanguage)} lesson about: ${unitTitle} — ${unitDescription}
 
 Write it like a kind, encouraging teacher explaining to someone who has never coded before. Use simple words. No jargon without explanation.
+All examples and explanations must use ${getLanguageLabel(currentLanguage)} syntax only.
 
 Respond ONLY with this JSON:
 {
@@ -53,7 +57,7 @@ Respond ONLY with this JSON:
   try {
     const clean = text.replace(/```json|```/g, "").trim();
     return Response.json(JSON.parse(clean));
-  } catch (e) {
+  } catch {
     return Response.json({ error: "Could not generate guidebook" });
   }
 }

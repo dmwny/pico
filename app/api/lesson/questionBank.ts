@@ -34,10 +34,10 @@ export const QUESTION_BANK: Record<string, Record<string, LessonData>> = {
         {
           type: "arrange",
           instruction: "Fill in the blank to print Hello World",
-          codeLines: ["___ ___'Hello World'___"],
-          tiles: ["print", "input", "output", "display", "(", ")"],
-          answer: ["print", "(", ")"],
-          explanation: "print() displays text on the screen. input() reads from the user. output and display don't exist in Python.",
+          codeLines: ["print(___)"],
+          tiles: ["'Hello World'", "\"Hello World\"", "Hello World", "42", "name", "True"],
+          answer: ["'Hello World'"],
+          explanation: "Text must be wrapped in quotes. print() displays the text on the screen.",
           consoleOutput: "Hello World",
         },
         {
@@ -78,10 +78,10 @@ export const QUESTION_BANK: Record<string, Record<string, LessonData>> = {
         {
           type: "arrange",
           instruction: "Fill in the blanks to print the number 42",
-          codeLines: ["___(___)___"],
-          tiles: ["print", "42", "'42'", ")", "(", "display"],
-          answer: ["print", "42", ")"],
-          explanation: "print() displays output. Numbers don't need quotes — '42' would print a string, not a number!",
+          codeLines: ["print(___)"],
+          tiles: ["42", "'42'", "0", "name", "True", "\"42\""],
+          answer: ["42"],
+          explanation: "42 is a number, so it does not need quotes.",
           consoleOutput: "42",
         },
         {
@@ -1284,10 +1284,10 @@ export const QUESTION_BANK: Record<string, Record<string, LessonData>> = {
         {
           type: "arrange",
           instruction: "Fill in the blanks to create a list and print it",
-          codeLines: ["fruits = ___'apple', 'banana', 'cherry'___", "___(fruits)"],
-          tiles: ["[", "]", "print", "(", "{", "echo"],
-          answer: ["[", "]", "print"],
-          explanation: "Lists use square brackets []. print() displays the list. {} creates a dict or set, not a list.",
+          codeLines: ["fruits = [___]", "print(fruits)"],
+          tiles: ["'apple', 'banana', 'cherry'", "'apple'", "'banana'", "{'apple': 1}", "print", "()"],
+          answer: ["'apple', 'banana', 'cherry'"],
+          explanation: "List items go inside square brackets, separated by commas.",
           consoleOutput: "['apple', 'banana', 'cherry']",
         },
         {
@@ -1328,10 +1328,10 @@ export const QUESTION_BANK: Record<string, Record<string, LessonData>> = {
         {
           type: "arrange",
           instruction: "Fill in the blanks to get and print the second fruit",
-          codeLines: ["fruits = ['apple', 'banana', 'cherry']", "___(fruits___1___)"],
-          tiles: ["print", "[", "]", "(", "0", "2"],
-          answer: ["print", "[", "]"],
-          explanation: "print() displays output. Square brackets [] access items by index. Index 1 is the second item (counting starts at 0).",
+          codeLines: ["fruits = ['apple', 'banana', 'cherry']", "print(fruits[___])"],
+          tiles: ["1", "0", "2", "'banana'", "-1", "fruit"],
+          answer: ["1"],
+          explanation: "Lists start at index 0, so index 1 is the second item.",
           consoleOutput: "banana",
         },
         {
@@ -1374,10 +1374,10 @@ export const QUESTION_BANK: Record<string, Record<string, LessonData>> = {
         {
           type: "arrange",
           instruction: "Fill in the blanks to add an item to a list and print the result",
-          codeLines: ["fruits = ['apple']", "fruits.___( ___)", "___(fruits)"],
+          codeLines: ["fruits = ['apple']", "fruits.append(___)", "print(fruits)"],
           tiles: ["append", "'banana'", "print", "insert", "add", "push"],
-          answer: ["append", "'banana'", "print"],
-          explanation: ".append() adds to the end of a list. print() displays the updated list. .add() is for sets, not lists.",
+          answer: ["'banana'"],
+          explanation: ".append('banana') adds the new item to the end of the list.",
           consoleOutput: "['apple', 'banana']",
         },
         {
@@ -1418,10 +1418,10 @@ export const QUESTION_BANK: Record<string, Record<string, LessonData>> = {
         {
           type: "arrange",
           instruction: "Fill in the blanks to loop through a list and print each item",
-          codeLines: ["fruits = ['apple', 'banana']", "___ fruit ___ fruits___", "    ___(fruit)"],
-          tiles: ["for", "in", ":", "print", "while", ";"],
-          answer: ["for", "in", ":", "print"],
-          explanation: "for starts the loop. in iterates over the list. : ends the for line. print() displays each fruit.",
+          codeLines: ["fruits = ['apple', 'banana']", "for fruit in fruits:", "    print(___)"],
+          tiles: ["fruit", "fruits", "item", "'fruit'", "i", "banana"],
+          answer: ["fruit"],
+          explanation: "Inside the loop, fruit holds the current item from the list.",
           consoleOutput: "apple\nbanana",
         },
         {
@@ -1508,10 +1508,10 @@ export const QUESTION_BANK: Record<string, Record<string, LessonData>> = {
         {
           type: "arrange",
           instruction: "Fill in the blanks to access and print a dictionary value",
-          codeLines: ["person = {'name': 'Alice', 'age': 25}", "___(person___'name'___)"],
-          tiles: ["print", "[", "]", "(", ".", "get"],
-          answer: ["print", "[", "]"],
-          explanation: "print() displays the value. Square brackets [] with the key access the value. person['name'] gives 'Alice'.",
+          codeLines: ["person = {'name': 'Alice', 'age': 25}", "print(person[___])"],
+          tiles: ["'name'", "'age'", "name", "0", "get", "person.name"],
+          answer: ["'name'"],
+          explanation: "Use the key 'name' inside square brackets to access that dictionary value.",
           consoleOutput: "Alice",
         },
         {
@@ -1552,10 +1552,10 @@ export const QUESTION_BANK: Record<string, Record<string, LessonData>> = {
         {
           type: "arrange",
           instruction: "Fill in the blanks to add a new entry and print the updated dictionary",
-          codeLines: ["person = {'name': 'Alice'}", "person___'age'___ ___ 25", "___(person)"],
-          tiles: ["[", "]", "=", "print", ":", "add"],
-          answer: ["[", "]", "=", "print"],
-          explanation: "Square brackets with a new key and = adds an entry. print() shows the updated dictionary.",
+          codeLines: ["person = {'name': 'Alice'}", "person[___] = 25", "print(person)"],
+          tiles: ["'age'", "'name'", "age", "25", "add", "person.age"],
+          answer: ["'age'"],
+          explanation: "Assigning to person['age'] adds a new key-value pair to the dictionary.",
           consoleOutput: "{'name': 'Alice', 'age': 25}",
         },
         {

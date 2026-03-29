@@ -4,6 +4,7 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 
+
 export default function Signup() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -18,7 +19,7 @@ export default function Signup() {
     if (error) {
       setError(error.message);
     } else {
-      router.push("/verify");
+      router.push("/languages");
     }
     setLoading(false);
   };
