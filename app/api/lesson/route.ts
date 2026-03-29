@@ -15,7 +15,7 @@ export async function POST(req: Request) {
 
   // Fallback to AI if no hardcoded questions exist
   const prompt = `You are teaching a complete beginner about ${topic}.
-Use simple, friendly language. No jargon. Talk like a kind friend.
+Use simple, friendly language. No jargon. Talk like a kind friend. REMEMBER THERE CAN BE MULTIPLE SELECTS.
 
 Generate a teaching intro and exactly 4 questions. Mix these question types:
 - "arrange": show code with blanks, student fills in the missing parts
@@ -34,7 +34,7 @@ Respond ONLY with this JSON, no extra text:
   "questions": [
     {
       "type": "fill",
-      "instruction": "Complete the code",
+      "instruction": "Complete the code" for these questions there can be something like ___ ___ Hello World ___ where there are multiple things you have to select,
       "codeLines": ["___(42)"],
       "tiles": ["print", "input", "return", "def"],
       "answer": "print",

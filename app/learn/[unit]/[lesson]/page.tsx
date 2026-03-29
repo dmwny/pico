@@ -144,19 +144,36 @@ function XPFloat({ show, amount }: { show: boolean; amount: number }) {
 
 // ── Achievement Toast ─────────────────────────────────────────────────────────
 function AchievementToast({ achievement, onDone }: { achievement: string | null; onDone: () => void }) {
+  const [visible, setVisible] = useState(false);
+
   useEffect(() => {
-    if (!achievement) return;
-    const t = setTimeout(onDone, 3000);
+    if (!achievement) { setVisible(false); return; }
+    requestAnimationFrame(() => setVisible(true));
+    const t = setTimeout(() => {
+      setVisible(false);
+      setTimeout(onDone, 400);
+    }, 3500);
     return () => clearTimeout(t);
   }, [achievement, onDone]);
 
   if (!achievement) return null;
   return (
-    <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 font-bold">
-      <span className="text-2xl">🏆</span>
-      <div>
-        <p className="text-xs text-gray-400 uppercase tracking-wider">Achievement Unlocked</p>
-        <p>{achievement}</p>
+    <div
+      className={`fixed bottom-8 left-1/2 z-50 transition-all duration-400 ease-out ${
+        visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+      }`}
+      style={{ transform: `translateX(-50%) translateY(${visible ? 0 : 16}px)` }}
+    >
+      <div className="bg-gray-900 text-white pl-4 pr-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 font-bold border border-gray-700/50">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center flex-shrink-0 shadow-lg">
+          <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+          </svg>
+        </div>
+        <div>
+          <p className="text-[10px] text-amber-400 uppercase tracking-widest font-black">Achievement Unlocked</p>
+          <p className="text-sm">{achievement}</p>
+        </div>
       </div>
     </div>
   );
@@ -199,11 +216,26 @@ export default function LessonPage() {
   const [flashState, setFlashState] = useState<"none" | "correct" | "wrong">("none");
   const [shakeKey, setShakeKey] = useState(0);
   const [achievement, setAchievement] = useState<string | null>(null);
+  const [alreadyEarnedAchievements, setAlreadyEarnedAchievements] = useState<string[]>([]);
 
-  // Load lesson
+  // Load lesson + existing achievements
   useEffect(() => {
     loadLesson();
+    loadEarnedAchievements();
   }, []);
+
+  const loadEarnedAchievements = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data } = await supabase
+      .from("pico_progress")
+      .select("achievements")
+      .eq("user_id", user.id)
+      .single();
+    if (data) {
+      setAlreadyEarnedAchievements(JSON.parse(data.achievements || "[]"));
+    }
+  };
 
   // Keyboard shortcut
   useEffect(() => {
@@ -281,7 +313,10 @@ export default function LessonPage() {
       setFlashState("correct");
       setTimeout(() => setFlashState("none"), 600);
 
-      if (newStreak === 3) triggerAchievement("On Fire! 3 in a row");
+      if (newStreak === 3 && !alreadyEarnedAchievements.includes("streak_3")) {
+        triggerAchievement("On Fire");
+        setAlreadyEarnedAchievements((prev) => [...prev, "streak_3"]);
+      }
     } else {
       setStreak(0);
       setLives((p) => Math.max(0, p - 1));
@@ -300,13 +335,41 @@ export default function LessonPage() {
     router.push(`/learn?t=${Date.now()}#unit-${unitId}`);
   }, [router, unitId]);
 
+  const getCorrectAnswerText = (q: any) => {
+    if (!q) return "";
+
+    if (q.type === "arrange" && Array.isArray(q.answer) && Array.isArray(q.codeLines)) {
+      let index = 0;
+      return q.codeLines
+        .map((line: string) =>
+          line.replace(/_{2,}/g, () => {
+            const replacement = q.answer[index++];
+            return replacement !== undefined ? replacement : "___";
+          })
+        )
+        .join("\n");
+    }
+
+    if (q.type === "fill" && q.codeLines && Array.isArray(q.codeLines)) {
+      const answerText = Array.isArray(q.answer) ? q.answer.join(" ") : q.answer;
+      return q.codeLines.map((line: string) => line.replace("___", answerText)).join("\n");
+    }
+
+    if (Array.isArray(q.answer)) {
+      return q.answer.join(" ");
+    }
+
+    return String(q.answer);
+  };
+
   const next = useCallback(() => {
     if (current + 1 >= TOTAL_QUESTIONS) {
       saveProgress();
       setShowConfetti(true);
       setTimeout(() => setShowConfetti(false), 3000);
-      if (correctCount + (feedback?.correct ? 1 : 0) === TOTAL_QUESTIONS) {
-        triggerAchievement("Perfect Lesson! No mistakes");
+      if (correctCount + (feedback?.correct ? 1 : 0) === TOTAL_QUESTIONS && !alreadyEarnedAchievements.includes("perfect_lesson")) {
+        triggerAchievement("Flawless");
+        setAlreadyEarnedAchievements((prev) => [...prev, "perfect_lesson"]);
       }
       setPhase("done");
     } else {
@@ -339,6 +402,8 @@ export default function LessonPage() {
       const newXp = existing.xp + xp;
       const alreadyEarned: string[] = JSON.parse(existing.achievements || "[]");
 
+      const totalPerfect = (existing.today_perfect || 0) + (perfect ? 1 : 0);
+
       const shouldEarn = checkAchievements(
         completed,
         newXp,
@@ -346,6 +411,7 @@ export default function LessonPage() {
         perfect,
         timeTaken,
         streak,
+        totalPerfect,
       );
 
       const newlyEarned = shouldEarn.filter((id: string) => !alreadyEarned.includes(id));
@@ -380,13 +446,18 @@ export default function LessonPage() {
         })
         .eq("user_id", user.id);
 
+      // Only show toast for achievements not already triggered in-lesson
       if (newlyEarned.length > 0) {
-        const achievementData = ACHIEVEMENTS.find((a: any) => a.id === newlyEarned[0]);
-        if (achievementData) triggerAchievement(achievementData.title);
+        const alreadyTriggeredInLesson = ["streak_3", "perfect_lesson"];
+        const toShow = newlyEarned.filter((id: string) => !alreadyTriggeredInLesson.includes(id) || !alreadyEarnedAchievements.includes(id));
+        if (toShow.length > 0) {
+          const achievementData = ACHIEVEMENTS.find((a: any) => a.id === toShow[0]);
+          if (achievementData) triggerAchievement(achievementData.title);
+        }
       }
     } else {
       const today = new Date().toISOString().split("T")[0];
-      const shouldEarn = checkAchievements([lessonKey], xp, 0, perfect, timeTaken, streak);
+      const shouldEarn = checkAchievements([lessonKey], xp, 0, perfect, timeTaken, streak, perfect ? 1 : 0);
 
       await supabase
         .from("pico_progress")
@@ -715,12 +786,10 @@ export default function LessonPage() {
                 {feedback.explanation}
               </p>
               {!feedback.correct && (
-                <p className="text-red-600 font-bold mt-2 text-sm">
-                  Correct answer:{" "}
-                  <span className="font-mono bg-red-100 px-2 py-1 rounded-lg">
-                    {Array.isArray(question?.answer) ? question.answer.join(" ") : question?.answer}
-                  </span>
-                </p>
+                <div className="text-red-600 font-bold mt-2 text-sm">
+                  <p>Correct answer:</p>
+                  <pre className="font-mono bg-red-100 px-2 py-2 rounded-lg whitespace-pre-wrap">{getCorrectAnswerText(question)}</pre>
+                </div>
               )}
               {feedback.correct && question?.consoleOutput && (
                 <div className="mt-4">
