@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { ACHIEVEMENTS, Achievement } from "@/lib/achievements";
 import { resolveActiveLanguage } from "@/lib/progress";
+import MobileDock from "@/components/MobileDock";
 
 // ── SVG Icon Map ──────────────────────────────────────────────────────────────
 function AchievementIcon({ name, className = "" }: { name: string; className?: string }) {
@@ -144,13 +145,13 @@ export default function AchievementsPage() {
   })).filter((g) => g.achievements.length > 0);
 
   return (
-    <main className="min-h-screen bg-gray-50">
+    <main className="min-h-screen mobile-dock-pad bg-gray-50">
       {/* Nav */}
       <nav className="bg-white border-b border-gray-100 sticky top-0 z-20">
         <div className="max-w-3xl mx-auto px-6 h-14 flex items-center justify-between">
           <a href="/" className="text-xl font-black text-green-500">Pico</a>
           <a href="/learn" className="text-sm font-extrabold text-gray-400 hover:text-gray-600 transition">
-            Back to Learn
+            Open Learn
           </a>
         </div>
       </nav>
@@ -158,7 +159,7 @@ export default function AchievementsPage() {
       <div className="max-w-3xl mx-auto px-4 py-10">
         {/* Header */}
         <div className="mb-10">
-          <h1 className="text-3xl font-black text-gray-900 mb-1">Achievements</h1>
+          <h1 className="text-3xl font-black text-gray-900 mb-1">View Achievements</h1>
           <p className="text-gray-400 font-semibold">
             {loading ? "Loading..." : `${earnedCount} of ${ACHIEVEMENTS.length} unlocked`}
           </p>
@@ -202,6 +203,7 @@ export default function AchievementsPage() {
           </div>
         )}
       </div>
+      <MobileDock />
     </main>
   );
 }

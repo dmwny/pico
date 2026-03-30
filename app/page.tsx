@@ -3,313 +3,207 @@
 import { useState } from "react";
 import Link from "next/link";
 import Pico from "@/components/Pico";
+import MobileDock from "@/components/MobileDock";
 
-const LANGUAGES = [
+const STACK_PREVIEWS = [
   {
     label: "Python",
-    color: "bg-blue-500",
-    code: 'print("Hello, World!")',
-    options: ["Hello, World!", "hello world", "SyntaxError", "Nothing"],
-    correctIndex: 0,
-    correct: "Correct — the quotes aren't printed, only what's inside them.",
-    wrong: `Not quite. The answer is "Hello, World!"`,
-    question: "What does this code output?",
+    badge: "Data Science",
+    code: "import turtle\npen = turtle.Turtle()\npen.forward(80)\npen.left(90)",
+    note: "Use Turtle, variables, loops, and functions.",
   },
   {
     label: "JavaScript",
-    color: "bg-yellow-400",
-    code: 'console.log("Hello, World!")',
-    options: ["Hello, World!", "undefined", "null", "SyntaxError"],
-    correctIndex: 0,
-    correct: "Correct — console.log prints to the console.",
-    wrong: `Not quite. The answer is "Hello, World!"`,
-    question: "What does this code output?",
+    badge: "Web Development",
+    code: "const panel = document.querySelector('.panel');\npanel.textContent = 'Ship the idea';\npanel.style.borderColor = '#E67E22';",
+    note: "Use DOM APIs, events, and browser logic.",
   },
   {
     label: "SQL",
-    color: "bg-orange-500",
-    code: "SELECT name FROM users\nWHERE age > 18;",
-    options: ["Names of users over 18", "All users", "Ages of all users", "Nothing"],
-    correctIndex: 0,
-    correct: "Correct — SELECT name filters just the name column.",
-    wrong: "Not quite. It returns the name column for users where age > 18.",
-    question: "What does this query return?",
+    badge: "Database Queries",
+    code: "SELECT city, COUNT(*)\nFROM users\nGROUP BY city\nORDER BY COUNT(*) DESC;",
+    note: "Use SELECT, GROUP BY, and query filters.",
   },
 ];
 
 export default function Home() {
-  const [langIndex, setLangIndex] = useState(0);
-  const [selected, setSelected] = useState<number | null>(null);
-  const [revealed, setRevealed] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState(0);
 
-  const lang = LANGUAGES[langIndex];
-
-  const pick = (i: number) => {
-    if (revealed) return;
-    setSelected(i);
-    setRevealed(true);
-    setTimeout(() => {
-      setSelected(null);
-      setRevealed(false);
-    }, 2800);
-  };
-
-  const switchLang = (i: number) => {
-    setLangIndex(i);
-    setSelected(null);
-    setRevealed(false);
-  };
+  const preview = STACK_PREVIEWS[previewIndex];
 
   return (
-    <main className="min-h-screen bg-gray-50">
-
-      {/* ── Navbar ── */}
-      <nav className="bg-white border-b border-gray-100 sticky top-0 z-50">
-        <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
-          <span className="text-xl font-black text-green-500 tracking-tight">Pico</span>
+    <main className="min-h-screen mobile-dock-pad">
+      <nav className="sticky top-0 z-40 border-b border-[rgba(44,62,80,0.12)] bg-[rgba(246,243,238,0.92)] backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
           <div className="flex items-center gap-3">
-            <Link
-              href="/login"
-              className="text-gray-600 font-bold text-sm px-4 py-2 rounded-xl border border-gray-200 hover:border-green-400 hover:text-green-600 transition"
-            >
-              Log in
+            <Pico size={52} />
+            <div>
+              <p className="font-display text-2xl font-black text-[#2C3E50]">Pico</p>
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-[#556675]">Code Training</p>
+            </div>
+          </div>
+
+          <div className="hidden items-center gap-8 md:flex">
+            <Link href="/language" className="underline-slide text-sm font-semibold text-[#2C3E50]">
+              Open Courses
             </Link>
-            <Link
-              href="/signup"
-              className="bg-green-500 text-white font-extrabold text-sm px-5 py-2 rounded-xl hover:bg-green-600 transition"
-              style={{ boxShadow: "0 3px 0 #16a34a" }}
-            >
-              Get started free
+            <Link href="/login" className="underline-slide text-sm font-semibold text-[#2C3E50]">
+              Open Login
+            </Link>
+            <Link href="/signup" className="carrot-button px-5 py-3 text-sm font-bold uppercase tracking-[0.18em]">
+              Create Account
             </Link>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setMenuOpen((open) => !open)}
+            className="md:hidden border border-[rgba(44,62,80,0.18)] bg-[#F8F5F0] px-3 py-3 text-[#2C3E50]"
+            aria-label="Open navigation"
+          >
+            <span className="block h-[2px] w-6 bg-current" />
+            <span className="mt-1.5 block h-[2px] w-4 bg-current" />
+            <span className="mt-1.5 block h-[2px] w-5 bg-current" />
+          </button>
         </div>
+
+        {menuOpen && (
+          <div className="border-t border-[rgba(44,62,80,0.12)] bg-[#F8F5F0] md:hidden">
+            <div className="mx-auto grid max-w-6xl gap-2 px-4 py-4">
+              <Link href="/language" className="border border-[rgba(44,62,80,0.12)] bg-[#F1ECE5] px-4 py-3 text-sm font-semibold text-[#2C3E50]">
+                Open Courses
+              </Link>
+              <Link href="/login" className="border border-[rgba(44,62,80,0.12)] bg-[#F1ECE5] px-4 py-3 text-sm font-semibold text-[#2C3E50]">
+                Open Login
+              </Link>
+              <Link href="/signup" className="carrot-button px-4 py-3 text-sm font-bold uppercase tracking-[0.18em] text-center">
+                Create Account
+              </Link>
+            </div>
+          </div>
+        )}
       </nav>
 
-      {/* ── Hero ── */}
-      <section className="max-w-5xl mx-auto px-6 pt-16 pb-14 grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+      <section className="mx-auto max-w-6xl px-4 pb-12 pt-8 sm:px-6 sm:pt-12">
+        <div className="grid gap-5 lg:grid-cols-[1.08fr_0.92fr]">
+          <article className="surface-sheet relative overflow-hidden px-6 py-8 sm:px-10 sm:py-10">
+            <div className="absolute right-0 top-0 h-20 w-20 border-l border-b border-[rgba(44,62,80,0.08)] bg-[rgba(230,126,34,0.08)]" />
+            <p className="editorial-kicker">Pico</p>
+            <h1 className="mt-4 max-w-3xl text-5xl font-black leading-[0.98] text-[#2C3E50] sm:text-6xl">
+              Select.
+              <span className="mt-2 block text-[#E67E22]">Practice. Verify.</span>
+            </h1>
+            <p className="mt-6 max-w-xl text-lg font-semibold leading-8 text-[#556675]">
+              Learn Python or JavaScript in short timed lessons.
+            </p>
 
-        {/* Left */}
-        <div>
-          <p className="text-xs font-black text-green-500 uppercase tracking-widest mb-3">
-            Learn to code
-          </p>
-          <h1 className="text-5xl font-black text-gray-900 leading-[1.1] tracking-tight mb-5">
-            Learn to code.<br />
-            <span className="text-green-500">Actually finish it.</span>
-          </h1>
-          <p className="text-gray-500 font-semibold text-base leading-relaxed mb-8 max-w-sm">
-            Five minutes a day. Real code. No fluff. Pick a language and start.
-          </p>
-
-          <div className="flex items-center gap-4 mb-10">
-            <Link
-              href="/signup"
-              className="bg-green-500 text-white font-extrabold text-base px-8 py-3.5 rounded-2xl hover:bg-green-600 transition"
-              style={{ boxShadow: "0 4px 0 #16a34a" }}
-            >
-              Start learning for free!
-            </Link>
-            <Link
-              href="/signup"
-              className="text-green-600 font-bold text-sm border-b-2 border-green-200 hover:border-green-500 transition pb-0.5"
-            >
-              See the curriculum
-            </Link>
-          </div>
-
-          <div className="flex gap-8 pt-6 border-t border-gray-100">
-            {[["12", "Units"], ["60+", "Lessons"], ["2,400+", "Learners"], ["0", "Setup needed"]].map(([n, l]) => (
-              <div key={l}>
-                <p className="text-xl font-black text-gray-900 tracking-tight">{n}</p>
-                <p className="text-xs font-extrabold text-gray-400 uppercase tracking-wider mt-0.5">{l}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Right — Pico + interactive mock lesson card */}
-        <div className="flex flex-col items-center">
-          <Pico size={140} mood="happy" />
-          <div className="bg-white rounded-3xl border border-gray-200 p-5 shadow-sm w-full -mt-4">
-
-            {/* Language switcher */}
-            <div className="flex gap-2 mb-5">
-              {LANGUAGES.map((l, i) => (
-                <button
-                  key={l.label}
-                  onClick={() => switchLang(i)}
-                  className={`text-xs font-extrabold px-3 py-1.5 rounded-xl border transition ${
-                    i === langIndex
-                      ? "bg-green-500 text-white border-green-500"
-                      : "bg-white text-gray-500 border-gray-200 hover:border-green-400 hover:text-green-600"
-                  }`}
-                >
-                  {l.label}
-                </button>
-              ))}
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Link href="/signup" className="ink-button px-6 py-4 text-sm font-bold uppercase tracking-[0.22em] text-center">
+                Create Account
+              </Link>
+              <Link href="/language" className="underline-slide px-1 py-4 text-sm font-bold uppercase tracking-[0.18em] text-[#2C3E50]">
+                Open Courses
+              </Link>
             </div>
 
-            {/* Progress bar */}
-            <div className="flex items-center gap-3 mb-5">
-              <span className="text-xs font-extrabold text-orange-500 bg-orange-50 border border-orange-200 px-3 py-1.5 rounded-xl whitespace-nowrap">
-                7 day streak
-              </span>
-              <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full bg-green-500 rounded-full transition-all duration-500" style={{ width: "55%" }} />
+            <div className="mt-12 grid gap-4 sm:grid-cols-[0.9fr_1.1fr]">
+              <div className="border border-[rgba(44,62,80,0.14)] bg-[#F1ECE5] p-4">
+                <p className="text-[0.68rem] font-bold uppercase tracking-[0.28em] text-[#556675]">Sessions</p>
+                <p className="mt-3 text-3xl font-black text-[#2C3E50]">Run 5 minutes</p>
+                <p className="mt-2 text-sm font-semibold leading-6 text-[#617181]">
+                  Complete short lessons and keep progress saved.
+                </p>
               </div>
-              <div className="flex gap-0.5">
-                {[0, 1, 2].map(i => (
-                  <span key={i} className="text-base">{"❤️"}</span>
+              <div className="border border-[rgba(44,62,80,0.14)] bg-[#2C3E50] p-4 text-[#ECF0F1] sm:translate-y-8">
+                <p className="text-[0.68rem] font-bold uppercase tracking-[0.28em] text-[#F4C28A]">Placement</p>
+                <p className="mt-3 text-3xl font-black text-[#ECF0F1]">Start accurately</p>
+                <p className="mt-2 text-sm font-semibold leading-6 text-[#F3F6F8]">
+                  Skip repeated basics when prior knowledge exists.
+                </p>
+              </div>
+            </div>
+          </article>
+
+          <div className="grid gap-5">
+            <article className="border border-[rgba(44,62,80,0.18)] bg-[#2C3E50] px-5 py-5 text-[#ECF0F1] shadow-[0_16px_42px_rgba(44,62,80,0.18)] sm:-ml-10">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[0.68rem] font-bold uppercase tracking-[0.28em] text-[#F4C28A]">Preview</p>
+                  <h2 className="mt-2 text-4xl font-black text-[#ECF0F1]">Open {preview.label}</h2>
+                </div>
+                <Pico size={72} mood="celebrate" />
+              </div>
+
+              <div className="mt-5 border border-[rgba(236,240,241,0.18)] bg-[rgba(255,255,255,0.04)] p-4">
+                <p className="text-[0.68rem] font-bold uppercase tracking-[0.28em] text-[#FFFFFF]">{preview.badge}</p>
+                <pre className="mt-3 whitespace-pre-wrap font-mono text-sm leading-6 text-[#FFF8F1]">
+                  {preview.code}
+                </pre>
+              </div>
+
+              <p className="mt-4 max-w-md text-sm font-semibold leading-6 text-[#FFFFFF]">{preview.note}</p>
+
+              <div className="mt-5 flex flex-wrap gap-2">
+                {STACK_PREVIEWS.map((item, index) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => setPreviewIndex(index)}
+                    className={`border px-3 py-2 text-[0.68rem] font-bold uppercase tracking-[0.18em] ${
+                      previewIndex === index
+                        ? "border-[#E67E22] bg-[#E67E22] text-[#FFF8F1]"
+                        : "border-[rgba(236,240,241,0.18)] text-[#FFFFFF] hover:border-[#F4C28A] hover:text-[#FFF8F1]"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
                 ))}
               </div>
-            </div>
+            </article>
 
-            <p className="text-xs font-extrabold text-green-500 uppercase tracking-widest mb-1">
-              Unit 1 · Hello World
+            <article className="surface-sheet grid gap-4 px-5 py-5 lg:ml-12 lg:grid-cols-[0.9fr_1.1fr]">
+              <div className="border-l-[3px] border-[#E67E22] pl-4">
+                <p className="editorial-kicker">Functions</p>
+                <h3 className="mt-2 text-3xl font-black text-[#2C3E50]">Open technical tools.</h3>
+              </div>
+              <div className="grid gap-3 text-sm font-semibold leading-6 text-[#5A6A79]">
+                <p>
+                  Use lessons, placement, and library modules.
+                </p>
+                <p>
+                  Open Turtle, Fetch, Canvas, and similar APIs.
+                </p>
+                <Link href="/language" className="underline-slide mt-2 text-sm font-bold uppercase tracking-[0.18em] text-[#2C3E50]">
+                  Open Courses
+                </Link>
+              </div>
+            </article>
+          </div>
+        </div>
+
+        <section className="mt-8 grid gap-5 lg:grid-cols-[1.25fr_0.75fr_1fr]">
+          <article className="surface-sheet px-5 py-6">
+            <p className="editorial-kicker">Lessons</p>
+            <h2 className="mt-3 text-4xl font-black text-[#2C3E50]">Use short lessons.</h2>
+            <p className="mt-4 max-w-2xl text-base font-semibold leading-7 text-[#586878]">
+              Practice syntax, outputs, challenges, and libraries.
             </p>
-            <p className="text-base font-extrabold text-gray-900 mb-3">
-              {lang.question}
-            </p>
+          </article>
 
-            <div className="bg-gray-900 rounded-2xl px-4 py-3 mb-4 font-mono text-sm font-bold text-green-400 whitespace-pre">
-              {lang.code}
-            </div>
+          <article className="border border-[rgba(200,104,18,0.35)] bg-[#E67E22] px-5 py-6 text-[#FFF8F1] shadow-[0_16px_42px_rgba(200,104,18,0.18)] lg:-mt-10">
+            <p className="text-[0.68rem] font-bold uppercase tracking-[0.28em] text-[#343434]">APIs</p>
+            <p className="mt-4 text-3xl font-black text-[#FFF8F1]">Open Turtle modules now.</p>
+          </article>
 
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              {lang.options.map((opt, i) => {
-                let cls = "w-full text-left px-4 py-3 rounded-2xl border-2 border-b-4 text-sm font-bold transition ";
-                if (!revealed) {
-                  cls += "border-gray-200 bg-white text-gray-800 hover:border-green-400 hover:bg-green-50 hover:text-green-700";
-                } else if (i === lang.correctIndex) {
-                  cls += "border-green-400 bg-green-50 text-green-700";
-                } else if (i === selected) {
-                  cls += "border-red-400 bg-red-50 text-red-600";
-                } else {
-                  cls += "border-gray-200 bg-white text-gray-400";
-                }
-                return (
-                  <button key={i} className={cls} onClick={() => pick(i)}>
-                    {opt}
-                  </button>
-                );
-              })}
-            </div>
-
-            {revealed && (
-              <div className={`rounded-2xl px-4 py-3 text-sm font-bold ${
-                selected === lang.correctIndex
-                  ? "bg-green-50 border border-green-200 text-green-700"
-                  : "bg-red-50 border border-red-200 text-red-600"
-              }`}>
-                {selected === lang.correctIndex ? lang.correct : lang.wrong}
-              </div>
-            )}
-          </div>
-        </div>
+          <article className="surface-sheet px-5 py-6 lg:mt-10">
+            <p className="text-[0.68rem] font-bold uppercase tracking-[0.28em] text-[#556675]">Account</p>
+            <p className="mt-3 text-2xl font-black text-[#2C3E50]">Create your account.</p>
+          </article>
+        </section>
       </section>
 
-      {/* ── Features ── */}
-      <section className="bg-white border-t border-gray-100 py-16">
-        <div className="max-w-5xl mx-auto px-6">
-          <p className="text-xs font-black text-green-500 uppercase tracking-widest mb-2">Why Pico</p>
-          <h2 className="text-2xl font-black text-gray-900 tracking-tight mb-8">
-            Everything you need, nothing you don&apos;t
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[
-              {
-                num: "01",
-                title: "You'll actually finish it",
-                body: "Lessons are short on purpose. The streak does the rest it's weirdly hard to break once you start be because of how engaging it is .",
-              },
-              {
-                num: "02",
-                title: "Fresh questions every time",
-                body: "Questions are made to perfection so you learn the most possible..",
-              },
-              {
-                num: "03",
-                title: "Start at the right level",
-                body: "If you already know some code, a quick test skips the boring stuff and puts you where you'll actually learn something.",
-              },
-            ].map(({ num, title, body }) => (
-              <div key={num} className="bg-gray-50 rounded-3xl p-6 border border-gray-100">
-                <p className="text-xs font-black text-gray-300 tracking-widest mb-3">{num}</p>
-                <h3 className="text-base font-extrabold text-gray-900 mb-2">{title}</h3>
-                <p className="text-sm font-semibold text-gray-500 leading-relaxed">{body}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── How it works ── */}
-      <section className="py-16 bg-gray-50 border-t border-gray-100">
-        <div className="max-w-5xl mx-auto px-6">
-          <p className="text-xs font-black text-green-500 uppercase tracking-widest mb-2">How it works</p>
-          <h2 className="text-2xl font-black text-gray-900 tracking-tight mb-10">
-            Three steps to writing real code
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {[
-              {
-                n: "1",
-                title: "Pick your language",
-                body: "Start with Python; JavaScript, SQL and much more will be added very soon..",
-              },
-              {
-                n: "2",
-                title: "Learn by doing",
-                body: "Each lesson teaches one concept then drills it immediately",
-              },
-              {
-                n: "3",
-                title: "Build the streak",
-                body: "XP, streaks, and unit challenges make it hard to stop. Finish all units to unlock daily coding challenges.",
-              },
-            ].map(({ n, title, body }) => (
-              <div key={n}>
-                <div
-                  className="w-9 h-9 bg-green-500 rounded-full text-white font-black text-sm flex items-center justify-center mb-4"
-                  style={{ boxShadow: "0 3px 0 #16a34a" }}
-                >
-                  {n}
-                </div>
-                <h3 className="text-base font-extrabold text-gray-900 mb-2">{title}</h3>
-                <p className="text-sm font-semibold text-gray-500 leading-relaxed">{body}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── CTA banner ── */}
-      <section className="bg-green-500 py-16 text-center">
-        <h2 className="text-3xl font-black text-white tracking-tight mb-2">
-          You could have written your first line of code by now.
-        </h2>
-        <p className="text-green-100 font-semibold text-base mb-8">
-          Free to start. No credit card. No download.
-        </p>
-        <Link
-          href="/signup"
-          className="inline-block bg-white text-green-600 font-extrabold text-base px-10 py-4 rounded-2xl hover:bg-green-50 transition"
-          style={{ boxShadow: "0 4px 0 rgba(0,0,0,0.12)" }}
-        >
-          Start learning for free
-        </Link>
-      </section>
-
-      {/* ── Footer ── */}
-      <footer className="bg-white border-t border-gray-100 py-6 text-center">
-        <p className="text-sm font-semibold text-gray-300">
-          Pico — Learn to code, one lesson at a time. &nbsp;·&nbsp;{" "}
-          <Link href="/login" className="text-green-500 hover:underline">
-            Log in
-          </Link>
-        </p>
-      </footer>
-
+      <MobileDock />
     </main>
   );
 }

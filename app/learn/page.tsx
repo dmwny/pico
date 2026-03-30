@@ -2,11 +2,13 @@
 
 import { useState, useEffect, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import Pico from "@/components/Pico";
 import { ACHIEVEMENTS } from "@/lib/achievements";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
-import { getCourseSections, getLanguageLabel } from "@/lib/courseContent";
+import MobileDock from "@/components/MobileDock";
+import { getCourseSections, getLanguageLabel, getMiniCourses } from "@/lib/courseContent";
 import { mergeProgressSources, resolveActiveLanguage, setStoredLanguageProgress, getStoredLanguageProgress } from "@/lib/progress";
 
 const PATH_POSITIONS = ["ml-24", "ml-40", "ml-52", "ml-40", "ml-24"];
@@ -26,7 +28,9 @@ function LearnInner() {
   const [guidebook, setGuidebook] = useState<any>(null);
   const [mounted, setMounted] = useState(false);
   const [currentLanguage, setCurrentLanguage] = useState<string>("python");
+  const [openMiniCourseMenu, setOpenMiniCourseMenu] = useState<string | null>(null);
   const sections = useMemo(() => getCourseSections(currentLanguage), [currentLanguage]);
+  const miniCourses = useMemo(() => getMiniCourses(currentLanguage), [currentLanguage]);
 
   useEffect(() => setMounted(true), []);
 
@@ -83,6 +87,12 @@ function LearnInner() {
     }
   }, [loading]);
 
+  useEffect(() => {
+    const closeMiniCourseMenu = () => setOpenMiniCourseMenu(null);
+    window.addEventListener("click", closeMiniCourseMenu);
+    return () => window.removeEventListener("click", closeMiniCourseMenu);
+  }, []);
+
   const loadProgress = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
@@ -137,7 +147,7 @@ function LearnInner() {
   const currentLessonKey = findCurrentLesson();
 
   const totalLessons = sections.flatMap(s => s.units.flatMap(u => u.lessons)).length;
-  const completedCount = completedLessons.length;
+  const completedCount = completedLessons.filter((lessonKey) => /^\d+-\d+$/.test(lessonKey)).length;
   const earnedAchievementCards = ACHIEVEMENTS
     .filter((achievement) => earnedAchievements.includes(achievement.id))
     .slice(-3)
@@ -217,7 +227,7 @@ function LearnInner() {
         .pico-bob { animation: bob 2.4s ease-in-out infinite; }
       `}</style>
 
-      <div className="min-h-screen bg-gray-50 flex flex-col">
+      <div className="min-h-screen mobile-dock-pad bg-gray-50 flex flex-col">
 
         {/* ── Top nav ── */}
         <nav className="bg-white border-b border-gray-100 sticky top-0 z-20">
@@ -450,16 +460,18 @@ function LearnInner() {
             {/* XP & Streak */}
             <div className="bg-white rounded-2xl border border-gray-100 p-4">
               <p className="text-xs font-extrabold text-gray-400 uppercase tracking-wider mb-3">Your stats</p>
-              <div className="flex gap-4">
-                <div className="flex-1 bg-green-50 rounded-xl p-3 text-center border border-green-100">
-                  <p className="text-xl font-black text-green-500">{xp}</p>
-                  <p className="text-xs font-extrabold text-green-400 uppercase tracking-wide">XP</p>
+              <div
+                className="flex items-stretch"
+                style={{ fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif" }}
+              >
+                <div className="flex-1 px-2 py-4">
+                  <p className="text-[2.2rem] font-semibold leading-none text-[#1A1A1A]">{xp}</p>
+                  <p className="mt-3 text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-[#666666]">XP</p>
                 </div>
-                <div className={`flex-1 rounded-xl p-3 text-center border ${streak > 0 ? "bg-orange-50 border-orange-100" : "bg-gray-50 border-gray-100"}`}>
-                  <p className={`text-xl font-black ${streak > 0 ? "text-orange-400" : "text-gray-300"}`}>{streak}</p>
-                  <p className={`text-xs font-extrabold uppercase tracking-wide ${streak > 0 ? "text-orange-300" : "text-gray-300"}`}>
-                    {streak > 0 ? "Streak" : "No streak"}
-                  </p>
+                <div className="mx-4 w-px bg-[#E5E5E5]" />
+                <div className="flex-1 px-2 py-4">
+                  <p className="text-[2.2rem] font-semibold leading-none text-[#1A1A1A]">{streak}</p>
+                  <p className="mt-3 text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-[#666666]">Streak</p>
                 </div>
               </div>
             </div>
@@ -488,6 +500,103 @@ function LearnInner() {
                     ))}
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Mini courses */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-xs font-extrabold text-gray-400 uppercase tracking-wider">Mini courses</p>
+                  <p className="text-xs font-semibold text-gray-300 mt-1">
+                    Small tracks for APIs, libraries, and tools
+                  </p>
+                </div>
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-green-500">
+                  {getLanguageLabel(currentLanguage)}
+                </span>
+              </div>
+              <div className="space-y-3">
+                {miniCourses.map((course) => (
+                  <div
+                    key={course.id}
+                    className="relative rounded-2xl border border-gray-100 bg-gray-50 px-3 py-3"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="h-11 w-11 flex-shrink-0 rounded-2xl bg-gray-900 text-white flex items-center justify-center text-xs font-black shadow-sm">
+                        {course.badge}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-extrabold text-gray-800">{course.title}</p>
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setOpenMiniCourseMenu((current) => current === course.id ? null : course.id);
+                              }}
+                              className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 hover:text-gray-700 hover:border-gray-300 transition"
+                              aria-label={`Open ${course.title} menu`}
+                            >
+                              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                                <circle cx="5" cy="12" r="2" />
+                                <circle cx="12" cy="12" r="2" />
+                                <circle cx="19" cy="12" r="2" />
+                              </svg>
+                            </button>
+                            {openMiniCourseMenu === course.id && (
+                              <div
+                                className="absolute right-0 top-10 z-20 w-44 rounded-2xl border border-gray-200 bg-white p-2 shadow-lg"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <div className="rounded-xl px-3 py-2 text-xs font-extrabold uppercase tracking-wider text-gray-400">
+                                  {course.status === "live" ? "Open module" : course.status === "coming_soon" ? "Coming soon" : "Planned"}
+                                </div>
+                                {course.status === "live" && course.href ? (
+                                  <Link
+                                    href={course.href}
+                                    className="block w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-gray-700 hover:bg-gray-50"
+                                  >
+                                    Open module
+                                  </Link>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => setOpenMiniCourseMenu(null)}
+                                      className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-gray-700 hover:bg-gray-50"
+                                    >
+                                      Save for later
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setOpenMiniCourseMenu(null)}
+                                      className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-gray-700 hover:bg-gray-50"
+                                    >
+                                      Preview track
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-xs font-bold text-green-600 mt-0.5">{course.subtitle}</p>
+                        <p className="text-xs font-semibold text-gray-500 mt-1 leading-5">{course.description}</p>
+                        <span className={`inline-flex mt-2 rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider ${
+                          course.status === "live"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : course.status === "coming_soon"
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-slate-200 text-slate-600"
+                        }`}>
+                          {course.status === "live" ? "Open now" : course.status === "coming_soon" ? "Coming soon" : "Planned"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -547,6 +656,7 @@ function LearnInner() {
 
           </aside>
         </div>
+        <MobileDock />
       </div>
     </>
   );

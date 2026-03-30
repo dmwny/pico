@@ -123,7 +123,6 @@ export default function Pico({ size = 120, mood = "happy", className = "" }: Pic
 
           {/* EYES */}
           {isDead ? (
-            // X eyes
             <>
               <line x1="72" y1="212" x2="92" y2="232" stroke="#374151" strokeWidth="4" strokeLinecap="round"/>
               <line x1="92" y1="212" x2="72" y2="232" stroke="#374151" strokeWidth="4" strokeLinecap="round"/>
@@ -131,11 +130,9 @@ export default function Pico({ size = 120, mood = "happy", className = "" }: Pic
               <line x1="156" y1="212" x2="136" y2="232" stroke="#374151" strokeWidth="4" strokeLinecap="round"/>
             </>
           ) : isSad ? (
-            // Sad droopy eyes
             <>
               <circle cx="82"  cy={222 + eyeOffsetY} r="18" fill="white"/>
               <circle cx="148" cy={222 + eyeOffsetY} r="18" fill="white"/>
-              {/* Droopy eyelid */}
               <path d={`M64 ${214 + eyeOffsetY} Q82 ${207 + eyeOffsetY} 100 ${214 + eyeOffsetY}`} fill="#22c55e"/>
               <path d={`M130 ${214 + eyeOffsetY} Q148 ${207 + eyeOffsetY} 166 ${214 + eyeOffsetY}`} fill="#22c55e"/>
               <circle cx="86"  cy={224 + eyeOffsetY} r={blinking ? 1 : 11} fill="#1e293b"/>
@@ -144,7 +141,6 @@ export default function Pico({ size = 120, mood = "happy", className = "" }: Pic
               <circle cx="154" cy={220 + eyeOffsetY} r={blinking ? 0 : 4}  fill="white"/>
             </>
           ) : (
-            // Normal / celebrate eyes
             <>
               <circle cx="82"  cy="222" r="18" fill="white"/>
               <circle cx="148" cy="222" r="18" fill="white"/>
@@ -167,7 +163,6 @@ export default function Pico({ size = 120, mood = "happy", className = "" }: Pic
             fill="#d97706"
           />
 
-          {/* Tongue when celebrating */}
           {isCelebrate && (
             <ellipse cx="115" cy={264 + beakOpen} rx="8" ry="5" fill="#ef4444"/>
           )}

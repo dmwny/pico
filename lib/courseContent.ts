@@ -32,6 +32,16 @@ export interface UnitChallenge {
   exampleOutput: string;
 }
 
+export interface MiniCourseMeta {
+  id: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  status: "live" | "coming_soon" | "planned";
+  badge: string;
+  href?: string;
+}
+
 const BASE_SECTION_META = [
   {
     id: 1,
@@ -127,6 +137,62 @@ const JAVASCRIPT_SECTIONS: SectionMeta[] = [
     ],
   },
 ];
+
+const MINI_COURSES: Record<LearningLanguage, MiniCourseMeta[]> = {
+  python: [
+    {
+      id: "turtle",
+      title: "Turtle Graphics",
+      subtitle: "Draw with code",
+      description: "Learn loops, angles, and functions by moving a turtle around the screen.",
+      status: "live",
+      badge: "TG",
+      href: "/labs/python/turtle",
+    },
+    {
+      id: "random",
+      title: "Random",
+      subtitle: "Games and surprises",
+      description: "Use random choices and numbers to make quizzes, dice, and small games.",
+      status: "planned",
+      badge: "RD",
+    },
+    {
+      id: "pygame-zero",
+      title: "Pygame Zero",
+      subtitle: "Tiny game projects",
+      description: "Build beginner-friendly arcade games with sprites, movement, and scorekeeping.",
+      status: "planned",
+      badge: "PG",
+    },
+  ],
+  javascript: [
+    {
+      id: "fetch-api",
+      title: "Fetch API",
+      subtitle: "Talk to the internet",
+      description: "Load JSON, call APIs, and build projects that use real-world data.",
+      status: "coming_soon",
+      badge: "FX",
+    },
+    {
+      id: "canvas",
+      title: "Canvas",
+      subtitle: "Draw in the browser",
+      description: "Make interactive sketches, particle effects, and simple game scenes with JavaScript.",
+      status: "planned",
+      badge: "CV",
+    },
+    {
+      id: "dom-projects",
+      title: "DOM Projects",
+      subtitle: "Mini app builds",
+      description: "Practice events, forms, and UI updates by making small interactive tools.",
+      status: "planned",
+      badge: "DM",
+    },
+  ],
+};
 
 const LESSON_TOPICS: Record<LearningLanguage, Record<string, Record<string, string>>> = {
   python: {
@@ -390,6 +456,10 @@ export function getLanguageLabel(language?: string | null): string {
 
 export function getCourseSections(language?: string | null): SectionMeta[] {
   return normalizeLanguage(language) === "javascript" ? JAVASCRIPT_SECTIONS : PYTHON_SECTIONS;
+}
+
+export function getMiniCourses(language?: string | null): MiniCourseMeta[] {
+  return MINI_COURSES[normalizeLanguage(language)];
 }
 
 export function getLessonTopic(language: string | null | undefined, unitId: string, lessonId: string): string {
