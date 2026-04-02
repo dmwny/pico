@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { resolveActiveLanguage } from "@/lib/progress";
 import MobileDock from "@/components/MobileDock";
+import { getLanguageCommentPrefix, getLanguageLabel, type LearningLanguage } from "@/lib/courseContent";
 
 export default function DailyChallenge() {
   const router = useRouter();
@@ -15,7 +16,7 @@ export default function DailyChallenge() {
   const [checking, setChecking] = useState(false);
   const [done, setDone] = useState(false);
   const [alreadyDone, setAlreadyDone] = useState(false);
-  const [currentLanguage, setCurrentLanguage] = useState<"python" | "javascript">("python");
+  const [currentLanguage, setCurrentLanguage] = useState<LearningLanguage>("python");
 
   useEffect(() => {
     checkAndLoad();
@@ -164,7 +165,7 @@ export default function DailyChallenge() {
           <h2 className="text-lg font-extrabold text-gray-900 mb-3">Write code</h2>
           <textarea
             className="w-full h-48 p-4 bg-gray-900 text-green-400 font-mono text-sm rounded-2xl border-0 focus:outline-none focus:ring-2 focus:ring-green-400 resize-none"
-            placeholder={`${currentLanguage === "python" ? "# Write your" : "// Write your"} ${currentLanguage === "python" ? "Python" : "JavaScript"} code here...`}
+            placeholder={`${getLanguageCommentPrefix(currentLanguage)} Write your ${getLanguageLabel(currentLanguage)} code here...`}
             value={code}
             onChange={(e) => setCode(e.target.value)}
           />

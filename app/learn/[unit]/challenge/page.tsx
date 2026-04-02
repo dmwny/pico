@@ -3,7 +3,14 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { getLanguageLabel, getUnitChallenge, LearningLanguage, normalizeLanguage } from "@/lib/courseContent";
+import {
+  getCourseSections,
+  getLanguageCommentPrefix,
+  getLanguageLabel,
+  getUnitChallenge,
+  LearningLanguage,
+  normalizeLanguage,
+} from "@/lib/courseContent";
 import { getStoredLanguageProgress, mergeProgressSources, resolveActiveLanguage, setStoredLanguageProgress } from "@/lib/progress";
 
 export default function ChallengePage() {
@@ -20,6 +27,14 @@ export default function ChallengePage() {
   const [feedback, setFeedback] = useState<any>(null);
   const [checking, setChecking] = useState(false);
   const [done, setDone] = useState(false);
+
+  const getChallengeLessonKey = (language: LearningLanguage) => {
+    const unit = getCourseSections(language)
+      .flatMap((section) => section.units)
+      .find((item) => String(item.id) === unitId);
+    const lastLessonId = unit?.lessons[unit.lessons.length - 1]?.id ?? 7;
+    return `${unitId}-${lastLessonId}`;
+  };
 
   useEffect(() => {
     const loadLanguage = async () => {
@@ -58,7 +73,7 @@ export default function ChallengePage() {
     const challengeLanguage = currentLanguage ?? requestedLanguage ?? await resolveActiveLanguage(user.id);
     const localProgress = getStoredLanguageProgress(user.id, challengeLanguage);
 
-    const lessonKey = `${unitId}-5`;
+    const lessonKey = getChallengeLessonKey(challengeLanguage);
 
     const { data: existing } = await supabase
       .from("pico_progress")
@@ -180,7 +195,7 @@ export default function ChallengePage() {
           <h2 className="text-lg font-extrabold text-gray-900 mb-3">Write your code</h2>
           <textarea
             className="w-full h-48 p-4 bg-gray-900 text-green-400 font-mono text-sm rounded-2xl border-0 focus:outline-none focus:ring-2 focus:ring-green-400 resize-none"
-            placeholder={`${currentLanguage === "python" ? "# Write your" : "// Write your"} ${getLanguageLabel(currentLanguage)} code here...`}
+            placeholder={`${getLanguageCommentPrefix(currentLanguage)} Write your ${getLanguageLabel(currentLanguage)} code here...`}
             value={code}
             onChange={(e) => setCode(e.target.value)}
           />

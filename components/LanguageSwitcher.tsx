@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 const LANGUAGE_META: Record<string, { label: string; glyph: string; tone: string }> = {
   python: { label: "Python", glyph: "PY", tone: "bg-[#3776AB] text-white" },
   javascript: { label: "JavaScript", glyph: "JS", tone: "bg-[#F7DF1E] text-[#1D2730]" },
+  typescript: { label: "TypeScript", glyph: "TS", tone: "bg-[#3178C6] text-white" },
+  java: { label: "Java", glyph: "JV", tone: "bg-[#EA7A2F] text-white" },
+  csharp: { label: "C#", glyph: "C#", tone: "bg-[#7C3AED] text-white" },
+  rust: { label: "Rust", glyph: "RS", tone: "bg-[#2F2B28] text-white" },
+  lua: { label: "Lua", glyph: "LU", tone: "bg-[#000080] text-white" },
 };
 
 interface LanguageSwitcherProps {

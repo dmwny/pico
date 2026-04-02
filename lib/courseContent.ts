@@ -1,4 +1,51 @@
-export type LearningLanguage = "python" | "javascript";
+export type LearningLanguage =
+  | "python"
+  | "javascript"
+  | "typescript"
+  | "java"
+  | "csharp"
+  | "rust"
+  | "lua";
+
+export const SUPPORTED_LANGUAGES: LearningLanguage[] = [
+  "python",
+  "javascript",
+  "typescript",
+  "java",
+  "csharp",
+  "rust",
+  "lua",
+];
+
+const LANGUAGE_LABELS: Record<LearningLanguage, string> = {
+  python: "Python",
+  javascript: "JavaScript",
+  typescript: "TypeScript",
+  java: "Java",
+  csharp: "C#",
+  rust: "Rust",
+  lua: "Lua",
+};
+
+const LANGUAGE_COMMENT_PREFIX: Record<LearningLanguage, string> = {
+  python: "#",
+  javascript: "//",
+  typescript: "//",
+  java: "//",
+  csharp: "//",
+  rust: "//",
+  lua: "--",
+};
+
+const LANGUAGE_HAS_PLACEMENT: Record<LearningLanguage, boolean> = {
+  python: true,
+  javascript: true,
+  typescript: false,
+  java: false,
+  csharp: false,
+  rust: false,
+  lua: false,
+};
 
 export interface LessonMeta {
   id: number;
@@ -42,6 +89,25 @@ export interface MiniCourseMeta {
   href?: string;
 }
 
+type UnitLessonBlueprint = [string, string, string, string, string, string];
+
+function buildUnit(id: number, title: string, description: string, lessons: UnitLessonBlueprint): UnitMeta {
+  return {
+    id,
+    title,
+    description,
+    lessons: [
+      { id: 1, title: lessons[0] },
+      { id: 2, title: lessons[1] },
+      { id: 3, title: lessons[2] },
+      { id: 4, title: lessons[3] },
+      { id: 5, title: lessons[4] },
+      { id: 6, title: lessons[5] },
+      { id: 7, title: "Unit challenge" },
+    ],
+  };
+}
+
 const BASE_SECTION_META = [
   {
     id: 1,
@@ -82,28 +148,28 @@ const PYTHON_SECTIONS: SectionMeta[] = [
   {
     ...BASE_SECTION_META[0],
     units: [
-      { id: 1, title: "Hello World", description: "Your first lines of code", lessons: [{ id: 1, title: "Your first print()" }, { id: 2, title: "Printing numbers" }, { id: 3, title: "Printing multiple things" }, { id: 4, title: "Comments" }, { id: 5, title: "Unit challenge" }] },
-      { id: 2, title: "Variables", description: "Store and use information", lessons: [{ id: 1, title: "Creating a variable" }, { id: 2, title: "Variable names" }, { id: 3, title: "Changing a variable" }, { id: 4, title: "Printing variables" }, { id: 5, title: "Unit challenge" }] },
-      { id: 3, title: "User Input", description: "Let users interact with your code", lessons: [{ id: 1, title: "The input() function" }, { id: 2, title: "Storing input" }, { id: 3, title: "Input with numbers" }, { id: 4, title: "Using input in print" }, { id: 5, title: "Unit challenge" }] },
-      { id: 4, title: "Strings", description: "Work with text in Python", lessons: [{ id: 1, title: "Joining strings" }, { id: 2, title: "String length" }, { id: 3, title: "Upper and lower case" }, { id: 4, title: "f-strings" }, { id: 5, title: "Unit challenge" }] },
+      buildUnit(1, "Hello World", "Your first lines of code", ["Your first print()", "Printing numbers", "Printing multiple things", "Comments", "Reading output", "Quick print checks"]),
+      buildUnit(2, "Variables", "Store and use information", ["Creating a variable", "Variable names", "Changing a variable", "Printing variables", "Using variables together", "Simple variable patterns"]),
+      buildUnit(3, "User Input", "Let users interact with your code", ["The input() function", "Storing input", "Input with numbers", "Using input in print", "Input and variables", "Checking input results"]),
+      buildUnit(4, "Strings", "Work with text in Python", ["Joining strings", "String length", "Upper and lower case", "f-strings", "String variables", "String practice"]),
     ],
   },
   {
     ...BASE_SECTION_META[1],
     units: [
-      { id: 5, title: "Conditions", description: "Make decisions in your code", lessons: [{ id: 1, title: "if statements" }, { id: 2, title: "else statements" }, { id: 3, title: "elif statements" }, { id: 4, title: "Combining conditions" }, { id: 5, title: "Unit challenge" }] },
-      { id: 6, title: "Loops", description: "Repeat code automatically", lessons: [{ id: 1, title: "while loops" }, { id: 2, title: "for loops" }, { id: 3, title: "range()" }, { id: 4, title: "break and continue" }, { id: 5, title: "Unit challenge" }] },
-      { id: 7, title: "Functions", description: "Write reusable blocks of code", lessons: [{ id: 1, title: "Defining a function" }, { id: 2, title: "Calling a function" }, { id: 3, title: "Parameters" }, { id: 4, title: "Return values" }, { id: 5, title: "Unit challenge" }] },
-      { id: 8, title: "Lists", description: "Store multiple values together", lessons: [{ id: 1, title: "Creating a list" }, { id: 2, title: "Accessing items" }, { id: 3, title: "Adding and removing" }, { id: 4, title: "Looping through lists" }, { id: 5, title: "Unit challenge" }] },
+      buildUnit(5, "Conditions", "Make decisions in your code", ["if statements", "else statements", "elif statements", "Combining conditions", "Comparing values", "Condition practice"]),
+      buildUnit(6, "Loops", "Repeat code automatically", ["while loops", "for loops", "range()", "break and continue", "Loop counters", "Loop practice"]),
+      buildUnit(7, "Functions", "Write reusable blocks of code", ["Defining a function", "Calling a function", "Parameters", "Return values", "Using functions twice", "Function practice"]),
+      buildUnit(8, "Lists", "Store multiple values together", ["Creating a list", "Accessing items", "Adding and removing", "Looping through lists", "List variables", "List practice"]),
     ],
   },
   {
     ...BASE_SECTION_META[2],
     units: [
-      { id: 9, title: "Dictionaries", description: "Store data with keys and values", lessons: [{ id: 1, title: "Creating a dictionary" }, { id: 2, title: "Accessing values" }, { id: 3, title: "Adding and updating" }, { id: 4, title: "Looping through dicts" }, { id: 5, title: "Unit challenge" }] },
-      { id: 10, title: "File Handling", description: "Read and write files", lessons: [{ id: 1, title: "Opening files" }, { id: 2, title: "Reading files" }, { id: 3, title: "Writing files" }, { id: 4, title: "Closing files" }, { id: 5, title: "Unit challenge" }] },
-      { id: 11, title: "Classes", description: "Build your own data types", lessons: [{ id: 1, title: "Defining a class" }, { id: 2, title: "The __init__ method" }, { id: 3, title: "Attributes" }, { id: 4, title: "Methods" }, { id: 5, title: "Unit challenge" }] },
-      { id: 12, title: "Final Project", description: "Build a real Python program", lessons: [{ id: 1, title: "Planning your project" }, { id: 2, title: "Building the structure" }, { id: 3, title: "Adding features" }, { id: 4, title: "Testing and fixing" }, { id: 5, title: "Final challenge" }] },
+      buildUnit(9, "Dictionaries", "Store data with keys and values", ["Creating a dictionary", "Accessing values", "Adding and updating", "Looping through dicts", "Dictionary keys and values", "Dictionary practice"]),
+      buildUnit(10, "File Handling", "Read and write files", ["Opening files", "Reading files", "Writing files", "Closing files", "Read vs write mode", "File practice"]),
+      buildUnit(11, "Classes", "Build your own data types", ["Defining a class", "The __init__ method", "Attributes", "Methods", "Making an object", "Class practice"]),
+      buildUnit(12, "Final Project", "Build a real Python program", ["Planning your project", "Building the structure", "Adding features", "Testing and fixing", "Refining the project", "Final checks"]),
     ],
   },
 ];
@@ -112,31 +178,136 @@ const JAVASCRIPT_SECTIONS: SectionMeta[] = [
   {
     ...BASE_SECTION_META[0],
     units: [
-      { id: 1, title: "Hello Console", description: "Your first JavaScript lines", lessons: [{ id: 1, title: "Your first console.log()" }, { id: 2, title: "Logging numbers" }, { id: 3, title: "Logging multiple values" }, { id: 4, title: "Comments" }, { id: 5, title: "Unit challenge" }] },
-      { id: 2, title: "Variables", description: "Store and update values", lessons: [{ id: 1, title: "Creating a variable" }, { id: 2, title: "let vs const" }, { id: 3, title: "Changing a variable" }, { id: 4, title: "Logging variables" }, { id: 5, title: "Unit challenge" }] },
-      { id: 3, title: "User Input", description: "Let users interact with your code", lessons: [{ id: 1, title: "The prompt() function" }, { id: 2, title: "Storing input" }, { id: 3, title: "Turning text into numbers" }, { id: 4, title: "Using input in console.log" }, { id: 5, title: "Unit challenge" }] },
-      { id: 4, title: "Strings", description: "Work with text in JavaScript", lessons: [{ id: 1, title: "Joining strings" }, { id: 2, title: "String length" }, { id: 3, title: "Uppercase and lowercase" }, { id: 4, title: "Template literals" }, { id: 5, title: "Unit challenge" }] },
+      buildUnit(1, "Hello Console", "Your first JavaScript lines", ["Your first console.log()", "Logging numbers", "Logging multiple values", "Comments", "Reading output", "Quick console checks"]),
+      buildUnit(2, "Variables", "Store and update values", ["Creating a variable", "let vs const", "Changing a variable", "Logging variables", "Using variables together", "Simple variable patterns"]),
+      buildUnit(3, "User Input", "Let users interact with your code", ["The prompt() function", "Storing input", "Turning text into numbers", "Using input in console.log", "Input and variables", "Checking input results"]),
+      buildUnit(4, "Strings", "Work with text in JavaScript", ["Joining strings", "String length", "Uppercase and lowercase", "Template literals", "String variables", "String practice"]),
     ],
   },
   {
     ...BASE_SECTION_META[1],
     units: [
-      { id: 5, title: "Conditions", description: "Make decisions in your code", lessons: [{ id: 1, title: "if statements" }, { id: 2, title: "else statements" }, { id: 3, title: "else if statements" }, { id: 4, title: "Combining conditions" }, { id: 5, title: "Unit challenge" }] },
-      { id: 6, title: "Loops", description: "Repeat code automatically", lessons: [{ id: 1, title: "while loops" }, { id: 2, title: "for loops" }, { id: 3, title: "Loop counters" }, { id: 4, title: "break and continue" }, { id: 5, title: "Unit challenge" }] },
-      { id: 7, title: "Functions", description: "Write reusable blocks of code", lessons: [{ id: 1, title: "Defining a function" }, { id: 2, title: "Calling a function" }, { id: 3, title: "Parameters" }, { id: 4, title: "Return values" }, { id: 5, title: "Unit challenge" }] },
-      { id: 8, title: "Arrays", description: "Store multiple values together", lessons: [{ id: 1, title: "Creating an array" }, { id: 2, title: "Accessing items" }, { id: 3, title: "Adding and removing" }, { id: 4, title: "Looping through arrays" }, { id: 5, title: "Unit challenge" }] },
+      buildUnit(5, "Conditions", "Make decisions in your code", ["if statements", "else statements", "else if statements", "Combining conditions", "Comparing values", "Condition practice"]),
+      buildUnit(6, "Loops", "Repeat code automatically", ["while loops", "for loops", "Loop counters", "break and continue", "Counting patterns", "Loop practice"]),
+      buildUnit(7, "Functions", "Write reusable blocks of code", ["Defining a function", "Calling a function", "Parameters", "Return values", "Using functions twice", "Function practice"]),
+      buildUnit(8, "Arrays", "Store multiple values together", ["Creating an array", "Accessing items", "Adding and removing", "Looping through arrays", "Array variables", "Array practice"]),
     ],
   },
   {
     ...BASE_SECTION_META[2],
     units: [
-      { id: 9, title: "Objects", description: "Store data with keys and values", lessons: [{ id: 1, title: "Creating an object" }, { id: 2, title: "Accessing values" }, { id: 3, title: "Adding and updating" }, { id: 4, title: "Looping through objects" }, { id: 5, title: "Unit challenge" }] },
-      { id: 10, title: "The DOM", description: "Read and update a web page", lessons: [{ id: 1, title: "Finding elements" }, { id: 2, title: "Changing text" }, { id: 3, title: "Changing styles" }, { id: 4, title: "Button clicks" }, { id: 5, title: "Unit challenge" }] },
-      { id: 11, title: "Classes", description: "Build your own blueprints", lessons: [{ id: 1, title: "Defining a class" }, { id: 2, title: "The constructor" }, { id: 3, title: "Properties" }, { id: 4, title: "Methods" }, { id: 5, title: "Unit challenge" }] },
-      { id: 12, title: "Final Project", description: "Build a real JavaScript app", lessons: [{ id: 1, title: "Planning your project" }, { id: 2, title: "Building the structure" }, { id: 3, title: "Adding features" }, { id: 4, title: "Testing and fixing" }, { id: 5, title: "Final challenge" }] },
+      buildUnit(9, "Objects", "Store data with keys and values", ["Creating an object", "Accessing values", "Adding and updating", "Looping through objects", "Object keys and values", "Object practice"]),
+      buildUnit(10, "The DOM", "Read and update a web page", ["Finding elements", "Changing text", "Changing styles", "Button clicks", "Reading form values", "DOM practice"]),
+      buildUnit(11, "Classes", "Build your own blueprints", ["Defining a class", "The constructor", "Properties", "Methods", "Making an object", "Class practice"]),
+      buildUnit(12, "Final Project", "Build a real JavaScript app", ["Planning your project", "Building the structure", "Adding features", "Testing and fixing", "Refining the project", "Final checks"]),
     ],
   },
 ];
+
+type GeneratedUnitBlueprint = {
+  id: number;
+  title: string;
+  description: string;
+  lessons: UnitLessonBlueprint;
+};
+
+function buildGeneratedSections(units: GeneratedUnitBlueprint[]): SectionMeta[] {
+  return [
+    {
+      ...BASE_SECTION_META[0],
+      units: units.slice(0, 4).map((unit) => ({
+        ...buildUnit(unit.id, unit.title, unit.description, unit.lessons),
+      })),
+    },
+    {
+      ...BASE_SECTION_META[1],
+      units: units.slice(4, 8).map((unit) => ({
+        ...buildUnit(unit.id, unit.title, unit.description, unit.lessons),
+      })),
+    },
+    {
+      ...BASE_SECTION_META[2],
+      units: units.slice(8, 12).map((unit) => ({
+        ...buildUnit(unit.id, unit.title, unit.description, unit.lessons),
+      })),
+    },
+  ];
+}
+
+const TYPESCRIPT_SECTIONS = buildGeneratedSections([
+  { id: 1, title: "Hello Console", description: "Start with typed console output", lessons: ["Use console.log", "Log numbers", "Log strings", "Add comments", "Read output", "Quick console checks"] },
+  { id: 2, title: "Variables", description: "Store values with types", lessons: ["Use let and const", "Add type annotations", "Update variables", "Log variables", "Use variables together", "Variable practice"] },
+  { id: 3, title: "Input", description: "Read values into your program", lessons: ["Read prompt text", "Store input", "Convert input", "Log input", "Input and variables", "Input practice"] },
+  { id: 4, title: "Strings", description: "Work with text and templates", lessons: ["Join strings", "Use length", "Change case", "Use template strings", "String variables", "String practice"] },
+  { id: 5, title: "Conditions", description: "Branch with type-safe checks", lessons: ["Use if", "Use else", "Use else if", "Combine checks", "Compare values", "Condition practice"] },
+  { id: 6, title: "Loops", description: "Repeat code with counters", lessons: ["Use while", "Use for", "Step counters", "Break and continue", "Count patterns", "Loop practice"] },
+  { id: 7, title: "Functions", description: "Build reusable typed functions", lessons: ["Define functions", "Call functions", "Use parameters", "Return values", "Reuse a function", "Function practice"] },
+  { id: 8, title: "Arrays", description: "Store grouped values", lessons: ["Create arrays", "Read items", "Push and pop", "Loop arrays", "Array variables", "Array practice"] },
+  { id: 9, title: "Objects", description: "Shape data with keys", lessons: ["Create objects", "Read properties", "Update properties", "Loop keys", "Named fields", "Object practice"] },
+  { id: 10, title: "DOM Types", description: "Work with typed page elements", lessons: ["Query elements", "Narrow element types", "Set text", "Handle clicks", "Read input values", "DOM practice"] },
+  { id: 11, title: "Interfaces", description: "Describe object shapes", lessons: ["Declare interfaces", "Use typed objects", "Optional fields", "Typed methods", "Read one field", "Interface practice"] },
+  { id: 12, title: "Project Build", description: "Assemble a TypeScript app", lessons: ["Plan features", "Build structure", "Add types", "Test and fix", "Refine the app", "Final checks"] },
+]);
+
+const JAVA_SECTIONS = buildGeneratedSections([
+  { id: 1, title: "Hello Output", description: "Print your first Java lines", lessons: ["Use System.out.println", "Print numbers", "Print strings", "Add comments", "Read output", "Quick output checks"] },
+  { id: 2, title: "Variables", description: "Store typed values", lessons: ["Declare variables", "Pick data types", "Update values", "Print variables", "Use variables together", "Variable practice"] },
+  { id: 3, title: "Scanner Input", description: "Read user input", lessons: ["Create Scanner", "Read text", "Read numbers", "Store input", "Input and variables", "Input practice"] },
+  { id: 4, title: "Strings", description: "Work with Java text", lessons: ["Join strings", "Use length", "Change case", "Format output", "String variables", "String practice"] },
+  { id: 5, title: "Conditions", description: "Control flow with booleans", lessons: ["Use if", "Use else", "Use else if", "Combine checks", "Compare values", "Condition practice"] },
+  { id: 6, title: "Loops", description: "Repeat code in Java", lessons: ["Use while", "Use for", "Count loops", "Break and continue", "Loop counters", "Loop practice"] },
+  { id: 7, title: "Methods", description: "Write reusable methods", lessons: ["Declare methods", "Call methods", "Pass arguments", "Return values", "Reuse a method", "Method practice"] },
+  { id: 8, title: "Arrays", description: "Store ordered values", lessons: ["Create arrays", "Read items", "Change items", "Loop arrays", "Array variables", "Array practice"] },
+  { id: 9, title: "ArrayList", description: "Work with dynamic lists", lessons: ["Create ArrayList", "Add items", "Remove items", "Loop lists", "Read one item", "ArrayList practice"] },
+  { id: 10, title: "Files", description: "Read and write files", lessons: ["Open files", "Read files", "Write files", "Handle errors", "Read vs write mode", "File practice"] },
+  { id: 11, title: "Classes", description: "Build objects in Java", lessons: ["Declare classes", "Use constructors", "Set fields", "Call methods", "Make an object", "Class practice"] },
+  { id: 12, title: "Project Build", description: "Assemble a Java app", lessons: ["Plan features", "Build structure", "Add classes", "Test and fix", "Refine the app", "Final checks"] },
+]);
+
+const CSHARP_SECTIONS = buildGeneratedSections([
+  { id: 1, title: "Hello Console", description: "Print your first C# lines", lessons: ["Use Console.WriteLine", "Print numbers", "Print strings", "Add comments", "Read output", "Quick console checks"] },
+  { id: 2, title: "Variables", description: "Store typed values", lessons: ["Declare variables", "Use var", "Update values", "Print variables", "Use variables together", "Variable practice"] },
+  { id: 3, title: "Console Input", description: "Read user input", lessons: ["Use ReadLine", "Store text", "Parse numbers", "Print input", "Input and variables", "Input practice"] },
+  { id: 4, title: "Strings", description: "Work with text", lessons: ["Join strings", "Use Length", "Change case", "Interpolate strings", "String variables", "String practice"] },
+  { id: 5, title: "Conditions", description: "Control flow with checks", lessons: ["Use if", "Use else", "Use else if", "Combine checks", "Compare values", "Condition practice"] },
+  { id: 6, title: "Loops", description: "Repeat code in C#", lessons: ["Use while", "Use for", "Use foreach", "Break and continue", "Loop counters", "Loop practice"] },
+  { id: 7, title: "Methods", description: "Write reusable methods", lessons: ["Declare methods", "Call methods", "Pass arguments", "Return values", "Reuse a method", "Method practice"] },
+  { id: 8, title: "Lists", description: "Use dynamic collections", lessons: ["Create List", "Add items", "Remove items", "Loop lists", "Read one item", "List practice"] },
+  { id: 9, title: "Dictionaries", description: "Store key-value data", lessons: ["Create dictionary", "Read values", "Update values", "Loop pairs", "Named fields", "Dictionary practice"] },
+  { id: 10, title: "Files", description: "Read and write files", lessons: ["Read text", "Write text", "Append text", "Check paths", "Read vs write mode", "File practice"] },
+  { id: 11, title: "Classes", description: "Build objects in C#", lessons: ["Declare classes", "Use constructors", "Set properties", "Call methods", "Make an object", "Class practice"] },
+  { id: 12, title: "Project Build", description: "Assemble a C# app", lessons: ["Plan features", "Build structure", "Add classes", "Test and fix", "Refine the app", "Final checks"] },
+]);
+
+const RUST_SECTIONS = buildGeneratedSections([
+  { id: 1, title: "Hello Cargo", description: "Print your first Rust lines", lessons: ["Use println!", "Print numbers", "Print strings", "Add comments", "Read output", "Quick output checks"] },
+  { id: 2, title: "Variables", description: "Store values safely", lessons: ["Use let", "Use mut", "Update values", "Print variables", "Use variables together", "Variable practice"] },
+  { id: 3, title: "Input", description: "Read values from stdin", lessons: ["Read a line", "Trim text", "Parse numbers", "Store input", "Input and variables", "Input practice"] },
+  { id: 4, title: "Strings", description: "Work with Rust text", lessons: ["Use String", "Use len", "Push text", "Format output", "String variables", "String practice"] },
+  { id: 5, title: "Conditions", description: "Branch with if and match", lessons: ["Use if", "Use else", "Use else if", "Use match", "Compare values", "Condition practice"] },
+  { id: 6, title: "Loops", description: "Repeat code in Rust", lessons: ["Use loop", "Use while", "Use for", "Break and continue", "Loop counters", "Loop practice"] },
+  { id: 7, title: "Functions", description: "Write reusable functions", lessons: ["Define functions", "Call functions", "Pass arguments", "Return values", "Reuse a function", "Function practice"] },
+  { id: 8, title: "Vectors", description: "Store grouped values", lessons: ["Create Vec", "Push items", "Read items", "Loop vectors", "Read one item", "Vector practice"] },
+  { id: 9, title: "Structs", description: "Shape custom data", lessons: ["Declare structs", "Create structs", "Update fields", "Impl methods", "Read one field", "Struct practice"] },
+  { id: 10, title: "Files", description: "Read and write files", lessons: ["Open files", "Read text", "Write text", "Handle Result", "Read vs write mode", "File practice"] },
+  { id: 11, title: "Enums", description: "Represent typed states", lessons: ["Declare enums", "Use variants", "Match values", "Use Option", "Read one variant", "Enum practice"] },
+  { id: 12, title: "Project Build", description: "Assemble a Rust app", lessons: ["Plan features", "Build modules", "Handle errors", "Test and fix", "Refine the app", "Final checks"] },
+]);
+
+const LUA_SECTIONS = buildGeneratedSections([
+  { id: 1, title: "Hello Print", description: "Print your first Lua lines", lessons: ["Use print", "Print numbers", "Print strings", "Add comments", "Read output", "Quick output checks"] },
+  { id: 2, title: "Variables", description: "Store values in Lua", lessons: ["Declare locals", "Store text", "Update values", "Print variables", "Use variables together", "Variable practice"] },
+  { id: 3, title: "Input", description: "Read values from the console", lessons: ["Use io.read", "Store input", "Convert numbers", "Print input", "Input and variables", "Input practice"] },
+  { id: 4, title: "Strings", description: "Work with Lua text", lessons: ["Join strings", "Use string.len", "Change case", "Format strings", "String variables", "String practice"] },
+  { id: 5, title: "Conditions", description: "Branch with if statements", lessons: ["Use if", "Use else", "Use elseif", "Combine checks", "Compare values", "Condition practice"] },
+  { id: 6, title: "Loops", description: "Repeat code in Lua", lessons: ["Use while", "Use numeric for", "Use ipairs", "Break loops", "Loop counters", "Loop practice"] },
+  { id: 7, title: "Functions", description: "Write reusable functions", lessons: ["Declare functions", "Call functions", "Pass arguments", "Return values", "Reuse a function", "Function practice"] },
+  { id: 8, title: "Tables", description: "Store grouped values", lessons: ["Create tables", "Read items", "Write items", "Loop tables", "Read one item", "Table practice"] },
+  { id: 9, title: "Modules", description: "Split code across files", lessons: ["Return a table", "Require a module", "Call module functions", "Store module data", "Use one field", "Module practice"] },
+  { id: 10, title: "Files", description: "Read and write files", lessons: ["Open files", "Read text", "Write text", "Close files", "Read vs write mode", "File practice"] },
+  { id: 11, title: "Metatables", description: "Customize table behavior", lessons: ["Create metatables", "Use __index", "Use __add", "Build objects", "Read one field", "Metatable practice"] },
+  { id: 12, title: "Project Build", description: "Assemble a Lua app", lessons: ["Plan features", "Build modules", "Add tables", "Test and fix", "Refine the app", "Final checks"] },
+]);
 
 const MINI_COURSES: Record<LearningLanguage, MiniCourseMeta[]> = {
   python: [
@@ -152,49 +323,109 @@ const MINI_COURSES: Record<LearningLanguage, MiniCourseMeta[]> = {
     {
       id: "random",
       title: "Random",
-      subtitle: "Games and surprises",
-      description: "Use random choices and numbers to make quizzes, dice, and small games.",
-      status: "planned",
+      subtitle: "Ranges, samples, and lucky picks",
+      description: "Use the random docs for integers, floats, samples, seeds, and weighted choices in Python.",
+      status: "live",
       badge: "RD",
+      href: "/labs/python/random",
     },
     {
-      id: "pygame-zero",
-      title: "Pygame Zero",
-      subtitle: "Tiny game projects",
-      description: "Build beginner-friendly arcade games with sprites, movement, and scorekeeping.",
-      status: "planned",
+      id: "pygame",
+      title: "Pygame",
+      subtitle: "2D game systems and APIs",
+      description: "Build game windows, surfaces, sprites, collisions, audio, vectors, and rendering with Python.",
+      status: "live",
       badge: "PG",
+      href: "/labs/python/pygame",
     },
   ],
   javascript: [
     {
       id: "fetch-api",
       title: "Fetch API",
-      subtitle: "Talk to the internet",
-      description: "Load JSON, call APIs, and build projects that use real-world data.",
-      status: "coming_soon",
+      subtitle: "Requests, headers, and responses",
+      description: "Use Fetch docs coverage for request options, headers, bodies, JSON, and response helpers.",
+      status: "live",
       badge: "FX",
+      href: "/labs/javascript/fetch-api",
     },
     {
       id: "canvas",
       title: "Canvas",
-      subtitle: "Draw in the browser",
-      description: "Make interactive sketches, particle effects, and simple game scenes with JavaScript.",
-      status: "planned",
+      subtitle: "Shapes, paths, text, and transforms",
+      description: "Cover more Canvas docs with drawing paths, text, images, state, and transform helpers.",
+      status: "live",
       badge: "CV",
+      href: "/labs/javascript/canvas",
     },
     {
       id: "dom-projects",
       title: "DOM Projects",
-      subtitle: "Mini app builds",
-      description: "Practice events, forms, and UI updates by making small interactive tools.",
-      status: "planned",
+      subtitle: "Select, build, and update UI",
+      description: "Practice broader DOM docs coverage with selectors, events, classes, attributes, and created elements.",
+      status: "live",
       badge: "DM",
+      href: "/labs/javascript/dom-projects",
+    },
+  ],
+  typescript: [
+    {
+      id: "ts-dom",
+      title: "DOM Types",
+      subtitle: "Typed queries and DOM guards",
+      description: "Use TypeScript DOM docs patterns for typed queries, narrowing, events, and element creation.",
+      status: "live",
+      badge: "TD",
+      href: "/labs/typescript/ts-dom",
+    },
+  ],
+  java: [
+    {
+      id: "array-list",
+      title: "ArrayList",
+      subtitle: "Grow, search, and reshape lists",
+      description: "Cover more ArrayList docs with inserts, updates, searches, loops, and list-combining helpers.",
+      status: "live",
+      badge: "AL",
+      href: "/labs/java/array-list",
+    },
+  ],
+  csharp: [
+    {
+      id: "http-client",
+      title: "HttpClient",
+      subtitle: "Requests, headers, and JSON",
+      description: "Use HttpClient docs for request messages, JSON content, headers, and cancellation-aware API calls.",
+      status: "live",
+      badge: "HC",
+      href: "/labs/csharp/http-client",
+    },
+  ],
+  rust: [
+    {
+      id: "vec",
+      title: "Vec",
+      subtitle: "Grow, inspect, and trim vectors",
+      description: "Cover more Vec docs with safe reads, inserts, removals, mutable loops, and trimming helpers.",
+      status: "live",
+      badge: "VC",
+      href: "/labs/rust/vec",
+    },
+  ],
+  lua: [
+    {
+      id: "tables",
+      title: "Tables",
+      subtitle: "Fields, helpers, and table tools",
+      description: "Use more Lua table docs for fields, iteration, joins, sorting, packing, and range moves.",
+      status: "live",
+      badge: "TB",
+      href: "/labs/lua/tables",
     },
   ],
 };
 
-const LESSON_TOPICS: Record<LearningLanguage, Record<string, Record<string, string>>> = {
+const LESSON_TOPICS: Partial<Record<LearningLanguage, Record<string, Record<string, string>>>> = {
   python: {
     "1": { "1": "the print() function in Python and how to display text on the screen using print('hello')", "2": "printing numbers in Python using print() with integers and floats like print(42)", "3": "printing multiple things in Python using commas in print() like print('hello', 'world')", "4": "comments in Python using the # symbol to write notes in code" },
     "2": { "1": "creating variables in Python like name = 'Alice' or age = 25", "2": "rules for naming variables in Python. No spaces, no special characters, case sensitive", "3": "changing a variable value in Python by reassigning it", "4": "printing variables in Python using print(variable_name)" },
@@ -225,7 +456,7 @@ const LESSON_TOPICS: Record<LearningLanguage, Record<string, Record<string, stri
   },
 };
 
-const UNIT_CHALLENGES: Record<LearningLanguage, Record<string, UnitChallenge>> = {
+const UNIT_CHALLENGES: Partial<Record<LearningLanguage, Record<string, UnitChallenge>>> = {
   python: {
     "1": { title: "Hello World Challenge", description: "Use what you learned about print() and comments to complete this challenge.", prompt: `Write a Python program that:
 1. Prints your name
@@ -446,16 +677,30 @@ Bob: 555-5678` },
   },
 };
 
+const LANGUAGE_SECTIONS: Record<LearningLanguage, SectionMeta[]> = {
+  python: PYTHON_SECTIONS,
+  javascript: JAVASCRIPT_SECTIONS,
+  typescript: TYPESCRIPT_SECTIONS,
+  java: JAVA_SECTIONS,
+  csharp: CSHARP_SECTIONS,
+  rust: RUST_SECTIONS,
+  lua: LUA_SECTIONS,
+};
+
 export function normalizeLanguage(language?: string | null): LearningLanguage {
-  return language === "javascript" ? "javascript" : "python";
+  if (language && SUPPORTED_LANGUAGES.includes(language as LearningLanguage)) {
+    return language as LearningLanguage;
+  }
+
+  return "python";
 }
 
 export function getLanguageLabel(language?: string | null): string {
-  return normalizeLanguage(language) === "javascript" ? "JavaScript" : "Python";
+  return LANGUAGE_LABELS[normalizeLanguage(language)];
 }
 
 export function getCourseSections(language?: string | null): SectionMeta[] {
-  return normalizeLanguage(language) === "javascript" ? JAVASCRIPT_SECTIONS : PYTHON_SECTIONS;
+  return LANGUAGE_SECTIONS[normalizeLanguage(language)];
 }
 
 export function getMiniCourses(language?: string | null): MiniCourseMeta[] {
@@ -464,10 +709,48 @@ export function getMiniCourses(language?: string | null): MiniCourseMeta[] {
 
 export function getLessonTopic(language: string | null | undefined, unitId: string, lessonId: string): string {
   const normalizedLanguage = normalizeLanguage(language);
-  return LESSON_TOPICS[normalizedLanguage]?.[unitId]?.[lessonId] || `${getLanguageLabel(normalizedLanguage)} basics`;
+  const explicit = LESSON_TOPICS[normalizedLanguage]?.[unitId]?.[lessonId];
+  if (explicit) return explicit;
+
+  const sectionUnit = LANGUAGE_SECTIONS[normalizedLanguage]
+    .flatMap((section) => section.units)
+    .find((unit) => String(unit.id) === unitId);
+  const lesson = sectionUnit?.lessons.find((item) => String(item.id) === lessonId);
+
+  if (sectionUnit && lesson) {
+    return `${lesson.title} in ${getLanguageLabel(normalizedLanguage)} inside the unit ${sectionUnit.title}. Keep it beginner-friendly and use only ${getLanguageLabel(normalizedLanguage)} syntax.`;
+  }
+
+  return `${getLanguageLabel(normalizedLanguage)} basics`;
 }
 
 export function getUnitChallenge(language: string | null | undefined, unitId: string): UnitChallenge | null {
   const normalizedLanguage = normalizeLanguage(language);
-  return UNIT_CHALLENGES[normalizedLanguage]?.[unitId] || null;
+  const explicit = UNIT_CHALLENGES[normalizedLanguage]?.[unitId];
+  if (explicit) return explicit;
+
+  const unit = LANGUAGE_SECTIONS[normalizedLanguage]
+    .flatMap((section) => section.units)
+    .find((item) => String(item.id) === unitId);
+
+  if (!unit) return null;
+
+  return {
+    title: `${unit.title} Challenge`,
+    description: `Apply ${unit.title} in a short ${getLanguageLabel(normalizedLanguage)} program.`,
+    prompt: `Write a ${getLanguageLabel(normalizedLanguage)} program that:
+1. Uses the main idea from ${unit.title}
+2. Stores at least one value
+3. Prints a clear result
+4. Includes one small extension of your own`,
+    exampleOutput: `Program output goes here`,
+  };
+}
+
+export function getLanguageCommentPrefix(language?: string | null): string {
+  return LANGUAGE_COMMENT_PREFIX[normalizeLanguage(language)];
+}
+
+export function languageHasPlacement(language?: string | null): boolean {
+  return LANGUAGE_HAS_PLACEMENT[normalizeLanguage(language)];
 }

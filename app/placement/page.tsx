@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { getLanguageLabel } from "@/lib/courseContent";
+import { getLanguageLabel, languageHasPlacement, type LearningLanguage } from "@/lib/courseContent";
 import { resolveActiveLanguage, setStoredActiveLanguage } from "@/lib/progress";
 
 type PlacementQuestion = {
@@ -315,7 +315,7 @@ function getPlacement(results: boolean[]): number {
 
 export default function PlacementTest() {
   const router = useRouter();
-  const [currentLanguage, setCurrentLanguage] = useState<"python" | "javascript" | null>(null);
+  const [currentLanguage, setCurrentLanguage] = useState<LearningLanguage | null>(null);
   const [mounted, setMounted] = useState(false);
   const [phase, setPhase] = useState<"intro" | "test" | "results">("intro");
   const [current, setCurrent] = useState(0);
@@ -325,11 +325,11 @@ export default function PlacementTest() {
   const [placement, setPlacement] = useState(1);
   const [saving, setSaving] = useState(false);
 
+  const displayLanguage: "python" | "javascript" = currentLanguage === "javascript" ? "javascript" : "python";
   const questions = useMemo(
-    () => currentLanguage === "javascript" ? JAVASCRIPT_PLACEMENT_QUESTIONS : PYTHON_PLACEMENT_QUESTIONS,
-    [currentLanguage]
+    () => displayLanguage === "javascript" ? JAVASCRIPT_PLACEMENT_QUESTIONS : PYTHON_PLACEMENT_QUESTIONS,
+    [displayLanguage]
   );
-  const displayLanguage = currentLanguage ?? "python";
 
   const question = questions[current];
   const progress = ((current + (answered ? 1 : 0)) / questions.length) * 100;
@@ -348,7 +348,13 @@ export default function PlacementTest() {
     const loadLanguage = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      setCurrentLanguage(await resolveActiveLanguage(user.id));
+      const resolvedLanguage = await resolveActiveLanguage(user.id);
+      if (!languageHasPlacement(resolvedLanguage)) {
+        router.push("/learn");
+        return;
+      }
+
+      setCurrentLanguage(resolvedLanguage);
     };
 
     loadLanguage();

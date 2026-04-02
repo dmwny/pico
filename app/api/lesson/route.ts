@@ -1,13 +1,19 @@
 import { QUESTION_BANK } from "./questionBank";
 import { JAVASCRIPT_QUESTION_BANK } from "./javascriptQuestionBank";
 import { getLanguageLabel, normalizeLanguage } from "@/lib/courseContent";
+import { getGeneratedLessonData } from "./generatedQuestionBank";
 
 export async function POST(req: Request) {
   const { topic, unitId, lessonId, language } = await req.json();
   const currentLanguage = normalizeLanguage(language);
 
-  const bank = currentLanguage === "javascript" ? JAVASCRIPT_QUESTION_BANK : QUESTION_BANK;
-  const unitData = bank[unitId]?.[lessonId];
+  const bank =
+    currentLanguage === "javascript"
+      ? JAVASCRIPT_QUESTION_BANK
+      : currentLanguage === "python"
+        ? QUESTION_BANK
+        : null;
+  const unitData = bank?.[unitId]?.[lessonId];
 
   if (unitData) {
     const shuffled = [...unitData.questions].sort(() => Math.random() - 0.5);
@@ -15,6 +21,11 @@ export async function POST(req: Request) {
       teaching: unitData.teaching,
       questions: shuffled.slice(0, 4),
     });
+  }
+
+  const generatedLesson = getGeneratedLessonData(currentLanguage, String(unitId), String(lessonId));
+  if (generatedLesson) {
+    return Response.json(generatedLesson);
   }
 
   // Fallback to AI if no hardcoded questions exist

@@ -7,14 +7,14 @@ import { supabase } from "@/lib/supabase";
 import Pico from "@/components/Pico";
 import MobileDock from "@/components/MobileDock";
 import { resolveActiveLanguage, setStoredActiveLanguage } from "@/lib/progress";
-import { getMiniCourses, type LearningLanguage } from "@/lib/courseContent";
+import { getLanguageLabel, getMiniCourses, languageHasPlacement, type LearningLanguage } from "@/lib/courseContent";
 
 type LanguageCard = {
   id: string;
   label: string;
   description: string;
   tileClass: string;
-  icon: "python" | "javascript" | "typescript" | "java" | "csharp" | "rust";
+  icon: "python" | "javascript" | "typescript" | "java" | "csharp" | "rust" | "lua";
   status: "live" | "reserve";
   footprint: string;
 };
@@ -44,7 +44,7 @@ const LANGUAGE_CARDS: LanguageCard[] = [
     description: "TypeScript for typed JavaScript and large applications.",
     tileClass: "bg-[#3178C6] text-white",
     icon: "typescript",
-    status: "reserve",
+    status: "live",
     footprint: "lg:col-span-1",
   },
   {
@@ -53,7 +53,7 @@ const LANGUAGE_CARDS: LanguageCard[] = [
     description: "Java for backend systems and object-oriented development.",
     tileClass: "bg-[#EA7A2F] text-white",
     icon: "java",
-    status: "reserve",
+    status: "live",
     footprint: "lg:col-span-1",
   },
   {
@@ -62,7 +62,7 @@ const LANGUAGE_CARDS: LanguageCard[] = [
     description: "C# for .NET applications, tools, and games.",
     tileClass: "bg-[#7C3AED] text-white",
     icon: "csharp",
-    status: "reserve",
+    status: "live",
     footprint: "lg:col-span-1",
   },
   {
@@ -71,7 +71,16 @@ const LANGUAGE_CARDS: LanguageCard[] = [
     description: "Rust for systems programming and memory safety.",
     tileClass: "bg-[#2F2B28] text-white",
     icon: "rust",
-    status: "reserve",
+    status: "live",
+    footprint: "lg:col-span-1",
+  },
+  {
+    id: "lua",
+    label: "Lua",
+    description: "Lua for scripting, mods, and compact game logic.",
+    tileClass: "bg-[#000080] text-white",
+    icon: "lua",
+    status: "live",
     footprint: "lg:col-span-1",
   },
 ];
@@ -120,6 +129,17 @@ function LanguageLogo({ icon }: { icon: LanguageCard["icon"] }) {
       <svg viewBox="0 0 128 128" className="h-8 w-8" aria-hidden="true">
         <path fill="#68217A" d="m112.8 37.5-38.4-22.2a20.8 20.8 0 0 0-20.8 0L15.2 37.5A20.8 20.8 0 0 0 4.8 55.6v44.8a20.8 20.8 0 0 0 10.4 18.1l38.4 22.2a20.8 20.8 0 0 0 20.8 0l38.4-22.2a20.8 20.8 0 0 0 10.4-18.1V55.6a20.8 20.8 0 0 0-10.4-18.1Z"/>
         <path fill="#FFF" d="M58.1 95.3c-17.9 0-31.1-10.4-31.1-29.4s13.2-29.4 31.1-29.4c11.4 0 19.1 4.8 24.3 12.2l-10.7 7.5c-3.3-4.7-7.4-7.7-13.6-7.7-10 0-17.2 6.7-17.2 17.4s7.2 17.4 17.2 17.4c6.6 0 10.6-2.9 14-7.8l10.7 7.3c-5.2 7.7-12.9 12.5-24.7 12.5Zm32.2-18.7V71h-5.6v-4.7h5.6v-5.5h4.9v5.5h5.7V71h-5.7v5.6Zm13 0V71h-5.6v-4.7h5.6v-5.5h4.9v5.5h5.7V71h-5.7v5.6Z"/>
+      </svg>
+    );
+  }
+
+  if (icon === "lua") {
+    return (
+      <svg viewBox="0 0 128 128" className="h-8 w-8" aria-hidden="true">
+        <circle cx="64" cy="64" r="54" fill="#000080" />
+        <circle cx="84" cy="42" r="16" fill="#fff" opacity="0.95" />
+        <circle cx="80" cy="42" r="16" fill="#000080" />
+        <circle cx="96" cy="24" r="10" fill="#9bb1ff" />
       </svg>
     );
   }
@@ -281,7 +301,7 @@ export default function LanguagePage() {
       }
 
       setStoredActiveLanguage(userId, selected);
-      router.push(savedProgress ? "/learn" : "/placement");
+      router.push(savedProgress ? "/learn" : languageHasPlacement(selected) ? "/placement" : "/learn");
       return;
     }
 
@@ -309,7 +329,7 @@ export default function LanguagePage() {
             <div className="mt-8 grid gap-4 sm:grid-cols-[1fr_0.9fr]">
               <div className="border border-[rgba(44,62,80,0.12)] bg-[#F1ECE5] p-4">
                 <p className="text-[0.68rem] font-bold uppercase tracking-[0.24em] text-[#556675]">Current course</p>
-                <p className="mt-3 text-3xl font-black text-[#2C3E50]">{currentLanguage === "javascript" ? "JavaScript" : "Python"}</p>
+                <p className="mt-3 text-3xl font-black text-[#2C3E50]">{getLanguageLabel(currentLanguage ?? "python")}</p>
               </div>
               <div className="border border-[rgba(44,62,80,0.12)] bg-[#2C3E50] p-4 text-[#ECF0F1] sm:translate-y-6">
                 <p className="text-[0.68rem] font-bold uppercase tracking-[0.24em] text-[#F4C28A]">Course count</p>

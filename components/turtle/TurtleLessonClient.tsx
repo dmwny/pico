@@ -36,6 +36,7 @@ export default function TurtleLessonPage() {
   const nextLesson = lessonIndex >= 0 ? allLessons[lessonIndex + 1] : null;
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [questionIndex, setQuestionIndex] = useState(0);
   const [selectedTiles, setSelectedTiles] = useState<string[]>([]);
   const [feedback, setFeedback] = useState<"idle" | "correct" | "wrong">("idle");
   const [completedLessons, setCompletedLessons] = useState<string[]>([]);
@@ -85,9 +86,16 @@ export default function TurtleLessonPage() {
 
   useEffect(() => {
     if (!lesson || !canvasRef.current) return;
-    const previewCode = fillTurtleCode(lesson.codeLines, selectedTiles, lesson.previewDefaults).join("\n");
+    const question = lesson.questions[questionIndex];
+    const previewCode = fillTurtleCode(question.codeLines, selectedTiles, question.previewDefaults).join("\n");
     setResult(runTurtleProgram(previewCode, canvasRef.current));
-  }, [lesson, selectedTiles]);
+  }, [lesson, questionIndex, selectedTiles]);
+
+  useEffect(() => {
+    setQuestionIndex(0);
+    setSelectedTiles([]);
+    setFeedback("idle");
+  }, [lessonId, unitId]);
 
   if (!lesson) {
     return (
@@ -99,15 +107,21 @@ export default function TurtleLessonPage() {
     );
   }
 
-  const blankCount = lesson.answer.length;
-  const availableTiles = lesson.tiles.filter((tile, index) => {
+  const question = lesson.questions[questionIndex];
+  const blankCount = question.answer.length;
+  const availableTiles = question.tiles.filter((tile, index) => {
     const selectedCount = selectedTiles.filter((item) => item === tile).length;
-    const tileCount = lesson.tiles.slice(0, index + 1).filter((item) => item === tile).length;
+    const tileCount = question.tiles.slice(0, index + 1).filter((item) => item === tile).length;
     return selectedCount < tileCount;
   });
 
-  const filledCodeLines = fillTurtleCode(lesson.codeLines, selectedTiles, Array(blankCount).fill("___"));
-  const progressPercent = ((lessonIndex + 1) / Math.max(allLessons.length, 1)) * 100;
+  const filledCodeLines = fillTurtleCode(question.codeLines, selectedTiles, Array(blankCount).fill("___"));
+  const completedQuestionCountBeforeLesson = allLessons
+    .slice(0, Math.max(lessonIndex, 0))
+    .reduce((total, item) => total + item.questions.length, 0);
+  const totalQuestionCount = allLessons.reduce((total, item) => total + item.questions.length, 0);
+  const progressPercent = ((completedQuestionCountBeforeLesson + questionIndex + 1) / Math.max(totalQuestionCount, 1)) * 100;
+  const isLastQuestion = questionIndex === lesson.questions.length - 1;
 
   async function handleCorrect() {
     const key = getTurtleLessonKey(unitId, lessonId);
@@ -151,10 +165,12 @@ export default function TurtleLessonPage() {
 
   async function checkAnswer() {
     if (!lesson) return;
-    const correct = lesson.answer.every((value, index) => selectedTiles[index] === value);
+    const correct = question.answer.every((value, index) => selectedTiles[index] === value);
     setFeedback(correct ? "correct" : "wrong");
     if (correct) {
-      await handleCorrect();
+      if (isLastQuestion) {
+        await handleCorrect();
+      }
     }
   }
 
@@ -194,7 +210,12 @@ export default function TurtleLessonPage() {
               <div className="min-w-0 flex-1 rounded-[1.75rem] border border-gray-100 bg-white px-6 py-5 shadow-sm">
                 <p className="text-xs font-extrabold uppercase tracking-[0.24em] text-green-500">Unit {lesson.unitId}</p>
                 <h1 className="mt-3 text-4xl font-black leading-tight text-gray-900">{lesson.title}</h1>
-                <p className="mt-3 text-base font-semibold leading-7 text-gray-600">{lesson.prompt}</p>
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <p className="text-base font-semibold leading-7 text-gray-600">{question.prompt}</p>
+                  <span className="rounded-full border border-gray-200 px-3 py-1 text-xs font-extrabold uppercase tracking-[0.18em] text-gray-500">
+                    Question {questionIndex + 1}/5
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -254,11 +275,20 @@ export default function TurtleLessonPage() {
             <div className="mt-6 flex flex-wrap gap-3">
               <button
                 type="button"
-                disabled={selectedTiles.length !== blankCount || saving || loading}
-                onClick={checkAnswer}
+                disabled={feedback === "correct" ? false : selectedTiles.length !== blankCount || saving || loading}
+                onClick={() => {
+                  if (feedback === "correct" && !isLastQuestion) {
+                    setQuestionIndex((current) => current + 1);
+                    setSelectedTiles([]);
+                    setFeedback("idle");
+                    return;
+                  }
+
+                  void checkAnswer();
+                }}
                 className="rounded-[1.4rem] bg-green-500 px-6 py-3 text-sm font-extrabold uppercase tracking-[0.18em] text-white shadow-sm transition hover:bg-green-600 disabled:cursor-not-allowed disabled:bg-green-200"
               >
-              {saving ? "Saving..." : "Check"}
+                {feedback === "correct" && !isLastQuestion ? "Next question" : saving ? "Saving..." : "Check"}
               </button>
               <button
                 type="button"
@@ -270,7 +300,7 @@ export default function TurtleLessonPage() {
               >
                 Reset
               </button>
-              {feedback === "correct" ? (
+              {feedback === "correct" && isLastQuestion ? (
                 <a
                   href="/labs/python/turtle"
                   className="rounded-[1.4rem] border border-gray-200 bg-white px-6 py-3 text-sm font-extrabold uppercase tracking-[0.18em] text-gray-700 shadow-sm transition hover:bg-gray-50"
@@ -278,7 +308,7 @@ export default function TurtleLessonPage() {
                   Finish lesson
                 </a>
               ) : null}
-              {feedback === "correct" && nextLesson ? (
+              {feedback === "correct" && isLastQuestion && nextLesson ? (
                 <a
                   href={`/labs/python/turtle/${nextLesson.unitId}/${nextLesson.lessonId}`}
                   className="rounded-[1.4rem] border border-gray-200 bg-white px-6 py-3 text-sm font-extrabold uppercase tracking-[0.18em] text-gray-700 shadow-sm transition hover:bg-gray-50"
@@ -298,10 +328,12 @@ export default function TurtleLessonPage() {
               }`}
             >
               {feedback === "correct"
-                ? "Correct. The Turtle preview now matches the target move."
+                ? isLastQuestion
+                  ? "Correct. The Turtle preview now matches the target move."
+                  : "Correct. Open the next question to keep going."
                 : feedback === "wrong"
                   ? "Not quite. Watch the preview and compare the movement to the prompt."
-                  : lesson.note}
+                  : question.note}
             </div>
           </section>
 

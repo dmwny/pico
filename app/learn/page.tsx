@@ -8,7 +8,7 @@ import Pico from "@/components/Pico";
 import { ACHIEVEMENTS } from "@/lib/achievements";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import MobileDock from "@/components/MobileDock";
-import { getCourseSections, getLanguageLabel, getMiniCourses } from "@/lib/courseContent";
+import { getCourseSections, getLanguageLabel, getMiniCourses, languageHasPlacement } from "@/lib/courseContent";
 import { mergeProgressSources, resolveActiveLanguage, setStoredLanguageProgress, getStoredLanguageProgress } from "@/lib/progress";
 
 const PATH_POSITIONS = ["ml-24", "ml-40", "ml-52", "ml-40", "ml-24"];
@@ -119,9 +119,14 @@ function LearnInner() {
     setLoading(false);
   };
 
+  const getLastLessonId = (unitId: number) => {
+    const unit = sections.flatMap((section) => section.units).find((item) => item.id === unitId);
+    return unit?.lessons[unit.lessons.length - 1]?.id ?? 1;
+  };
+
   const isUnlocked = (unitId: number, lessonId: number) => {
     if (unitId === 1 && lessonId === 1) return true;
-    const prevLesson = lessonId > 1 ? `${unitId}-${lessonId - 1}` : `${unitId - 1}-5`;
+    const prevLesson = lessonId > 1 ? `${unitId}-${lessonId - 1}` : `${unitId - 1}-${getLastLessonId(unitId - 1)}`;
     return completedLessons.includes(prevLesson);
   };
 
@@ -164,6 +169,7 @@ function LearnInner() {
     return null;
   };
   const currentUnitInfo = findCurrentUnit();
+  const showResolvedSidebarContent = mounted && !loading;
 
   const openGuidebook = async (unit: any) => {
     setGuidebook({ unitId: unit.id, unitDescription: unit.description, loading: true, content: null });
@@ -263,9 +269,9 @@ function LearnInner() {
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               Daily Challenge
             </a>
-            <a href="/placement" className="flex items-center gap-3 px-4 py-3 rounded-2xl text-gray-500 font-extrabold text-sm hover:bg-gray-100 transition">
+            <a href={languageHasPlacement(currentLanguage) ? "/placement" : "/learn"} className="flex items-center gap-3 px-4 py-3 rounded-2xl text-gray-500 font-extrabold text-sm hover:bg-gray-100 transition">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              {currentLanguage === "python" ? "Placement Test" : "Course Setup"}
+              {languageHasPlacement(currentLanguage) ? "Placement Test" : "Course Start"}
             </a>
             <a href="/achievements" className="flex items-center gap-3 px-4 py-3 rounded-2xl text-gray-500 font-extrabold text-sm hover:bg-gray-100 transition">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" /></svg>
@@ -291,14 +297,14 @@ function LearnInner() {
               </div>
             ) : (
               <>
-                {completedLessons.length === 0 && (
+                {completedLessons.length === 0 && languageHasPlacement(currentLanguage) && (
                   <div className="bg-white rounded-3xl shadow-sm p-5 mb-8 border-2 border-green-100">
                     <p className="font-extrabold text-gray-900 mb-1">Already know some {getLanguageLabel(currentLanguage)}?</p>
                     <p className="text-gray-500 font-semibold text-sm mb-3">
-                      {currentLanguage === "python" ? "Take a quick test to skip ahead." : "Jump back to the start of the JavaScript path any time."}
+                      Take a quick test to skip ahead.
                     </p>
                     <a href="/placement" className="block w-full bg-green-500 text-white font-extrabold py-2.5 rounded-2xl hover:bg-green-600 transition text-center text-sm shadow-md">
-                      {currentLanguage === "python" ? "Take placement test" : "Reset course start"}
+                      Take placement test
                     </a>
                   </div>
                 )}
@@ -366,11 +372,11 @@ function LearnInner() {
                               const unlocked = isUnlocked(unit.id, lesson.id);
                               const completed = completedLessons.includes(`${unit.id}-${lesson.id}`);
                               const key = `${unit.id}-${lesson.id}`;
-                              const isChallenge = lesson.id === 5;
+                              const isChallenge = lesson.title.toLowerCase().includes("challenge");
                               const isCurrent = key === currentLessonKey;
 
                               return (
-                                <div key={lesson.id} className={`flex ${PATH_POSITIONS[index]}`}>
+                                <div key={lesson.id} className={`flex ${PATH_POSITIONS[index % PATH_POSITIONS.length]}`}>
                                   <div className="relative">
                                     {tooltip === key && (
                                       <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs font-bold px-3 py-1.5 rounded-xl whitespace-nowrap z-20 shadow-lg">
@@ -512,12 +518,12 @@ function LearnInner() {
                     Small tracks for APIs, libraries, and tools
                   </p>
                 </div>
-                <span className="text-[11px] font-extrabold uppercase tracking-wider text-green-500">
+                <span suppressHydrationWarning className="text-[11px] font-extrabold uppercase tracking-wider text-green-500">
                   {getLanguageLabel(currentLanguage)}
                 </span>
               </div>
               <div className="space-y-3">
-                {miniCourses.map((course) => (
+                {showResolvedSidebarContent ? miniCourses.map((course) => (
                   <div
                     key={course.id}
                     className="relative rounded-2xl border border-gray-100 bg-gray-50 px-3 py-3"
@@ -596,7 +602,25 @@ function LearnInner() {
                       </div>
                     </div>
                   </div>
-                ))}
+                )) : (
+                  <div className="space-y-3">
+                    {[1, 2, 3].map((index) => (
+                      <div key={index} className="rounded-2xl border border-gray-100 bg-gray-50 px-3 py-3">
+                        <div className="animate-pulse">
+                          <div className="flex items-start gap-3">
+                            <div className="h-11 w-11 rounded-2xl bg-gray-200" />
+                            <div className="min-w-0 flex-1 space-y-2">
+                              <div className="h-4 w-28 rounded bg-gray-200" />
+                              <div className="h-3 w-32 rounded bg-gray-200" />
+                              <div className="h-3 w-full rounded bg-gray-200" />
+                              <div className="h-3 w-5/6 rounded bg-gray-200" />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
