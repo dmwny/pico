@@ -6,9 +6,17 @@ interface PicoProps {
   size?: number;        // width in px, height scales proportionally
   mood?: "happy" | "sad" | "dead" | "celebrate";
   className?: string;
+  lookX?: number;
+  lookY?: number;
 }
 
-export default function Pico({ size = 120, mood = "happy", className = "" }: PicoProps) {
+export default function Pico({
+  size = 120,
+  mood = "happy",
+  className = "",
+  lookX = 0,
+  lookY = 0,
+}: PicoProps) {
   const [blinking, setBlinking] = useState(false);
 
   // Random blink every 2–5 seconds
@@ -33,8 +41,11 @@ export default function Pico({ size = 120, mood = "happy", className = "" }: Pic
 
   // Eye shape: normal = circle, dead = X lines, sad = half-closed
   const eyeSize    = isDead ? 0 : blinking ? 1 : 12;
-  const pupilSize  = blinking ? 0 : 6;
   const eyeOffsetY = isSad ? 4 : 0;
+  const gazeX = Math.max(-1, Math.min(1, lookX));
+  const gazeY = Math.max(-1, Math.min(1, lookY));
+  const pupilOffsetX = isDead || blinking ? 0 : gazeX * 3.5;
+  const pupilOffsetY = isDead || blinking ? 0 : gazeY * 2.75;
 
   // Beak: open wider when celebrating
   const beakOpen   = isCelebrate ? 14 : 8;
@@ -135,21 +146,21 @@ export default function Pico({ size = 120, mood = "happy", className = "" }: Pic
               <circle cx="148" cy={222 + eyeOffsetY} r="18" fill="white"/>
               <path d={`M64 ${214 + eyeOffsetY} Q82 ${207 + eyeOffsetY} 100 ${214 + eyeOffsetY}`} fill="#22c55e"/>
               <path d={`M130 ${214 + eyeOffsetY} Q148 ${207 + eyeOffsetY} 166 ${214 + eyeOffsetY}`} fill="#22c55e"/>
-              <circle cx="86"  cy={224 + eyeOffsetY} r={blinking ? 1 : 11} fill="#1e293b"/>
-              <circle cx="152" cy={224 + eyeOffsetY} r={blinking ? 1 : 11} fill="#1e293b"/>
-              <circle cx="88"  cy={220 + eyeOffsetY} r={blinking ? 0 : 4}  fill="white"/>
-              <circle cx="154" cy={220 + eyeOffsetY} r={blinking ? 0 : 4}  fill="white"/>
+              <circle cx={86 + pupilOffsetX}  cy={224 + eyeOffsetY + pupilOffsetY} r={blinking ? 1 : 11} fill="#1e293b"/>
+              <circle cx={152 + pupilOffsetX} cy={224 + eyeOffsetY + pupilOffsetY} r={blinking ? 1 : 11} fill="#1e293b"/>
+              <circle cx={88 + pupilOffsetX}  cy={220 + eyeOffsetY + pupilOffsetY} r={blinking ? 0 : 4}  fill="white"/>
+              <circle cx={154 + pupilOffsetX} cy={220 + eyeOffsetY + pupilOffsetY} r={blinking ? 0 : 4}  fill="white"/>
             </>
           ) : (
             <>
               <circle cx="82"  cy="222" r="18" fill="white"/>
               <circle cx="148" cy="222" r="18" fill="white"/>
-              <circle cx="86"  cy="224" r={eyeSize}  fill="#1e293b"/>
-              <circle cx="152" cy="224" r={eyeSize}  fill="#1e293b"/>
-              <circle cx="86"  cy="224" r={blinking ? 0 : 6}  fill="#111827"/>
-              <circle cx="152" cy="224" r={blinking ? 0 : 6}  fill="#111827"/>
-              <circle cx="91"  cy="219" r={blinking ? 0 : 3}  fill="white"/>
-              <circle cx="157" cy="219" r={blinking ? 0 : 3}  fill="white"/>
+              <circle cx={86 + pupilOffsetX}  cy={224 + pupilOffsetY} r={eyeSize}  fill="#1e293b"/>
+              <circle cx={152 + pupilOffsetX} cy={224 + pupilOffsetY} r={eyeSize}  fill="#1e293b"/>
+              <circle cx={86 + pupilOffsetX}  cy={224 + pupilOffsetY} r={blinking ? 0 : 6}  fill="#111827"/>
+              <circle cx={152 + pupilOffsetX} cy={224 + pupilOffsetY} r={blinking ? 0 : 6}  fill="#111827"/>
+              <circle cx={91 + pupilOffsetX}  cy={219 + pupilOffsetY} r={blinking ? 0 : 3}  fill="white"/>
+              <circle cx={157 + pupilOffsetX} cy={219 + pupilOffsetY} r={blinking ? 0 : 3}  fill="white"/>
             </>
           )}
 
