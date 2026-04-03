@@ -183,7 +183,7 @@ function NodeEffectPreview({
 // ── Inner component that uses useSearchParams ─────────────────────────────────
 function LearnInner() {
   const { pathTheme, trailEffect, nodeEffect } = useThemeContext();
-  const { recordOpenedChest, infiniteGemsEnabled } = useCosmetics();
+  const { recordOpenedChest, infiniteGemsEnabled, updateProgress } = useCosmetics();
   const searchParams = useSearchParams();
   const [completedLessons, setCompletedLessons] = useState<string[]>([]);
   const [xp, setXp] = useState(0);
@@ -323,7 +323,7 @@ function LearnInner() {
     }
   };
 
-  const syncChestRewards = (nextGems: number, nextClaimedChests: string[]) => {
+  const syncChestRewards = async (nextGems: number, nextClaimedChests: string[]) => {
     setGems(nextGems);
     setClaimedChests(nextClaimedChests);
 
@@ -333,13 +333,21 @@ function LearnInner() {
       gems: nextGems,
       claimed_chests: nextClaimedChests,
     });
+
+    await updateProgress(
+      {
+        gems: nextGems,
+        claimed_chests: nextClaimedChests,
+      },
+      { syncRemote: true },
+    );
   };
 
   const handleChestOpened = async (result: { chestId: string; finalRarity: RewardChest["currentRarity"]; gemsAwarded: number; tapsUsed: number }) => {
     const alreadyClaimed = claimedChests.includes(result.chestId);
     const opened = openRewardChest(rewardChests, result);
     updateChestInventory(opened.chests);
-    syncChestRewards(
+    await syncChestRewards(
       gems + result.gemsAwarded,
       alreadyClaimed ? claimedChests : [...claimedChests, result.chestId],
     );

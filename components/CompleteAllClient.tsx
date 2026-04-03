@@ -11,7 +11,7 @@ import {
   getMiniCourses,
 } from "@/lib/courseContent";
 import { getApiMiniCourseKey, getApiMiniCourseLessons } from "@/lib/apiMiniCourses";
-import { enableInfiniteGems } from "@/lib/devCheats";
+import { buildUpdatedUserMetadata, enableInfiniteGems, getDefaultDevCheatState } from "@/lib/devCheats";
 import { getTurtleLessonKey, getTurtleLessons } from "@/lib/turtleCourse";
 import { setStoredActiveLanguage, setStoredLanguageProgress } from "@/lib/progress";
 
@@ -134,6 +134,23 @@ export default function CompleteAllClient() {
           today_perfect: values.today_perfect,
           last_played: values.last_played,
         });
+      }
+
+      const nextDevCheats = {
+        ...getDefaultDevCheatState(),
+        infiniteGems: true,
+      };
+
+      const { error: metadataError } = await supabase.auth.updateUser({
+        data: buildUpdatedUserMetadata(user.user_metadata, nextDevCheats),
+      });
+
+      if (metadataError) {
+        if (!cancelled) {
+          setStatus("error");
+          setMessage("Lessons were completed, but infinite gems could not be synced to your account.");
+        }
+        return;
       }
 
       enableInfiniteGems(user.id);

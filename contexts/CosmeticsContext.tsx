@@ -15,10 +15,14 @@ import {
   DevCheatState,
   getDefaultDevCheatState,
   getDevCheatsStorageKey,
+  mergeDevCheatSources,
   getStoredDevCheats,
   PICO_DEV_CHEATS_EVENT,
+  setStoredDevCheats,
 } from "@/lib/devCheats";
 import {
+  areCosmeticsStatesEqual,
+  COSMETICS_REMOTE_TABLE,
   clearExpiredXpBoost,
   consumePerfectRunToken,
   consumeStreakFreeze,
@@ -38,10 +42,13 @@ import {
   recordChestOpened,
   resolveAppearance,
   ResolvedCosmeticAppearance,
+  mergeCosmeticsStates,
+  sanitizeCosmeticsState,
   setStoredCosmeticsState,
   ShopEntryId,
   syncBestStreak,
   syncOpenedChestFloor,
+  touchCosmeticsState,
   PackId,
 } from "@/lib/cosmetics";
 import {
@@ -137,6 +144,22 @@ function mergeProgressSnapshot(
   };
 }
 
+function parseRemoteStringArray(value: unknown) {
+  if (Array.isArray(value)) return value.filter((entry): entry is string => typeof entry === "string");
+  if (typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function includesAllEntries(source: string[], target: string[]) {
+  const sourceSet = new Set(source);
+  return target.every((entry) => sourceSet.has(entry));
+}
+
 function getViewerDisplayName(user: { email?: string | null; user_metadata?: Record<string, unknown> | null }) {
   const metadata = user.user_metadata ?? {};
   const candidates = [
@@ -168,6 +191,8 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
   const [toast, setToast] = useState<AppToast | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const toastTimeoutRef = useRef<number | null>(null);
+  const remoteCosmeticsAvailableRef = useRef(true);
+  const remoteCosmeticsWarnedRef = useRef(false);
 
   const showToast = useCallback((message: string, tone: ToastTone = "success") => {
     setToast((current) => ({ id: (current?.id ?? 0) + 1, message, tone }));
@@ -207,7 +232,100 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
     const merged = mergeProgressSources(language, data, localProgress);
     setStoredLanguageProgress(userId, language, merged);
     setProgress(merged);
+
+    const remoteCompletedLessons = parseRemoteStringArray(data?.completed_lessons);
+    const remoteClaimedChests = parseRemoteStringArray(data?.claimed_chests);
+    const remoteAchievements = parseRemoteStringArray(data?.achievements);
+    const remoteNeedsBackfill =
+      !data
+      || !includesAllEntries(remoteCompletedLessons, merged.completed_lessons)
+      || !includesAllEntries(remoteClaimedChests, merged.claimed_chests)
+      || !includesAllEntries(remoteAchievements, merged.achievements)
+      || merged.xp > Number(data?.xp || 0)
+      || merged.streak > Number(data?.streak || 0)
+      || merged.gems > Number(data?.gems || 0)
+      || merged.today_xp > Number(data?.today_xp || 0)
+      || merged.today_lessons > Number(data?.today_lessons || 0)
+      || merged.today_perfect > Number(data?.today_perfect || 0)
+      || (merged.last_played && merged.last_played !== data?.last_played);
+
+    if (remoteNeedsBackfill) {
+      await fetch("/api/progress", {
+        method: "POST",
+        body: JSON.stringify({
+          userId,
+          language,
+          values: {
+            completed_lessons: JSON.stringify(merged.completed_lessons),
+            xp: merged.xp,
+            streak: merged.streak,
+            gems: merged.gems,
+            claimed_chests: JSON.stringify(merged.claimed_chests),
+            achievements: JSON.stringify(merged.achievements),
+            today_xp: merged.today_xp,
+            today_lessons: merged.today_lessons,
+            today_perfect: merged.today_perfect,
+            last_played: merged.last_played,
+          },
+        }),
+      }).catch(() => {
+        console.warn("Merged progress backfill failed. Local cache remains ahead of remote.");
+      });
+    }
   }, []);
+
+  const warnRemoteCosmeticsFallback = useCallback((error: unknown) => {
+    if (remoteCosmeticsWarnedRef.current) return;
+    remoteCosmeticsWarnedRef.current = true;
+    console.warn("Remote cosmetics sync failed. Falling back to local cache.", error);
+  }, []);
+
+  const fetchRemoteCosmetics = useCallback(async (userId: string) => {
+    if (!remoteCosmeticsAvailableRef.current) return null;
+
+    const { data, error } = await supabase
+      .from(COSMETICS_REMOTE_TABLE)
+      .select("state")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) {
+      const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+      if (code === "42P01") {
+        remoteCosmeticsAvailableRef.current = false;
+      }
+      warnRemoteCosmeticsFallback(error);
+      return null;
+    }
+
+    return data?.state ? clearExpiredXpBoost(sanitizeCosmeticsState(data.state), Date.now()) : null;
+  }, [warnRemoteCosmeticsFallback]);
+
+  const persistRemoteCosmetics = useCallback(async (userId: string, state: CosmeticsState) => {
+    if (!remoteCosmeticsAvailableRef.current) return false;
+
+    const { error } = await supabase
+      .from(COSMETICS_REMOTE_TABLE)
+      .upsert(
+        {
+          user_id: userId,
+          state,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" },
+      );
+
+    if (error) {
+      const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+      if (code === "42P01") {
+        remoteCosmeticsAvailableRef.current = false;
+      }
+      warnRemoteCosmeticsFallback(error);
+      return false;
+    }
+
+    return true;
+  }, [warnRemoteCosmeticsFallback]);
 
   useEffect(() => {
     let cancelled = false;
@@ -235,10 +353,17 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
       setActiveLanguage(language);
       await loadForLanguage(user.id, language);
 
-      const storedCosmetics = clearExpiredXpBoost(getStoredCosmeticsState(user.id), Date.now());
-      setStoredCosmetics(storedCosmetics);
-      setStoredCosmeticsState(user.id, storedCosmetics);
-      setDevCheats(getStoredDevCheats(user.id));
+      const localCosmetics = clearExpiredXpBoost(getStoredCosmeticsState(user.id), Date.now());
+      const remoteCosmetics = await fetchRemoteCosmetics(user.id);
+      const mergedCosmetics = mergeCosmeticsStates(localCosmetics, remoteCosmetics);
+      setStoredCosmetics(mergedCosmetics);
+      setStoredCosmeticsState(user.id, mergedCosmetics);
+      if (!areCosmeticsStatesEqual(remoteCosmetics, mergedCosmetics)) {
+        await persistRemoteCosmetics(user.id, mergedCosmetics);
+      }
+      const mergedDevCheats = mergeDevCheatSources(getStoredDevCheats(user.id), user.user_metadata);
+      setDevCheats(mergedDevCheats);
+      setStoredDevCheats(user.id, mergedDevCheats);
       setLoading(false);
     }
 
@@ -247,7 +372,25 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [loadForLanguage]);
+  }, [fetchRemoteCosmetics, loadForLanguage, persistRemoteCosmetics]);
+
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      const user = session?.user;
+      if (!user) return;
+
+      const mergedDevCheats = mergeDevCheatSources(getStoredDevCheats(user.id), user.user_metadata);
+      setDevCheats(mergedDevCheats);
+      setStoredDevCheats(user.id, mergedDevCheats);
+      setViewerName(getViewerDisplayName(user));
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -351,13 +494,16 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
   );
 
   const persistCosmetics = useCallback(
-    (nextState: CosmeticsState) => {
-      setStoredCosmetics(nextState);
+    async (nextState: CosmeticsState) => {
+      const stampedState = touchCosmeticsState(nextState);
+      setStoredCosmetics(stampedState);
       if (viewerId) {
-        setStoredCosmeticsState(viewerId, nextState);
+        setStoredCosmeticsState(viewerId, stampedState);
+        await persistRemoteCosmetics(viewerId, stampedState);
       }
+      return stampedState;
     },
-    [viewerId],
+    [persistRemoteCosmetics, viewerId],
   );
 
   useEffect(() => {
@@ -368,7 +514,7 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
 
     if (nextStatsState !== storedCosmetics) {
       queueMicrotask(() => {
-        persistCosmetics(nextStatsState);
+        void persistCosmetics(nextStatsState);
       });
     }
   }, [persistCosmetics, progress, storedCosmetics, viewerId]);
@@ -389,7 +535,7 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
       );
       if (!result.ok) return result;
 
-      persistCosmetics(result.nextState);
+      await persistCosmetics(result.nextState);
       if (!devCheats.infiniteGems) {
         await updateProgress({ gems: result.nextGems }, { syncRemote: true });
       }
@@ -402,7 +548,7 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
   const equipPack = useCallback(
     (packId: PackId) => {
       const nextState = equipPackBundle(cosmetics, packId);
-      persistCosmetics(nextState);
+      void persistCosmetics(nextState);
     },
     [cosmetics, persistCosmetics],
   );
@@ -410,7 +556,7 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
   const equipItem = useCallback(
     (itemId: CosmeticItemId) => {
       const nextState = equipCosmeticItem(cosmetics, itemId);
-      persistCosmetics(nextState);
+      void persistCosmetics(nextState);
     },
     [cosmetics, persistCosmetics],
   );
@@ -419,7 +565,7 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
     (message = "Streak protected by freeze") => {
       const result = consumeStreakFreeze(cosmetics);
       if (!result.consumed) return false;
-      persistCosmetics(result.nextState);
+      void persistCosmetics(result.nextState);
       showToast(message, "info");
       return true;
     },
@@ -429,12 +575,12 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
   const spendPerfectRunToken = useCallback(() => {
     const result = consumePerfectRunToken(cosmetics);
     if (!result.consumed) return false;
-    persistCosmetics(result.nextState);
+    void persistCosmetics(result.nextState);
     return true;
   }, [cosmetics, persistCosmetics]);
 
   const recordOpenedChest = useCallback((count = 1) => {
-    persistCosmetics(recordChestOpened(cosmetics, count));
+    void persistCosmetics(recordChestOpened(cosmetics, count));
   }, [cosmetics, persistCosmetics]);
 
   const appearance = useMemo(() => resolveAppearance(cosmetics), [cosmetics]);

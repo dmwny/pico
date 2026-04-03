@@ -404,7 +404,7 @@ export default function LessonPage() {
     }
   };
 
-  const syncChestRewards = (nextGems: number, nextClaimedChests: string[]) => {
+  const syncChestRewards = async (nextGems: number, nextClaimedChests: string[]) => {
     setGems(nextGems);
     setClaimedChests(nextClaimedChests);
 
@@ -414,6 +414,14 @@ export default function LessonPage() {
       gems: nextGems,
       claimed_chests: nextClaimedChests,
     });
+
+    await updateProgress(
+      {
+        gems: nextGems,
+        claimed_chests: nextClaimedChests,
+      },
+      { syncRemote: true },
+    );
   };
 
   const handleChestOpened = async (result: {
@@ -425,7 +433,7 @@ export default function LessonPage() {
     const alreadyClaimed = claimedChests.includes(result.chestId);
     const opened = openRewardChest(rewardChests, result);
     updateChestInventory(opened.chests);
-    syncChestRewards(
+    await syncChestRewards(
       gems + result.gemsAwarded,
       alreadyClaimed ? claimedChests : [...claimedChests, result.chestId],
     );

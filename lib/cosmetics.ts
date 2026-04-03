@@ -28,11 +28,13 @@ import {
 
 export const COSMETICS_STORAGE_VERSION = 2;
 export const COSMETICS_STORAGE_PREFIX = "pico-cosmetics:";
+export const COSMETICS_REMOTE_TABLE = "pico_cosmetics";
 export const PICO_COSMETICS_EVENT = "pico:cosmetics-changed";
 export const STREAK_FREEZE_CAP = 3;
 export const PERFECT_RUN_TOKEN_CAP = 3;
 export const XP_BOOST_DURATION_MS = 60 * 60 * 1000;
 export const PERFECT_RUN_BONUS_XP = 25;
+const DEFAULT_MUTATION_TIMESTAMP = "1970-01-01T00:00:00.000Z";
 
 export type PackId =
   | "cyberpunk_pack"
@@ -144,6 +146,7 @@ export type ProfileStats = {
 
 export type CosmeticsState = {
   version: number;
+  lastMutatedAt: string;
   owned: OwnedCosmetics;
   equipped: EquippedCosmetics;
   functional: FunctionalInventory;
@@ -194,6 +197,12 @@ function unique<T extends string>(values: T[]) {
 
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+function normalizeMutationTimestamp(value: unknown) {
+  if (typeof value !== "string") return DEFAULT_MUTATION_TIMESTAMP;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : DEFAULT_MUTATION_TIMESTAMP;
 }
 
 function addOwnedValue<T extends string>(values: T[], value: T) {
@@ -604,6 +613,7 @@ export function getCosmeticItemById(itemId: CosmeticItemId | null | undefined) {
 export function getDefaultCosmeticsState(): CosmeticsState {
   return {
     version: COSMETICS_STORAGE_VERSION,
+    lastMutatedAt: DEFAULT_MUTATION_TIMESTAMP,
     owned: {
       packs: [],
       pathThemes: [DEFAULT_PATH_THEME_ID],
@@ -682,6 +692,7 @@ export function sanitizeCosmeticsState(value: unknown): CosmeticsState {
 
   return {
     version: COSMETICS_STORAGE_VERSION,
+    lastMutatedAt: normalizeMutationTimestamp(raw.lastMutatedAt),
     owned: sanitizedOwned,
     equipped: {
       pathThemeId,
@@ -705,6 +716,69 @@ export function sanitizeCosmeticsState(value: unknown): CosmeticsState {
       gemsSpent: Math.max(0, Number(stats.gemsSpent || 0)),
     },
   };
+}
+
+export function touchCosmeticsState(state: CosmeticsState, timestamp = new Date().toISOString()) {
+  return sanitizeCosmeticsState({
+    ...state,
+    lastMutatedAt: normalizeMutationTimestamp(timestamp),
+  });
+}
+
+function getMutationTime(state: CosmeticsState) {
+  return Date.parse(state.lastMutatedAt) || 0;
+}
+
+function getMergedXpBoostWindow(
+  localFunctional: FunctionalInventory,
+  remoteFunctional: FunctionalInventory,
+) {
+  const localEndsAt = localFunctional.activeXpBoostEndsAt ? Date.parse(localFunctional.activeXpBoostEndsAt) : 0;
+  const remoteEndsAt = remoteFunctional.activeXpBoostEndsAt ? Date.parse(remoteFunctional.activeXpBoostEndsAt) : 0;
+
+  const winner = localEndsAt >= remoteEndsAt ? localFunctional : remoteFunctional;
+  return {
+    activeXpBoostStartedAt: winner.activeXpBoostStartedAt,
+    activeXpBoostEndsAt: winner.activeXpBoostEndsAt,
+  };
+}
+
+export function mergeCosmeticsStates(localState: CosmeticsState, remoteState: CosmeticsState | null | undefined) {
+  const local = sanitizeCosmeticsState(localState);
+  const remote = sanitizeCosmeticsState(remoteState ?? getDefaultCosmeticsState());
+  const localTime = getMutationTime(local);
+  const remoteTime = getMutationTime(remote);
+  const latestEquipped = localTime >= remoteTime ? local.equipped : remote.equipped;
+
+  return sanitizeCosmeticsState({
+    version: COSMETICS_STORAGE_VERSION,
+    lastMutatedAt: localTime >= remoteTime ? local.lastMutatedAt : remote.lastMutatedAt,
+    owned: {
+      packs: unique([...local.owned.packs, ...remote.owned.packs]),
+      pathThemes: unique([...local.owned.pathThemes, ...remote.owned.pathThemes]),
+      chestSkins: unique([...local.owned.chestSkins, ...remote.owned.chestSkins]),
+      trailEffects: unique([...local.owned.trailEffects, ...remote.owned.trailEffects]),
+      nodeEffects: unique([...local.owned.nodeEffects, ...remote.owned.nodeEffects]),
+      profileBorders: unique([...local.owned.profileBorders, ...remote.owned.profileBorders]),
+      titleBadges: unique([...local.owned.titleBadges, ...remote.owned.titleBadges]),
+    },
+    equipped: latestEquipped,
+    functional: {
+      streakFreezes: Math.max(local.functional.streakFreezes, remote.functional.streakFreezes),
+      perfectRunTokens: Math.max(local.functional.perfectRunTokens, remote.functional.perfectRunTokens),
+      ...getMergedXpBoostWindow(local.functional, remote.functional),
+    },
+    stats: {
+      bestStreak: Math.max(local.stats.bestStreak, remote.stats.bestStreak),
+      chestsOpened: Math.max(local.stats.chestsOpened, remote.stats.chestsOpened),
+      gemsSpent: Math.max(local.stats.gemsSpent, remote.stats.gemsSpent),
+    },
+  });
+}
+
+export function areCosmeticsStatesEqual(left: CosmeticsState | null | undefined, right: CosmeticsState | null | undefined) {
+  return JSON.stringify(sanitizeCosmeticsState(left ?? getDefaultCosmeticsState()))
+    === JSON.stringify(sanitizeCosmeticsState(right ?? getDefaultCosmeticsState()));
 }
 
 export function getStoredCosmeticsState(userId: string) {
