@@ -6,8 +6,9 @@ import { usePathname } from "next/navigation";
 const NAV_ITEMS = [
   { href: "/", label: "Home", short: "Home" },
   { href: "/learn", label: "Learn", short: "Learn" },
+  { href: "/shop", label: "Shop", short: "Shop" },
   { href: "/daily", label: "Daily", short: "Daily" },
-  { href: "/achievements", label: "Awards", short: "Awards" },
+  { href: "/profile", label: "Profile", short: "Profile" },
 ];
 
 export default function MobileDock() {
@@ -15,7 +16,7 @@ export default function MobileDock() {
 
   return (
     <nav className="md:hidden fixed bottom-4 left-4 right-4 z-40 surface-sheet border-[rgba(44,62,80,0.24)] bg-[rgba(44,62,80,0.96)] text-[#ECF0F1]">
-      <div className="grid grid-cols-4">
+      <div className="grid grid-cols-5">
         {NAV_ITEMS.map((item) => {
           const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
 

@@ -1,48 +1,221 @@
 "use client";
 
-import { useState, useEffect, useMemo, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense, useSyncExternalStore } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import Pico from "@/components/Pico";
+import AppTopNav from "@/components/AppTopNav";
 import { ACHIEVEMENTS } from "@/lib/achievements";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import MobileDock from "@/components/MobileDock";
-import { getCourseSections, getLanguageLabel, getMiniCourses, languageHasPlacement } from "@/lib/courseContent";
+import { getCourseSections, getLanguageLabel, getMiniCourses, languageHasPlacement, UnitMeta } from "@/lib/courseContent";
 import { mergeProgressSources, resolveActiveLanguage, setStoredLanguageProgress, getStoredLanguageProgress } from "@/lib/progress";
+import { ClosedChestNode, OpenChestNode } from "@/components/rewards/PathChestNode";
+import { RewardChestArt } from "@/components/rewards/RewardChest";
+import RewardChestModal from "@/components/rewards/RewardChestModal";
+import { useCosmetics } from "@/contexts/CosmeticsContext";
+import {
+  ChestRarity,
+  RewardChest,
+  createQuestRewardChest,
+  createUnitRewardChest,
+  getChestTheme,
+  getUnitChestInsertionProgress,
+  getQuestChestId,
+  isUnitChestAvailable,
+  getStoredRewardChests,
+  mergeRewardChestsFromClaims,
+  openRewardChest,
+  progressRewardChest,
+  setStoredRewardChests,
+  upsertRewardChest,
+} from "@/lib/rewardChests";
+import { useThemeContext } from "@/contexts/ThemeContext";
 
 const PATH_POSITIONS = ["ml-24", "ml-40", "ml-52", "ml-40", "ml-24"];
 
+function subscribe() {
+  return () => {};
+}
+
+type GuidebookExample = {
+  title: string;
+  code: string;
+  explanation: string;
+};
+
+type GuidebookContent = {
+  intro: string;
+  whatIsIt: string;
+  whyItMatters: string;
+  howItWorks: string;
+  examples?: GuidebookExample[];
+  commonMistakes?: string[];
+  tips?: string[];
+};
+
+type GuidebookState = {
+  unitId: number;
+  unitDescription: string;
+  loading: boolean;
+  content: GuidebookContent | null;
+};
+
+function formatCompactStat(value: number) {
+  if (value < 1_000) return value.toString();
+  if (value < 10_000) return `${(value / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
+  if (value < 1_000_000) return `${Math.round(value / 100) / 10}k`.replace(".0k", "k");
+  return `${Math.round(value / 100_000) / 10}m`.replace(".0m", "m");
+}
+
+function formatRewardAmount(value: number) {
+  return value.toLocaleString("en-US");
+}
+
+function getSidebarChestCardStyles(rarity: ChestRarity) {
+  switch (rarity) {
+    case "rare":
+      return {
+        shellClass: "border-sky-100 bg-[linear-gradient(180deg,rgba(239,246,255,0.92),rgba(255,255,255,1)_62%)]",
+        accentClass: "bg-sky-400",
+        sparkle: false,
+        elevated: false,
+      };
+    case "epic":
+      return {
+        shellClass: "border-violet-100 bg-[linear-gradient(180deg,rgba(245,243,255,0.96),rgba(255,255,255,1)_66%)]",
+        accentClass: "bg-violet-400",
+        sparkle: false,
+        elevated: true,
+      };
+    case "legendary":
+      return {
+        shellClass: "border-amber-100 bg-[linear-gradient(180deg,rgba(255,251,235,0.98),rgba(255,255,255,1)_68%)]",
+        accentClass: "bg-amber-400",
+        sparkle: true,
+        elevated: true,
+      };
+    case "mythic":
+      return {
+        shellClass: "border-fuchsia-100 bg-[linear-gradient(135deg,rgba(253,242,248,0.98),rgba(245,243,255,0.98)_48%,rgba(239,246,255,0.96)_100%)]",
+        accentClass: "bg-[linear-gradient(180deg,#ec4899_0%,#8b5cf6_48%,#3b82f6_100%)]",
+        sparkle: true,
+        elevated: true,
+      };
+    default:
+      return {
+        shellClass: "border-slate-200 bg-white",
+        accentClass: "bg-slate-200",
+        sparkle: false,
+        elevated: false,
+      };
+  }
+}
+
+function getChestStatusBadgeClass(state: RewardChest["state"]) {
+  return state === "opened"
+    ? "border-slate-200/80 bg-white/80 text-slate-400"
+    : "border-amber-200 bg-amber-50 text-amber-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)]";
+}
+
+function GemIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true">
+      <path
+        d="M7.2 4.5H16.8L21 10.1L12 20L3 10.1L7.2 4.5Z"
+        fill="currentColor"
+        opacity="0.18"
+      />
+      <path
+        d="M7.2 4.5H16.8L21 10.1L12 20L3 10.1L7.2 4.5Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path d="M9 4.8L12 10.2L15 4.8" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M4.8 10.2H19.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function getNodeShapeClass() {
+  return "rounded-[1.15rem]";
+}
+
+function NodeEffectPreview({
+  color,
+  motion,
+}: {
+  color: string;
+  motion: ReturnType<typeof useThemeContext>["nodeEffect"]["motion"];
+}) {
+  if (motion === "none") return null;
+
+  return (
+    <>
+      {Array.from({ length: 3 }).map((_, index) => (
+        <span
+          key={index}
+          className="absolute rounded-full"
+          style={{
+            width: 4 + index,
+            height: 4 + index,
+            left: `${18 + index * 24}%`,
+            top: motion === "rise" ? `${56 - index * 10}%` : `${18 + index * 12}%`,
+            background: color,
+            opacity: 0.74,
+            animation:
+              motion === "float"
+                ? `learnNodeFloat ${3.1 + index * 0.3}s ease-in-out ${index * 0.15}s infinite`
+                : motion === "fall"
+                  ? `learnNodeFall ${2.8 + index * 0.2}s linear ${index * 0.1}s infinite`
+                  : motion === "rise"
+                    ? `learnNodeRise ${2.5 + index * 0.2}s ease-in ${index * 0.12}s infinite`
+                    : `learnNodeTwinkle ${1.9 + index * 0.14}s ease-in-out ${index * 0.08}s infinite`,
+          }}
+        />
+      ))}
+    </>
+  );
+}
+
 // ── Inner component that uses useSearchParams ─────────────────────────────────
 function LearnInner() {
+  const { pathTheme, trailEffect, nodeEffect } = useThemeContext();
+  const { recordOpenedChest, infiniteGemsEnabled } = useCosmetics();
   const searchParams = useSearchParams();
   const [completedLessons, setCompletedLessons] = useState<string[]>([]);
   const [xp, setXp] = useState(0);
   const [streak, setStreak] = useState(0);
+  const [gems, setGems] = useState(0);
   const [todayXp, setTodayXp] = useState(0);
   const [todayLessons, setTodayLessons] = useState(0);
   const [todayPerfect, setTodayPerfect] = useState(0);
   const [earnedAchievements, setEarnedAchievements] = useState<string[]>([]);
+  const [claimedChests, setClaimedChests] = useState<string[]>([]);
+  const [rewardChests, setRewardChests] = useState<RewardChest[]>([]);
+  const [selectedChest, setSelectedChest] = useState<RewardChest | null>(null);
   const [tooltip, setTooltip] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [guidebook, setGuidebook] = useState<any>(null);
-  const [mounted, setMounted] = useState(false);
+  const [guidebook, setGuidebook] = useState<GuidebookState | null>(null);
+  const [viewerId, setViewerId] = useState<string | null>(null);
   const [currentLanguage, setCurrentLanguage] = useState<string>("python");
   const [openMiniCourseMenu, setOpenMiniCourseMenu] = useState<string | null>(null);
+  const mounted = useSyncExternalStore(subscribe, () => true, () => false);
   const sections = useMemo(() => getCourseSections(currentLanguage), [currentLanguage]);
   const miniCourses = useMemo(() => getMiniCourses(currentLanguage), [currentLanguage]);
-
-  useEffect(() => setMounted(true), []);
+  const todayKey = mounted ? new Date().toISOString().split("T")[0] : "";
 
   const QUEST_POOL = [
-    { id: "xp_50",  label: "Earn 50 XP",           current: () => Math.min(todayXp, 50),  total: 50,  color: "bg-yellow-400" },
-    { id: "xp_100", label: "Earn 100 XP",          current: () => Math.min(todayXp, 100), total: 100, color: "bg-yellow-400" },
-    { id: "xp_200", label: "Earn 200 XP",          current: () => Math.min(todayXp, 200), total: 200, color: "bg-yellow-400" },
-    { id: "les_1",  label: "Complete 1 lesson",     current: () => Math.min(todayLessons, 1), total: 1, color: "bg-green-500" },
-    { id: "les_3",  label: "Complete 3 lessons",    current: () => Math.min(todayLessons, 3), total: 3, color: "bg-green-500" },
-    { id: "les_5",  label: "Complete 5 lessons",    current: () => Math.min(todayLessons, 5), total: 5, color: "bg-green-500" },
-    { id: "perf_1", label: "Get 1 perfect lesson",  current: () => Math.min(todayPerfect, 1), total: 1, color: "bg-blue-400" },
-    { id: "perf_2", label: "Get 2 perfect lessons", current: () => Math.min(todayPerfect, 2), total: 2, color: "bg-blue-400" },
+    { id: "xp_50", label: "Earn 50 XP", current: () => Math.min(todayXp, 50), total: 50, color: "bg-yellow-400", rewardTier: 0 },
+    { id: "xp_100", label: "Earn 100 XP", current: () => Math.min(todayXp, 100), total: 100, color: "bg-yellow-400", rewardTier: 1 },
+    { id: "xp_200", label: "Earn 200 XP", current: () => Math.min(todayXp, 200), total: 200, color: "bg-yellow-400", rewardTier: 2 },
+    { id: "les_1", label: "Complete 1 lesson", current: () => Math.min(todayLessons, 1), total: 1, color: "bg-green-500", rewardTier: 0 },
+    { id: "les_3", label: "Complete 3 lessons", current: () => Math.min(todayLessons, 3), total: 3, color: "bg-green-500", rewardTier: 1 },
+    { id: "les_5", label: "Complete 5 lessons", current: () => Math.min(todayLessons, 5), total: 5, color: "bg-green-500", rewardTier: 2 },
+    { id: "perf_1", label: "Get 1 perfect lesson", current: () => Math.min(todayPerfect, 1), total: 1, color: "bg-blue-400", rewardTier: 1 },
+    { id: "perf_2", label: "Get 2 perfect lessons", current: () => Math.min(todayPerfect, 2), total: 2, color: "bg-blue-400", rewardTier: 2 },
   ];
 
   const dailyQuests = useMemo(() => {
@@ -58,6 +231,7 @@ function LearnInner() {
         current: () => Math.min(streak, 1),
         total: 1,
         color: "bg-orange-400",
+        rewardTier: 0,
       });
     }
 
@@ -75,10 +249,6 @@ function LearnInner() {
   }, [streak]);
 
   useEffect(() => {
-    loadProgress();
-  }, [searchParams]);
-
-  useEffect(() => {
     if (window.location.hash) {
       const id = window.location.hash.replace("#", "");
       setTimeout(() => {
@@ -93,9 +263,13 @@ function LearnInner() {
     return () => window.removeEventListener("click", closeMiniCourseMenu);
   }, []);
 
-  const loadProgress = async () => {
+  async function loadProgress() {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
+    if (!user) {
+      setViewerId(null);
+      setLoading(false);
+      return;
+    }
     const activeLanguage = await resolveActiveLanguage(user.id);
     const { data } = await supabase
       .from("pico_progress")
@@ -106,17 +280,96 @@ function LearnInner() {
 
     const localProgress = getStoredLanguageProgress(user.id, activeLanguage);
     const merged = mergeProgressSources(activeLanguage, data, localProgress);
+    const storedRewardChests = mergeRewardChestsFromClaims(
+      getStoredRewardChests(user.id, activeLanguage),
+      merged.claimed_chests,
+    );
 
+    setViewerId(user.id);
     setCurrentLanguage(activeLanguage);
     setCompletedLessons(merged.completed_lessons);
     setXp(merged.xp);
     setStreak(merged.streak);
+    setGems(merged.gems);
     setTodayXp(merged.today_xp);
     setTodayLessons(merged.today_lessons);
     setTodayPerfect(merged.today_perfect);
     setEarnedAchievements(merged.achievements);
+    setClaimedChests(merged.claimed_chests);
+    setRewardChests(storedRewardChests);
     setStoredLanguageProgress(user.id, activeLanguage, merged);
+    setStoredRewardChests(user.id, activeLanguage, storedRewardChests);
     setLoading(false);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    queueMicrotask(() => {
+      if (!cancelled) {
+        void loadProgress();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams]);
+
+  const updateChestInventory = (nextChests: RewardChest[]) => {
+    setRewardChests(nextChests);
+    if (viewerId) {
+      setStoredRewardChests(viewerId, currentLanguage, nextChests);
+    }
+  };
+
+  const syncChestRewards = (nextGems: number, nextClaimedChests: string[]) => {
+    setGems(nextGems);
+    setClaimedChests(nextClaimedChests);
+
+    if (!viewerId) return;
+
+    setStoredLanguageProgress(viewerId, currentLanguage, {
+      gems: nextGems,
+      claimed_chests: nextClaimedChests,
+    });
+  };
+
+  const handleChestOpened = async (result: { chestId: string; finalRarity: RewardChest["currentRarity"]; gemsAwarded: number; tapsUsed: number }) => {
+    const alreadyClaimed = claimedChests.includes(result.chestId);
+    const opened = openRewardChest(rewardChests, result);
+    updateChestInventory(opened.chests);
+    syncChestRewards(
+      gems + result.gemsAwarded,
+      alreadyClaimed ? claimedChests : [...claimedChests, result.chestId],
+    );
+    if (!alreadyClaimed) {
+      recordOpenedChest();
+    }
+
+    if (opened.chest) {
+      setSelectedChest(opened.chest);
+    }
+  };
+
+  const handleChestProgress = async (result: { chestId: string; currentRarity: RewardChest["currentRarity"]; tapsUsed: number }) => {
+    const progressed = progressRewardChest(rewardChests, result);
+    updateChestInventory(progressed.chests);
+  };
+
+  const ensureChestReady = (chest: RewardChest) => {
+    const existing = rewardChests.find((entry) => entry.id === chest.id);
+    if (existing) return existing;
+
+    const next = upsertRewardChest(rewardChests, chest);
+    updateChestInventory(next);
+    return next.find((entry) => entry.id === chest.id) ?? chest;
+  };
+
+  const getDisplayChest = (chestId: string, fallback: RewardChest) => {
+    return rewardChests.find((entry) => entry.id === chestId)
+      ?? (claimedChests.includes(chestId) ? mergeRewardChestsFromClaims([], [chestId])[0] : null)
+      ?? fallback;
   };
 
   const getLastLessonId = (unitId: number) => {
@@ -158,24 +411,14 @@ function LearnInner() {
     .slice(-3)
     .reverse();
 
-  const findCurrentUnit = () => {
-    for (const section of sections) {
-      for (const unit of section.units) {
-        for (const lesson of unit.lessons) {
-          if (`${unit.id}-${lesson.id}` === currentLessonKey) return { section, unit };
-        }
-      }
-    }
-    return null;
-  };
-  const currentUnitInfo = findCurrentUnit();
   const showResolvedSidebarContent = mounted && !loading;
+  const showcasedChests = rewardChests.slice(0, 4);
 
-  const openGuidebook = async (unit: any) => {
+  const openGuidebook = async (unit: UnitMeta) => {
     setGuidebook({ unitId: unit.id, unitDescription: unit.description, loading: true, content: null });
     const res = await fetch("/api/guidebook", { method: "POST", body: JSON.stringify({ unitTitle: unit.title, unitDescription: unit.description, language: currentLanguage }) });
     const data = await res.json();
-    setGuidebook({ unitId: unit.id, unitDescription: unit.description, loading: false, content: data });
+    setGuidebook({ unitId: unit.id, unitDescription: unit.description, loading: false, content: data as GuidebookContent });
   };
 
   // ── Guidebook view ────────────────────────────────────────────────────────
@@ -183,7 +426,7 @@ function LearnInner() {
     return (
       <main className="min-h-screen bg-gray-50">
         <nav className="flex justify-between items-center px-8 py-4 bg-white border-b border-gray-100">
-          <a href="/" className="text-2xl font-extrabold text-green-500">Pico</a>
+          <Link href="/" className="text-2xl font-extrabold text-green-500">Pico</Link>
         </nav>
         <div className="max-w-2xl mx-auto px-4 py-12">
           <button onClick={() => setGuidebook(null)} className="text-gray-400 font-bold mb-6 hover:text-gray-600">Back</button>
@@ -203,7 +446,7 @@ function LearnInner() {
               <div className="bg-white rounded-3xl shadow-sm p-8"><h2 className="text-xl font-extrabold text-gray-900 mb-3">How does it work?</h2><p className="text-gray-700 font-semibold leading-relaxed">{guidebook.content.howItWorks}</p></div>
               <div className="bg-white rounded-3xl shadow-sm p-8">
                 <h2 className="text-xl font-extrabold text-gray-900 mb-4">Examples</h2>
-                <div className="space-y-6">{guidebook.content.examples?.map((ex: any, i: number) => (<div key={i}><p className="font-extrabold text-gray-900 mb-2">{ex.title}</p><pre className="bg-gray-900 text-green-400 p-4 rounded-2xl text-sm font-mono mb-3 overflow-x-auto">{ex.code}</pre><p className="text-gray-600 font-semibold leading-relaxed">{ex.explanation}</p></div>))}</div>
+                <div className="space-y-6">{guidebook.content.examples?.map((ex: GuidebookExample, i: number) => (<div key={i}><p className="font-extrabold text-gray-900 mb-2">{ex.title}</p><pre className="bg-gray-900 text-green-400 p-4 rounded-2xl text-sm font-mono mb-3 overflow-x-auto">{ex.code}</pre><p className="text-gray-600 font-semibold leading-relaxed">{ex.explanation}</p></div>))}</div>
               </div>
               <div className="bg-white rounded-3xl shadow-sm p-8">
                 <h2 className="text-xl font-extrabold text-gray-900 mb-4">Common mistakes</h2>
@@ -229,26 +472,35 @@ function LearnInner() {
           50% { transform: scale(1.08); box-shadow: 0 0 0 12px rgba(88,204,2,0); }
         }
         @keyframes bob { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
+        @keyframes sidebarChestSparkle {
+          0%, 100% { opacity: 0.16; transform: translate3d(0, 0, 0) scale(0.92); }
+          50% { opacity: 0.44; transform: translate3d(0, -5px, 0) scale(1.08); }
+        }
+        @keyframes learnNodeFloat {
+          0%, 100% { transform: translateY(0px); opacity: 0.56; }
+          50% { transform: translateY(-8px); opacity: 1; }
+        }
+        @keyframes learnNodeRise {
+          0% { transform: translateY(5px); opacity: 0; }
+          30% { opacity: 0.84; }
+          100% { transform: translateY(-16px); opacity: 0; }
+        }
+        @keyframes learnNodeFall {
+          0% { transform: translateY(-5px); opacity: 0; }
+          30% { opacity: 0.76; }
+          100% { transform: translateY(16px); opacity: 0; }
+        }
+        @keyframes learnNodeTwinkle {
+          0%, 100% { transform: scale(0.8); opacity: 0.34; }
+          50% { transform: scale(1.16); opacity: 1; }
+        }
         .node-pulse { animation: pulse-node 2s ease-in-out infinite; }
         .pico-bob { animation: bob 2.4s ease-in-out infinite; }
       `}</style>
 
-      <div className="min-h-screen mobile-dock-pad bg-gray-50 flex flex-col">
+      <div className="min-h-screen mobile-dock-pad flex flex-col bg-[linear-gradient(180deg,#f8fafc_0%,#f1f5f9_100%)]">
 
-        {/* ── Top nav ── */}
-        <nav className="bg-white border-b border-gray-100 sticky top-0 z-20">
-          <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
-            <a href="/" className="text-xl font-black text-green-500">Pico</a>
-            <div className="flex items-center gap-6 text-sm font-extrabold">
-              <span className="text-green-500">{xp} XP</span>
-              {streak > 0 ? (
-                <span className="text-orange-400">{streak} day streak</span>
-              ) : (
-                <span className="text-gray-300 font-bold">No streak yet</span>
-              )}
-            </div>
-          </div>
-        </nav>
+        <AppTopNav />
 
         {/* ── Current unit banner removed as requested ── */}
 
@@ -257,26 +509,26 @@ function LearnInner() {
 
           {/* ── LEFT SIDEBAR ── */}
           <aside className="sticky top-32 space-y-2">
-            <a href="/" className="flex items-center gap-3 px-4 py-3 rounded-2xl text-gray-500 font-extrabold text-sm hover:bg-gray-100 transition">
+            <Link href="/" className="flex items-center gap-3 px-4 py-3 rounded-2xl text-gray-500 font-extrabold text-sm hover:bg-gray-100 transition">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
               Home
-            </a>
+            </Link>
             <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-green-50 border-2 border-green-100 text-green-600 font-extrabold text-sm">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
               Learn
             </div>
-            <a href="/daily" className="flex items-center gap-3 px-4 py-3 rounded-2xl text-gray-500 font-extrabold text-sm hover:bg-gray-100 transition">
+            <Link href="/daily" className="flex items-center gap-3 px-4 py-3 rounded-2xl text-gray-500 font-extrabold text-sm hover:bg-gray-100 transition">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               Daily Challenge
-            </a>
-            <a href={languageHasPlacement(currentLanguage) ? "/placement" : "/learn"} className="flex items-center gap-3 px-4 py-3 rounded-2xl text-gray-500 font-extrabold text-sm hover:bg-gray-100 transition">
+            </Link>
+            <Link href={languageHasPlacement(currentLanguage) ? "/placement" : "/learn"} className="flex items-center gap-3 px-4 py-3 rounded-2xl text-gray-500 font-extrabold text-sm hover:bg-gray-100 transition">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               {languageHasPlacement(currentLanguage) ? "Placement Test" : "Course Start"}
-            </a>
-            <a href="/achievements" className="flex items-center gap-3 px-4 py-3 rounded-2xl text-gray-500 font-extrabold text-sm hover:bg-gray-100 transition">
+            </Link>
+            <Link href="/achievements" className="flex items-center gap-3 px-4 py-3 rounded-2xl text-gray-500 font-extrabold text-sm hover:bg-gray-100 transition">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" /></svg>
               Achievements
-            </a>
+            </Link>
 
             {/* Overall progress */}
             <div className="mt-6 bg-white rounded-2xl border border-gray-100 p-4">
@@ -290,22 +542,26 @@ function LearnInner() {
 
           {/* ── CENTER PATH ── */}
           <main className="min-h-screen">
-            {loading ? (
-              <div className="flex flex-col items-center justify-center py-32">
-                <Pico size={100} mood="happy" />
-                <div className="animate-spin h-8 w-8 border-4 border-green-500 border-t-transparent rounded-full mt-6" />
-              </div>
-            ) : (
-              <>
+            <div
+              className="min-h-full rounded-[2.4rem] border border-white/70 px-4 py-5 shadow-[0_20px_48px_rgba(15,23,42,0.08)] sm:px-5"
+              style={{ background: pathTheme.pageBackground }}
+            >
+              {loading ? (
+                <div className="flex flex-col items-center justify-center py-32">
+                  <Pico size={100} mood="happy" />
+                  <div className="animate-spin h-8 w-8 border-4 border-green-500 border-t-transparent rounded-full mt-6" />
+                </div>
+              ) : (
+                <>
                 {completedLessons.length === 0 && languageHasPlacement(currentLanguage) && (
                   <div className="bg-white rounded-3xl shadow-sm p-5 mb-8 border-2 border-green-100">
                     <p className="font-extrabold text-gray-900 mb-1">Already know some {getLanguageLabel(currentLanguage)}?</p>
                     <p className="text-gray-500 font-semibold text-sm mb-3">
                       Take a quick test to skip ahead.
                     </p>
-                    <a href="/placement" className="block w-full bg-green-500 text-white font-extrabold py-2.5 rounded-2xl hover:bg-green-600 transition text-center text-sm shadow-md">
+                    <Link href="/placement" className="block w-full bg-green-500 text-white font-extrabold py-2.5 rounded-2xl hover:bg-green-600 transition text-center text-sm shadow-md">
                       Take placement test
-                    </a>
+                    </Link>
                   </div>
                 )}
 
@@ -348,88 +604,205 @@ function LearnInner() {
                         </div>
                       )}
 
-                      {sectionUnlocked && section.units.map((unit) => (
+                      {sectionUnlocked && section.units.map((unit) => {
+                        const unitCompletedLessons = unit.lessons.filter((lesson) => completedLessons.includes(`${unit.id}-${lesson.id}`)).length;
+                        const baseUnitChest = createUnitRewardChest(unit.id);
+                        const chestInsertionProgress = getUnitChestInsertionProgress(unit.id, unit.lessons.length);
+                        const chestVisible =
+                          isUnitChestAvailable(unit.id, unit.lessons.length, unitCompletedLessons)
+                          || rewardChests.some((entry) => entry.id === baseUnitChest.id)
+                          || claimedChests.includes(baseUnitChest.id);
+                        const pathChest = chestVisible ? getDisplayChest(baseUnitChest.id, baseUnitChest) : null;
+                        const chestOpened = pathChest?.state === "opened" || claimedChests.includes(baseUnitChest.id);
+                        const pathNodes = unit.lessons.flatMap((lesson, lessonIndex) => {
+                          const nodes: Array<
+                            { kind: "lesson"; lesson: typeof lesson } | { kind: "chest" }
+                          > = [{ kind: "lesson", lesson }];
+                          if (pathChest && lessonIndex + 1 === chestInsertionProgress) {
+                            nodes.push({ kind: "chest" });
+                          }
+                          return nodes;
+                        });
+
+                        return (
                         <div key={unit.id} className="mb-6">
-                          <div id={`unit-${unit.id}`} className={`${section.color} rounded-2xl px-5 py-3.5 mb-5 flex justify-between items-center shadow-md`}>
+                          <div
+                            id={`unit-${unit.id}`}
+                            className="mb-5 flex items-center justify-between rounded-[1.8rem] border px-5 py-3.5 shadow-[0_18px_38px_rgba(15,23,42,0.12)]"
+                            style={{
+                              background: `${pathTheme.bannerPattern}, ${pathTheme.unitBannerBackground}`,
+                              borderColor: pathTheme.unitBannerBorder,
+                            }}
+                          >
                             <div>
-                              <p className="text-white font-extrabold">Unit {unit.id}: {unit.title}</p>
-                              <p className="text-white text-xs font-semibold opacity-80">{unit.description}</p>
+                              <p className="font-extrabold" style={{ color: pathTheme.unitBannerText }}>
+                                Unit {unit.id}: {unit.title}
+                              </p>
+                              <p className="text-xs font-semibold" style={{ color: pathTheme.unitBannerSubtext }}>
+                                {unit.description}
+                              </p>
                             </div>
                             <div className="flex flex-col items-end gap-1.5">
-                              <div className="bg-white rounded-xl px-3 py-0.5">
-                                <span className="text-green-600 text-xs font-extrabold">
-                                  {unit.lessons.filter(l => completedLessons.includes(`${unit.id}-${l.id}`)).length}/{unit.lessons.length}
+                              <div
+                                className="rounded-xl px-3 py-0.5"
+                                style={{ background: pathTheme.unitBadgeBackground }}
+                              >
+                                <span className="text-xs font-extrabold" style={{ color: pathTheme.unitBadgeText }}>
+                                  {unitCompletedLessons}/{unit.lessons.length}
                                 </span>
                               </div>
-                              <button onClick={() => openGuidebook(unit)} className="bg-white text-green-600 text-xs font-extrabold px-3 py-0.5 rounded-xl hover:bg-green-50 transition">
+                              <button
+                                onClick={() => openGuidebook(unit)}
+                                className="rounded-xl px-3 py-0.5 text-xs font-extrabold transition hover:brightness-105"
+                                style={{
+                                  background: pathTheme.unitActionBackground,
+                                  color: pathTheme.unitActionText,
+                                }}
+                              >
                                 Review
                               </button>
                             </div>
                           </div>
 
                           <div className="flex flex-col gap-3 mb-4">
-                            {unit.lessons.map((lesson, index) => {
-                              const unlocked = isUnlocked(unit.id, lesson.id);
-                              const completed = completedLessons.includes(`${unit.id}-${lesson.id}`);
-                              const key = `${unit.id}-${lesson.id}`;
-                              const isChallenge = lesson.title.toLowerCase().includes("challenge");
-                              const isCurrent = key === currentLessonKey;
+                            {pathNodes.map((node, index) => {
+                              if (node.kind === "lesson") {
+                                const lesson = node.lesson;
+                                const unlocked = isUnlocked(unit.id, lesson.id);
+                                const completed = completedLessons.includes(`${unit.id}-${lesson.id}`);
+                                const key = `${unit.id}-${lesson.id}`;
+                                const isChallenge = lesson.title.toLowerCase().includes("challenge");
+                                const isCurrent = key === currentLessonKey;
+                                const hasNextNode = index < pathNodes.length - 1;
+                                const nodeShapeClass = getNodeShapeClass();
+                                const availableBackground = isChallenge
+                                  ? "linear-gradient(135deg,#FACC15 0%,#F59E0B 100%)"
+                                  : pathTheme.nodeAvailableBackground;
+                                const availableBorder = isChallenge ? "#D97706" : pathTheme.nodeAvailableBorder;
+                                const nodeBackground = completed
+                                  ? pathTheme.nodeCompletedBackground
+                                  : unlocked
+                                    ? availableBackground
+                                    : pathTheme.nodeLockedBackground;
+                                const nodeBorder = completed
+                                  ? pathTheme.nodeCompletedBorder
+                                  : unlocked
+                                    ? availableBorder
+                                    : pathTheme.nodeLockedBorder;
+                                const nodeTextColor = completed
+                                  ? pathTheme.nodeCompletedText
+                                  : unlocked
+                                    ? pathTheme.nodeAvailableText
+                                    : pathTheme.nodeLockedText;
+
+                                return (
+                                  <div key={lesson.id} className={`flex ${PATH_POSITIONS[index % PATH_POSITIONS.length]}`}>
+                                    <div className="relative">
+                                      {tooltip === key && (
+                                        <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs font-bold px-3 py-1.5 rounded-xl whitespace-nowrap z-20 shadow-lg">
+                                          {lesson.title}
+                                          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
+                                        </div>
+                                      )}
+                                      {isCurrent && (
+                                        <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap">
+                                          <span className="bg-gray-900 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-lg uppercase tracking-wider">
+                                            Start
+                                          </span>
+                                        </div>
+                                      )}
+                                      <a
+                                        href={
+                                          (unlocked || completed)
+                                            ? (isChallenge
+                                                ? `/learn/${unit.id}/challenge?lang=${currentLanguage}`
+                                                : `/learn/${unit.id}/${lesson.id}?lang=${currentLanguage}`)
+                                            : "#"
+                                        }
+                                        onMouseEnter={() => setTooltip(key)}
+                                        onMouseLeave={() => setTooltip(null)}
+                                        className={`relative flex h-14 w-14 items-center justify-center border-b-4 font-extrabold transition-all duration-150 active:translate-y-1 ${nodeShapeClass} ${
+                                          isCurrent ? "node-pulse" : ""
+                                        } ${unlocked || completed ? "hover:brightness-110" : "cursor-not-allowed"}`}
+                                        style={{
+                                          background: nodeBackground,
+                                          borderColor: nodeBorder,
+                                          color: nodeTextColor,
+                                          boxShadow: isCurrent
+                                            ? `0 0 0 6px ${pathTheme.nodeCurrentRing}, 0 18px 34px ${pathTheme.nodeGlow}`
+                                            : `0 14px 26px ${completed ? pathTheme.nodeCompletedGlow : pathTheme.nodeGlow}`,
+                                        }}
+                                      >
+                                        {completed && (
+                                          <NodeEffectPreview color={nodeEffect.particleColor} motion={nodeEffect.motion} />
+                                        )}
+                                        {completed ? (
+                                          <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                        ) : unlocked && isChallenge ? (
+                                          <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
+                                        ) : unlocked ? (
+                                          <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                        ) : (
+                                          <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                        )}
+                                      </a>
+                                      {hasNextNode && (
+                                        <span
+                                          className="pointer-events-none absolute left-1/2 top-full h-6 w-[6px] -translate-x-1/2 rounded-full"
+                                          style={{
+                                            background: completed || unlocked ? trailEffect.gradient : "linear-gradient(180deg,#e5e7eb 0%,#cbd5e1 100%)",
+                                            boxShadow: completed || unlocked ? `0 0 18px ${trailEffect.glow}` : "none",
+                                          }}
+                                        />
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              }
+
+                              if (!pathChest) return null;
+                              const hasNextNode = index < pathNodes.length - 1;
 
                               return (
-                                <div key={lesson.id} className={`flex ${PATH_POSITIONS[index % PATH_POSITIONS.length]}`}>
+                                <div key={pathChest.id} className={`flex ${PATH_POSITIONS[index % PATH_POSITIONS.length]}`}>
                                   <div className="relative">
-                                    {tooltip === key && (
-                                      <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs font-bold px-3 py-1.5 rounded-xl whitespace-nowrap z-20 shadow-lg">
-                                        {lesson.title}
+                                    {tooltip === pathChest.id && (
+                                      <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs font-bold px-3 py-1.5 rounded-xl whitespace-nowrap z-20 shadow-lg">
+                                        {chestOpened ? `${pathChest.title} claimed` : pathChest.title}
                                         <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
                                       </div>
                                     )}
-                                    {isCurrent && (
-                                      <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap">
-                                        <span className="bg-gray-900 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-lg uppercase tracking-wider">
-                                          Start
-                                        </span>
-                                      </div>
-                                    )}
-                                    <a
-                                      href={
-                                        (unlocked || completed)
-                                          ? (isChallenge
-                                              ? `/learn/${unit.id}/challenge?lang=${currentLanguage}`
-                                              : `/learn/${unit.id}/${lesson.id}?lang=${currentLanguage}`)
-                                          : "#"
-                                      }
-                                      onMouseEnter={() => setTooltip(key)}
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedChest(pathChest.state === "sealed" ? ensureChestReady(pathChest) : pathChest)}
+                                      onMouseEnter={() => setTooltip(pathChest.id)}
                                       onMouseLeave={() => setTooltip(null)}
-                                      className={`w-14 h-14 rounded-full flex items-center justify-center font-extrabold border-b-4 transition-all duration-150 active:border-b-0 active:translate-y-1 ${
-                                        isCurrent
-                                          ? `${section.color} ${section.borderColor} text-white shadow-lg node-pulse ring-4 ring-white ring-offset-2`
-                                          : completed
-                                          ? `${section.color} ${section.borderColor} text-white shadow-md`
-                                          : unlocked
-                                          ? isChallenge
-                                            ? "bg-yellow-400 border-yellow-500 text-white shadow-md hover:brightness-110"
-                                            : `${section.color} ${section.borderColor} text-white shadow-md hover:brightness-110`
-                                          : "bg-gray-200 border-gray-300 text-gray-400 cursor-not-allowed"
-                                      }`}
+                                      aria-label={chestOpened ? `${pathChest.title} claimed` : `Open ${pathChest.title}`}
+                                      className="group relative flex h-[4.6rem] w-[4.6rem] items-center justify-center transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white/80"
                                     >
-                                      {completed ? (
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                                      ) : unlocked && isChallenge ? (
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
-                                      ) : unlocked ? (
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                      {chestOpened ? (
+                                        <OpenChestNode rarity={pathChest.currentRarity} className="w-[4.1rem]" />
                                       ) : (
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                        <ClosedChestNode rarity={pathChest.currentRarity} className="w-[4.45rem]" />
                                       )}
-                                    </a>
+                                    </button>
+                                    {hasNextNode && (
+                                      <span
+                                        className="pointer-events-none absolute left-1/2 top-full h-6 w-[6px] -translate-x-1/2 rounded-full"
+                                        style={{
+                                          background: trailEffect.gradient,
+                                          boxShadow: `0 0 18px ${trailEffect.glow}`,
+                                        }}
+                                      />
+                                    )}
                                   </div>
                                 </div>
                               );
                             })}
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
 
                       {section.id < sections.length && (
                         <div className="flex items-center gap-4 my-8">
@@ -451,10 +824,11 @@ function LearnInner() {
                     </div>
                     {!allComplete && <svg xmlns="http://www.w3.org/2000/svg" className="w-7 h-7 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>}
                   </div>
-                  {allComplete && <a href="/daily" className="mt-4 block w-full bg-green-500 text-white font-extrabold py-3 rounded-2xl hover:bg-green-600 transition text-center shadow-md">Start Today's Challenge</a>}
+                  {allComplete && <Link href="/daily" className="mt-4 block w-full bg-green-500 text-white font-extrabold py-3 rounded-2xl hover:bg-green-600 transition text-center shadow-md">Start Today&apos;s Challenge</Link>}
                 </div>
-              </>
-            )}
+                </>
+              )}
+            </div>
           </main>
 
           {/* ── RIGHT SIDEBAR ── */}
@@ -471,14 +845,106 @@ function LearnInner() {
                 style={{ fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif" }}
               >
                 <div className="flex-1 px-2 py-4">
-                  <p className="text-[2.2rem] font-semibold leading-none text-[#1A1A1A]">{xp}</p>
+                  <p className="text-[2.2rem] font-semibold leading-none text-[#1A1A1A]" title={xp.toLocaleString("en-US")}>
+                    {formatCompactStat(xp)}
+                  </p>
                   <p className="mt-3 text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-[#666666]">XP</p>
                 </div>
                 <div className="mx-4 w-px bg-[#E5E5E5]" />
                 <div className="flex-1 px-2 py-4">
-                  <p className="text-[2.2rem] font-semibold leading-none text-[#1A1A1A]">{streak}</p>
+                  <p className="text-[2.2rem] font-semibold leading-none text-[#1A1A1A]" title={streak.toLocaleString("en-US")}>
+                    {formatCompactStat(streak)}
+                  </p>
                   <p className="mt-3 text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-[#666666]">Streak</p>
                 </div>
+                <div className="mx-4 w-px bg-[#E5E5E5]" />
+                <div className="flex-1 px-2 py-4">
+                  <p
+                    className="text-[2.2rem] font-semibold leading-none text-[#0891B2]"
+                    title={infiniteGemsEnabled ? "Infinite gems enabled" : gems.toLocaleString("en-US")}
+                  >
+                    {infiniteGemsEnabled ? "∞" : formatCompactStat(gems)}
+                  </p>
+                  <p className="mt-3 text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-[#666666]">Gems</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-gray-100 p-4">
+              <p className="text-xs font-extrabold text-gray-400 uppercase tracking-wider mb-3">Reward chests</p>
+              <div className="grid grid-cols-2 gap-3">
+                {showcasedChests.map((chest) => {
+                  const cardTone = getSidebarChestCardStyles(chest.currentRarity);
+                  const elevatedCard = cardTone.elevated;
+
+                  return (
+                    <button
+                      key={chest.id}
+                      type="button"
+                      onClick={() => setSelectedChest(chest)}
+                      className={`relative flex flex-col overflow-hidden rounded-[1.5rem] border text-left shadow-[0_12px_24px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5 ${
+                        elevatedCard ? "min-h-[13.8rem] p-4" : "min-h-[12.8rem] p-3.5"
+                      } ${cardTone.shellClass}`}
+                    >
+                      <span className={`pointer-events-none absolute inset-y-3 left-0 w-[4px] rounded-r-full ${cardTone.accentClass}`} />
+                      {cardTone.sparkle && (
+                        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                          <span
+                            className="absolute right-4 top-5 h-1.5 w-1.5 rounded-full bg-white/70 blur-[0.5px]"
+                            style={{ animation: "sidebarChestSparkle 3.8s ease-in-out infinite" }}
+                          />
+                          <span
+                            className="absolute right-8 top-10 h-1 w-1 rounded-full bg-white/60"
+                            style={{ animation: "sidebarChestSparkle 4.6s ease-in-out 0.8s infinite" }}
+                          />
+                        </div>
+                      )}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-slate-400/90">
+                            {chest.source === "quest" ? "Quest" : "Path"}
+                          </p>
+                          <p className="mt-2 text-[0.95rem] font-black leading-5 text-slate-900">{chest.title}</p>
+                        </div>
+                        <span className={`rounded-full border px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.16em] ${getChestStatusBadgeClass(chest.state)}`}>
+                          {chest.state === "opened" ? "opened" : "ready"}
+                        </span>
+                      </div>
+
+                      <RewardChestArt
+                        rarity={chest.currentRarity}
+                        opened={chest.state === "opened"}
+                        skin="default_chest"
+                        compact
+                        prominent
+                        className={`mx-auto mt-4 w-full ${elevatedCard ? "max-w-[6rem]" : "max-w-[5.3rem]"}`}
+                      />
+
+                      {chest.state === "opened" ? (
+                        <div className="mt-auto flex items-center gap-2 pt-4 text-cyan-600">
+                          <GemIcon className="h-4 w-4 flex-shrink-0" />
+                          <span className="text-lg font-black tracking-[-0.03em] text-cyan-700">
+                            {formatRewardAmount(chest.gemAmount ?? 0)}
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="mt-auto pt-4 text-[11px] font-semibold leading-5 text-slate-500">
+                          {chest.sourceLabel}
+                        </p>
+                      )}
+                    </button>
+                  );
+                })}
+
+                {Array.from({ length: Math.max(0, 4 - showcasedChests.length) }).map((_, index) => (
+                  <div
+                    key={`empty-chest-placeholder-${index}`}
+                    className="rounded-[1.4rem] border border-dashed border-slate-200 bg-slate-50/70 p-3 text-center"
+                  >
+                    <RewardChestArt rarity="common" skin="default_chest" compact className="mx-auto w-full max-w-[4.2rem] opacity-35 saturate-0" />
+                    <p className="mt-2 text-[10px] font-extrabold uppercase tracking-[0.18em] text-slate-300">locked chest</p>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -487,18 +953,92 @@ function LearnInner() {
               <p className="text-xs font-extrabold text-gray-400 uppercase tracking-wider mb-3">Daily quests</p>
               <div className="space-y-3">
                 {mounted ? dailyQuests.map((quest) => (
-                  <div key={quest.id}>
-                    <div className="flex justify-between items-center mb-1">
-                      <p className="text-xs font-extrabold text-gray-700">{quest.label}</p>
-                      <p className="text-xs font-bold text-gray-400">{quest.current()}/{quest.total}</p>
-                    </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full ${quest.color} rounded-full transition-all`}
-                        style={{ width: `${(quest.current() / quest.total) * 100}%` }}
-                      />
-                    </div>
-                  </div>
+                  (() => {
+                    const questProgress = quest.current();
+                    const questComplete = questProgress >= quest.total;
+                    const questChestId = todayKey ? getQuestChestId(todayKey, quest.id) : null;
+                    const baseQuestChest = todayKey
+                      ? createQuestRewardChest(todayKey, quest.id, quest.label, quest.rewardTier)
+                      : null;
+                    const questChest = questChestId && baseQuestChest
+                      ? getDisplayChest(questChestId, baseQuestChest)
+                      : null;
+                    const questTheme = questChest ? getChestTheme(questChest.currentRarity) : null;
+
+                    return (
+                      <div key={quest.id} className="rounded-[1.5rem] border border-slate-100 bg-slate-50 px-3 py-3">
+                        <div className="flex justify-between items-center mb-2">
+                          <p className="text-xs font-extrabold text-gray-700">{quest.label}</p>
+                          <p className="text-xs font-bold text-gray-400">{questProgress}/{quest.total}</p>
+                        </div>
+                        <div className="h-2 bg-white rounded-full overflow-hidden">
+                          <div
+                            className={`h-full ${quest.color} rounded-full transition-all`}
+                            style={{ width: `${(questProgress / quest.total) * 100}%` }}
+                          />
+                        </div>
+
+                        {questComplete && questChest && questTheme ? (
+                          <div className={`mt-3 rounded-[1.2rem] border p-3 ${questTheme.cardClass}`}>
+                            <div className="flex items-center gap-3">
+                              <RewardChestArt
+                                rarity={questChest.currentRarity}
+                                opened={questChest.state === "opened"}
+                                skin="default_chest"
+                                compact
+                                className="w-[4.4rem] flex-shrink-0"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-sm font-black text-slate-900">
+                                    {questChest.state === "opened" ? "Quest chest opened" : "Quest chest ready"}
+                                  </p>
+                                  <span className={`rounded-full border px-2 py-1 text-[9px] font-extrabold uppercase tracking-[0.18em] ${questTheme.chipClass}`}>
+                                    {questTheme.label}
+                                  </span>
+                                </div>
+                                <p className="mt-1 text-[11px] font-semibold leading-5 text-slate-500">
+                                  {questChest.state === "opened"
+                                    ? `Collected ${questChest.gemAmount ?? 0} gems`
+                                    : "Tap through the lock to try for a higher rarity."}
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextChest = questChest.state === "sealed" ? ensureChestReady(questChest) : questChest;
+                                setSelectedChest(nextChest);
+                              }}
+                              className="mt-3 w-full rounded-[1rem] bg-slate-900 py-2.5 text-sm font-extrabold text-white transition hover:bg-slate-800"
+                            >
+                              {questChest.state === "opened" ? "View reward" : "Open quest chest"}
+                            </button>
+                          </div>
+                        ) : questComplete ? (
+                          <div className="mt-3 rounded-[1.2rem] border border-emerald-200 bg-emerald-50 px-3 py-3">
+                            <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-emerald-600">Quest complete</p>
+                            <p className="mt-1 text-sm font-semibold leading-6 text-emerald-700">
+                              Your chest is ready. Tap below to add it to the path rewards.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!todayKey) return;
+                                const unlockedChest = ensureChestReady(
+                                  createQuestRewardChest(todayKey, quest.id, quest.label, quest.rewardTier),
+                                );
+                                setSelectedChest(unlockedChest);
+                              }}
+                              className="mt-3 w-full rounded-[1rem] bg-emerald-500 py-2.5 text-sm font-extrabold text-white transition hover:bg-emerald-600"
+                            >
+                              Unlock quest chest
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })()
                 )) : (
                   <div className="space-y-3">
                     {[1,2,3].map(i => (
@@ -628,9 +1168,9 @@ function LearnInner() {
             <div className="bg-white rounded-2xl border border-gray-100 p-4">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-xs font-extrabold text-gray-400 uppercase tracking-wider">Achievements</p>
-                <a href="/achievements" className="text-xs font-extrabold text-green-500 hover:text-green-600 transition">
+                <Link href="/achievements" className="text-xs font-extrabold text-green-500 hover:text-green-600 transition">
                   View all
-                </a>
+                </Link>
               </div>
               {earnedAchievements.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-center">
@@ -681,6 +1221,13 @@ function LearnInner() {
           </aside>
         </div>
         <MobileDock />
+        <RewardChestModal
+          key={selectedChest?.id ?? "learn-reward-empty"}
+          chest={selectedChest}
+          onClose={() => setSelectedChest(null)}
+          onOpen={handleChestOpened}
+          onProgress={handleChestProgress}
+        />
       </div>
     </>
   );

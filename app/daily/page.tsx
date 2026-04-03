@@ -1,28 +1,61 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { resolveActiveLanguage } from "@/lib/progress";
+import {
+  getStoredLanguageProgress,
+  mergeProgressSources,
+  resolveActiveLanguage,
+  setStoredLanguageProgress,
+} from "@/lib/progress";
+import AppTopNav from "@/components/AppTopNav";
 import MobileDock from "@/components/MobileDock";
 import { getLanguageCommentPrefix, getLanguageLabel, type LearningLanguage } from "@/lib/courseContent";
+import { useCosmetics } from "@/contexts/CosmeticsContext";
+
+function getDayKey(date = new Date()) {
+  return date.toISOString().split("T")[0];
+}
+
+function normalizeDayKey(value: string | null | undefined) {
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : getDayKey(parsed);
+}
+
+function getDayGap(lastPlayed: string | null | undefined, todayKey: string) {
+  const normalized = normalizeDayKey(lastPlayed);
+  if (!normalized) return null;
+
+  const today = new Date(`${todayKey}T00:00:00.000Z`);
+  const previous = new Date(`${normalized}T00:00:00.000Z`);
+  return Math.round((today.getTime() - previous.getTime()) / 86_400_000);
+}
 
 export default function DailyChallenge() {
   const router = useRouter();
-  const [challenge, setChallenge] = useState<any>(null);
+  const { consumeStreakFreezeCharge, isXpBoostActiveAt } = useCosmetics();
+  const [challenge, setChallenge] = useState<{
+    title: string;
+    prompt: string;
+    exampleOutput: string;
+  } | null>(null);
   const [code, setCode] = useState("");
-  const [feedback, setFeedback] = useState<any>(null);
+  const [feedback, setFeedback] = useState<{
+    correct: boolean;
+    explanation?: string;
+    hint?: string;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
   const [done, setDone] = useState(false);
   const [alreadyDone, setAlreadyDone] = useState(false);
   const [currentLanguage, setCurrentLanguage] = useState<LearningLanguage>("python");
+  const [awardedXp, setAwardedXp] = useState(50);
 
-  useEffect(() => {
-    checkAndLoad();
-  }, []);
-
-  const checkAndLoad = async () => {
+  const checkAndLoad = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push("/login"); return; }
     const activeLanguage = await resolveActiveLanguage(user.id);
@@ -34,9 +67,12 @@ export default function DailyChallenge() {
       .eq("user_id", user.id)
       .eq("language", activeLanguage)
       .maybeSingle();
+    const localProgress = getStoredLanguageProgress(user.id, activeLanguage);
+    const merged = mergeProgressSources(activeLanguage, data, localProgress);
+    setStoredLanguageProgress(user.id, activeLanguage, merged);
 
-    const today = new Date().toDateString();
-    if (data?.last_played === today) {
+    const today = getDayKey();
+    if (normalizeDayKey(merged.last_played) === today) {
       setAlreadyDone(true);
       setLoading(false);
       return;
@@ -46,10 +82,24 @@ export default function DailyChallenge() {
     const json = await res.json();
     setChallenge(json);
     setLoading(false);
-  };
+  }, [router]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    queueMicrotask(() => {
+      if (!cancelled) {
+        void checkAndLoad();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [checkAndLoad]);
 
   const checkCode = async () => {
-    if (!code.trim()) return;
+    if (!code.trim() || !challenge) return;
     setChecking(true);
 
     const res = await fetch("/api/challenge-check", {
@@ -74,10 +124,6 @@ export default function DailyChallenge() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const today = new Date().toDateString();
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-
     const { data: existing } = await supabase
       .from("pico_progress")
       .select("*")
@@ -85,17 +131,51 @@ export default function DailyChallenge() {
       .eq("language", currentLanguage)
       .maybeSingle();
 
-    if (existing) {
-      const newStreak = existing.last_played === yesterday.toDateString()
-        ? existing.streak + 1
-        : 1;
+    const today = getDayKey();
+    const localProgress = getStoredLanguageProgress(user.id, currentLanguage);
+    const merged = mergeProgressSources(currentLanguage, existing, localProgress);
+    const dayGap = getDayGap(merged.last_played, today);
+    const xpReward = isXpBoostActiveAt(Date.now()) ? 100 : 50;
+    setAwardedXp(xpReward);
 
-      await supabase
-        .from("pico_progress")
-        .update({ streak: newStreak, last_played: today, xp: existing.xp + 50 })
-        .eq("user_id", user.id)
-        .eq("language", currentLanguage);
+    let newStreak = merged.streak || 0;
+    if (dayGap === 1) {
+      newStreak += 1;
+    } else if (dayGap === 2) {
+      newStreak = consumeStreakFreezeCharge() ? merged.streak + 1 : 1;
+    } else if (dayGap === 0) {
+      newStreak = merged.streak;
+    } else {
+      newStreak = 1;
     }
+
+    const nextProgress = {
+      ...merged,
+      xp: merged.xp + xpReward,
+      streak: newStreak,
+      today_xp: merged.today_xp + xpReward,
+      today_lessons: merged.today_lessons + 1,
+      last_played: today,
+    };
+
+    setStoredLanguageProgress(user.id, currentLanguage, nextProgress);
+
+    await fetch("/api/progress", {
+      method: "POST",
+      body: JSON.stringify({
+        userId: user.id,
+        language: currentLanguage,
+        values: {
+          xp: nextProgress.xp,
+          streak: nextProgress.streak,
+          today_xp: nextProgress.today_xp,
+          today_lessons: nextProgress.today_lessons,
+          last_played: today,
+        },
+      }),
+    }).catch(() => {
+      console.warn("Daily challenge progress sync failed after local save.");
+    });
   };
 
   if (loading) {
@@ -108,13 +188,16 @@ export default function DailyChallenge() {
 
   if (alreadyDone) {
     return (
-      <main className="min-h-screen mobile-dock-pad bg-gray-50 flex items-center justify-center px-4">
-        <div className="bg-white rounded-3xl shadow-sm p-12 max-w-md w-full text-center">
-          <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Return tomorrow.</h2>
-          <p className="text-gray-500 font-semibold mb-8">Daily completion is already recorded.</p>
-          <button onClick={() => router.push("/learn")} className="bg-green-500 text-white font-extrabold px-8 py-4 rounded-2xl hover:bg-green-600 transition shadow-md w-full">
-            Open Learn
-          </button>
+      <main className="min-h-screen mobile-dock-pad bg-gray-50">
+        <AppTopNav />
+        <div className="flex min-h-[calc(100vh-6rem)] items-center justify-center px-4">
+          <div className="bg-white rounded-3xl shadow-sm p-12 max-w-md w-full text-center">
+            <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Return tomorrow.</h2>
+            <p className="text-gray-500 font-semibold mb-8">Daily completion is already recorded.</p>
+            <button onClick={() => router.push("/learn")} className="bg-green-500 text-white font-extrabold px-8 py-4 rounded-2xl hover:bg-green-600 transition shadow-md w-full">
+              Open Learn
+            </button>
+          </div>
         </div>
         <MobileDock />
       </main>
@@ -123,18 +206,21 @@ export default function DailyChallenge() {
 
   if (done) {
     return (
-      <main className="min-h-screen mobile-dock-pad bg-gray-50 flex items-center justify-center px-4">
-        <div className="bg-white rounded-3xl shadow-sm p-12 max-w-md w-full text-center">
-          <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
+      <main className="min-h-screen mobile-dock-pad bg-gray-50">
+        <AppTopNav />
+        <div className="flex min-h-[calc(100vh-6rem)] items-center justify-center px-4">
+          <div className="bg-white rounded-3xl shadow-sm p-12 max-w-md w-full text-center">
+            <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg">
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Maintain streak.</h2>
+            <p className="text-gray-500 font-semibold mb-2">Added {awardedXp} XP to progress.</p>
+            <button onClick={() => router.push("/learn")} className="mt-6 bg-green-500 text-white font-extrabold px-8 py-4 rounded-2xl hover:bg-green-600 transition shadow-md w-full">
+              Open Learn
+            </button>
           </div>
-          <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Maintain streak.</h2>
-          <p className="text-gray-500 font-semibold mb-2">Added 50 XP to progress.</p>
-          <button onClick={() => router.push("/learn")} className="mt-6 bg-green-500 text-white font-extrabold px-8 py-4 rounded-2xl hover:bg-green-600 transition shadow-md w-full">
-            Open Learn
-          </button>
         </div>
         <MobileDock />
       </main>
@@ -143,6 +229,7 @@ export default function DailyChallenge() {
 
   return (
     <main className="min-h-screen mobile-dock-pad bg-gray-50">
+      <AppTopNav />
       <div className="max-w-2xl mx-auto px-4 py-12">
         <button onClick={() => router.push("/learn")} className="text-gray-400 hover:text-gray-600 font-bold mb-8 block">
           Open Learn

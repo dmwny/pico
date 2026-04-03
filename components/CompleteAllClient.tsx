@@ -11,6 +11,7 @@ import {
   getMiniCourses,
 } from "@/lib/courseContent";
 import { getApiMiniCourseKey, getApiMiniCourseLessons } from "@/lib/apiMiniCourses";
+import { enableInfiniteGems } from "@/lib/devCheats";
 import { getTurtleLessonKey, getTurtleLessons } from "@/lib/turtleCourse";
 import { setStoredActiveLanguage, setStoredLanguageProgress } from "@/lib/progress";
 
@@ -135,9 +136,11 @@ export default function CompleteAllClient() {
         });
       }
 
+      enableInfiniteGems(user.id);
+
       if (!cancelled) {
         setStatus("success");
-        setMessage("Your account now has every lesson marked complete.");
+        setMessage("Your account now has every lesson marked complete and infinite gems enabled.");
       }
     }
 
@@ -170,7 +173,7 @@ export default function CompleteAllClient() {
           {status === "loading"
             ? "Updating your course rows in Supabase and local progress."
             : status === "success"
-              ? "Done. Open Learn to see everything unlocked."
+              ? "Done. Open Learn or Shop to use infinite gems."
               : "The unlock step did not finish."}
         </div>
 
