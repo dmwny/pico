@@ -120,32 +120,7 @@ export default function ThemePackCard({
               ))}
             </div>
 
-            <div className="mt-4 rounded-[1.2rem] border border-white/10 bg-white/[0.03] px-4 py-3">
-              <div className="flex items-center justify-between gap-4">
-                <p className="text-[0.62rem] font-black uppercase tracking-[0.24em] text-white/38">Pity Progress</p>
-                {pity.threshold ? (
-                  <span className="text-xs font-black text-white">
-                    {pity.current}/{pity.threshold}
-                  </span>
-                ) : (
-                  <span className="text-xs font-black text-white/36">N/A</span>
-                )}
-              </div>
-              <p className="mt-2 text-sm font-semibold text-white/62">{pity.label}</p>
-              {pity.threshold ? (
-                <div className="mt-3">
-                  <div className="h-2 rounded-full bg-white/8">
-                    <div
-                      className="h-2 rounded-full bg-[linear-gradient(90deg,#60a5fa_0%,#8b5cf6_48%,#f472b6_100%)]"
-                      style={{ width: `${Math.min(100, (pity.current / pity.threshold) * 100)}%` }}
-                    />
-                  </div>
-                  <p className="mt-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/34">
-                    {pity.remaining === 0 ? "Guaranteed Next Pull" : `${pity.remaining} pulls until guarantee`}
-                  </p>
-                </div>
-              ) : null}
-            </div>
+
 
             <div className="mt-4 grid grid-cols-3 gap-3">
               {exampleThemes.map((theme) => (

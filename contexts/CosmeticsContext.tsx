@@ -21,9 +21,12 @@ import {
   setStoredDevCheats,
 } from "@/lib/devCheats";
 import {
+  activateUnlimitedHeartsPassWithToken,
   areCosmeticsStatesEqual,
   COSMETICS_REMOTE_TABLE,
   clearExpiredXpBoost,
+  consumeHeartRefill,
+  consumeHintToken,
   consumePerfectRunToken,
   consumeStreakFreeze,
   CosmeticsState,
@@ -34,9 +37,11 @@ import {
   getDefaultCosmeticsState,
   getCosmeticsStorageKey,
   getStoredCosmeticsState,
+  getUnlimitedHeartsRemainingMs,
   getXpBoostRemainingMs,
   grantTitleBadge,
   isXpBoostActive as getIsXpBoostActive,
+  isUnlimitedHeartsActive,
   OpenThemePackResult,
   openThemePackPurchase,
   PICO_COSMETICS_EVENT,
@@ -139,6 +144,8 @@ type CosmeticsContextValue = {
   streak: number;
   bestStreak: number;
   streakFreezeCount: number;
+  heartRefillCount: number;
+  hintTokenCount: number;
   streakRisk: StreakRiskState | null;
   weeklyStreak: StreakWeekDay[];
   streakReservedDate: string | null;
@@ -150,6 +157,9 @@ type CosmeticsContextValue = {
   xpBoostActive: boolean;
   xpBoostRemainingMs: number;
   xpBoostCountdown: string | null;
+  unlimitedHeartsActive: boolean;
+  unlimitedHeartsRemainingMs: number;
+  unlimitedHeartsCountdown: string | null;
   toast: AppToast | null;
   dismissToast: () => void;
   openThemePack: (packId: PackId) => Promise<OpenThemePackResult>;
@@ -168,7 +178,10 @@ type CosmeticsContextValue = {
   dismissStreakLoss: () => Promise<void>;
   reserveStreakFreezeForToday: () => Promise<boolean>;
   consumeStreakFreezeCharge: (message?: string) => boolean;
+  consumeHeartRefillCharge: (message?: string) => boolean;
+  consumeHintTokenCharge: (message?: string) => boolean;
   spendPerfectRunToken: () => boolean;
+  activateUnlimitedHeartsWithToken: () => boolean;
   recordOpenedChest: (count?: number) => void;
   isXpBoostActiveAt: (timestamp: number) => boolean;
 };
@@ -189,6 +202,10 @@ function mergeProgressSnapshot(
   return {
     language,
     completed_lessons: updates.completed_lessons ?? current?.completed_lessons ?? [],
+    arc_progress: updates.arc_progress ?? current?.arc_progress ?? {},
+    active_lesson_session: updates.active_lesson_session === undefined
+      ? current?.active_lesson_session ?? null
+      : updates.active_lesson_session,
     xp: updates.xp ?? current?.xp ?? 0,
     streak: updates.streak ?? current?.streak ?? 0,
     best_streak: updates.best_streak ?? current?.best_streak ?? 0,
@@ -227,6 +244,17 @@ function parseRemoteStringArray(value: unknown) {
     return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === "string") : [];
   } catch {
     return [];
+  }
+}
+
+function parseRemoteJson<T>(value: unknown, fallback: T): T {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === "object") return value as T;
+  if (typeof value !== "string") return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
   }
 }
 
@@ -316,6 +344,8 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
     const remoteNeedsBackfill =
       !data
       || !includesAllEntries(remoteCompletedLessons, merged.completed_lessons)
+      || JSON.stringify(merged.arc_progress) !== JSON.stringify(parseRemoteJson(data?.arc_progress, {}))
+      || JSON.stringify(merged.active_lesson_session) !== JSON.stringify(parseRemoteJson(data?.active_lesson_session, null))
       || !includesAllEntries(remoteClaimedChests, merged.claimed_chests)
       || !includesAllEntries(remoteAchievements, merged.achievements)
       || merged.xp > Number(data?.xp || 0)
@@ -925,15 +955,9 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
       if (!devCheats.infiniteGems || result.roll.duplicateCompensationGems > 0) {
         await updateProgress({ gems: result.nextGems }, { syncRemote: true });
       }
-      showToast(
-        result.roll.theme
-          ? `${result.roll.theme.name} discovered`
-          : `${result.pack.name} refunded ${result.roll.duplicateCompensationGems} gems`,
-        "success",
-      );
       return result;
     },
-    [cosmetics, devCheats.infiniteGems, persistCosmetics, progress?.gems, showToast, updateProgress],
+    [cosmetics, devCheats.infiniteGems, persistCosmetics, progress?.gems, updateProgress],
   );
 
   const equipTheme = useCallback(
@@ -970,6 +994,36 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
     return true;
   }, [cosmetics, persistCosmetics]);
 
+  const consumeHeartRefillCharge = useCallback(
+    (message = "Hearts refilled") => {
+      const result = consumeHeartRefill(cosmetics);
+      if (!result.consumed) return false;
+      void persistCosmetics(result.nextState);
+      showToast(message, "success");
+      return true;
+    },
+    [cosmetics, persistCosmetics, showToast],
+  );
+
+  const consumeHintTokenCharge = useCallback(
+    (message = "Hint token used") => {
+      const result = consumeHintToken(cosmetics);
+      if (!result.consumed) return false;
+      void persistCosmetics(result.nextState);
+      showToast(message, "info");
+      return true;
+    },
+    [cosmetics, persistCosmetics, showToast],
+  );
+
+  const activateUnlimitedHeartsWithToken = useCallback(() => {
+    const result = activateUnlimitedHeartsPassWithToken(cosmetics, new Date());
+    if (!result.consumed) return false;
+    void persistCosmetics(result.nextState);
+    showToast("Unlimited hearts activated", "success");
+    return true;
+  }, [cosmetics, persistCosmetics, showToast]);
+
   const recordOpenedChest = useCallback((count = 1) => {
     void persistCosmetics(recordChestOpened(cosmetics, count));
   }, [cosmetics, persistCosmetics]);
@@ -977,6 +1031,10 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
   const appearance = useMemo(() => resolveAppearance(cosmetics), [cosmetics]);
   const xpBoostRemainingMs = getXpBoostRemainingMs(cosmetics, now);
   const xpBoostRunning = xpBoostRemainingMs > 0;
+  const rawUnlimitedHeartsRemainingMs = getUnlimitedHeartsRemainingMs(cosmetics, now);
+  const rawUnlimitedHeartsRunning = isUnlimitedHeartsActive(cosmetics, now);
+  const unlimitedHeartsRemainingMs = Math.max(rawUnlimitedHeartsRemainingMs, xpBoostRemainingMs);
+  const unlimitedHeartsRunning = rawUnlimitedHeartsRunning || xpBoostRunning;
   const streakTimezone = progress?.streak_timezone ?? getLocalTimezone();
   const weeklyStreak = useMemo(
     () => getWeeklyStreakDays(progress, new Date(now), streakTimezone),
@@ -1046,6 +1104,8 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
       streak: progress?.streak ?? 0,
       bestStreak: progress?.best_streak ?? cosmetics.stats.bestStreak,
       streakFreezeCount: cosmetics.functional.streakFreezes,
+      heartRefillCount: cosmetics.functional.heartRefills,
+      hintTokenCount: cosmetics.functional.hintTokens,
       streakRisk,
       weeklyStreak,
       streakReservedDate: progress?.streak_freeze_reserved_for_date ?? null,
@@ -1057,6 +1117,9 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
       xpBoostActive: xpBoostRunning,
       xpBoostRemainingMs,
       xpBoostCountdown: xpBoostRunning ? formatBoostCountdown(xpBoostRemainingMs) : null,
+      unlimitedHeartsActive: unlimitedHeartsRunning,
+      unlimitedHeartsRemainingMs,
+      unlimitedHeartsCountdown: unlimitedHeartsRunning ? formatBoostCountdown(unlimitedHeartsRemainingMs) : null,
       toast,
       dismissToast,
       openThemePack,
@@ -1072,7 +1135,10 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
       dismissStreakLoss,
       reserveStreakFreezeForToday,
       consumeStreakFreezeCharge,
+      consumeHeartRefillCharge,
+      consumeHintTokenCharge,
       spendPerfectRunToken,
+      activateUnlimitedHeartsWithToken,
       recordOpenedChest,
       isXpBoostActiveAt: (timestamp: number) => getIsXpBoostActive(cosmetics, timestamp),
     }),
@@ -1106,9 +1172,14 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
       updateProgress,
       weeklyStreak,
       spendPerfectRunToken,
+      consumeHeartRefillCharge,
+      consumeHintTokenCharge,
       consumeStreakFreezeCharge,
+      activateUnlimitedHeartsWithToken,
       viewerId,
       viewerName,
+      unlimitedHeartsRunning,
+      unlimitedHeartsRemainingMs,
       xpBoostRunning,
       xpBoostRemainingMs,
     ],

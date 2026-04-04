@@ -12,6 +12,10 @@ import { useCosmetics } from "@/contexts/CosmeticsContext";
 import { useThemeContext } from "@/contexts/ThemeContext";
 import {
   FunctionalProductId,
+  HEART_REFILL_CAP,
+  HINT_TOKEN_CAP,
+  PERFECT_RUN_TOKEN_CAP,
+  STREAK_FREEZE_CAP,
   getFunctionalProductById,
   SHOP_FUNCTIONAL_PRODUCTS,
   SHOP_PACKS,
@@ -52,13 +56,17 @@ function CompactFunctionalCard({
   price,
   accent,
   statusLabel,
-  owned,
+  badgeLabel,
   confirming,
   processing,
-  canAfford,
+  purchaseDisabled,
+  purchaseLabel,
+  secondaryLabel,
+  secondaryDisabled,
   onPurchaseClick,
   onConfirmPurchase,
   onCancelConfirm,
+  onSecondaryAction,
 }: {
   id: FunctionalProductId;
   name: string;
@@ -66,13 +74,17 @@ function CompactFunctionalCard({
   price: number;
   accent: string;
   statusLabel?: string;
-  owned?: boolean;
+  badgeLabel?: string;
   confirming?: boolean;
   processing?: boolean;
-  canAfford?: boolean;
+  purchaseDisabled?: boolean;
+  purchaseLabel?: string;
+  secondaryLabel?: string;
+  secondaryDisabled?: boolean;
   onPurchaseClick: () => void;
   onConfirmPurchase: () => void;
   onCancelConfirm: () => void;
+  onSecondaryAction?: () => void;
 }) {
   const { pathTheme } = useThemeContext();
   return (
@@ -105,54 +117,80 @@ function CompactFunctionalCard({
           <p className="mt-1 text-base font-black" style={{ color: pathTheme.surfaceText }}>{price}</p>
           {statusLabel ? <p className="mt-1 text-[10px] font-black uppercase tracking-[0.18em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.42) }}>{statusLabel}</p> : null}
         </div>
-        {owned ? (
-          <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-emerald-200">
-            Ready
-          </span>
-        ) : confirming ? (
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onConfirmPurchase}
-              disabled={processing}
-              className="rounded-full px-3 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-white"
-              style={{ background: pathTheme.accentColor }}
-            >
-              {processing ? "..." : "Confirm"}
-            </button>
-            <button
-              type="button"
-              onClick={onCancelConfirm}
-              disabled={processing}
-              className="rounded-full border px-3 py-2 text-[11px] font-black uppercase tracking-[0.18em]"
-              style={{
-                borderColor: withAlpha(pathTheme.accentColor, 0.18),
-                background: withAlpha("#000000", 0.06),
-                color: withAlpha(pathTheme.surfaceText, 0.72),
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={onPurchaseClick}
-            disabled={!canAfford || processing}
-            className={`rounded-full px-4 py-2 text-[11px] font-black uppercase tracking-[0.18em] ${canAfford ? "" : "cursor-not-allowed"}`}
-            style={canAfford
-              ? {
-                  background: pathTheme.accentColor,
-                  color: "#ffffff",
-                }
-              : {
-                  background: withAlpha(pathTheme.surfaceText, 0.08),
-                  color: withAlpha(pathTheme.surfaceText, 0.32),
+        <div className="flex flex-col items-end gap-2">
+          {badgeLabel ? (
+            <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-emerald-200">
+              {badgeLabel}
+            </span>
+          ) : null}
+          {confirming ? (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={onConfirmPurchase}
+                disabled={processing}
+                className="rounded-full px-3 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-white"
+                style={{ background: pathTheme.accentColor }}
+              >
+                {processing ? "..." : "Confirm"}
+              </button>
+              <button
+                type="button"
+                onClick={onCancelConfirm}
+                disabled={processing}
+                className="rounded-full border px-3 py-2 text-[11px] font-black uppercase tracking-[0.18em]"
+                style={{
+                  borderColor: withAlpha(pathTheme.accentColor, 0.18),
+                  background: withAlpha("#000000", 0.06),
+                  color: withAlpha(pathTheme.surfaceText, 0.72),
                 }}
-          >
-            {canAfford ? "Buy" : "Need Gems"}
-          </button>
-        )}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={onPurchaseClick}
+                disabled={purchaseDisabled || processing}
+                className={`rounded-full px-4 py-2 text-[11px] font-black uppercase tracking-[0.18em] ${purchaseDisabled ? "cursor-not-allowed" : ""}`}
+                style={purchaseDisabled
+                  ? {
+                      background: withAlpha(pathTheme.surfaceText, 0.08),
+                      color: withAlpha(pathTheme.surfaceText, 0.32),
+                    }
+                  : {
+                      background: pathTheme.accentColor,
+                      color: "#ffffff",
+                    }}
+              >
+                {purchaseLabel ?? "Buy"}
+              </button>
+              {secondaryLabel && onSecondaryAction ? (
+                <button
+                  type="button"
+                  onClick={onSecondaryAction}
+                  disabled={secondaryDisabled || processing}
+                  className={`rounded-full border px-4 py-2 text-[11px] font-black uppercase tracking-[0.18em] ${secondaryDisabled ? "cursor-not-allowed" : ""}`}
+                  style={secondaryDisabled
+                    ? {
+                        borderColor: withAlpha(pathTheme.surfaceText, 0.08),
+                        background: withAlpha(pathTheme.surfaceText, 0.04),
+                        color: withAlpha(pathTheme.surfaceText, 0.32),
+                      }
+                    : {
+                        borderColor: withAlpha(pathTheme.accentColor, 0.22),
+                        background: withAlpha(pathTheme.accentColor, 0.12),
+                        color: pathTheme.accentColor,
+                      }}
+                >
+                  {secondaryLabel}
+                </button>
+              ) : null}
+            </div>
+          )}
+        </div>
       </div>
     </article>
   );
@@ -169,10 +207,15 @@ export default function ShopPage() {
     openThemePack,
     purchaseEntry,
     equipTheme,
+    heartRefillCount,
+    hintTokenCount,
     streakFreezeCount,
     perfectRunTokenCount,
     xpBoostCountdown,
     xpBoostActive,
+    unlimitedHeartsActive,
+    unlimitedHeartsCountdown,
+    activateUnlimitedHeartsWithToken,
   } = useCosmetics();
 
   const [activeTab, setActiveTab] = useState<ShopTab>("packs");
@@ -180,7 +223,7 @@ export default function ShopPage() {
   const [processingId, setProcessingId] = useState<FunctionalProductId | string | null>(null);
   const [packOpening, setPackOpening] = useState<SuccessfulThemePackOpenResult | null>(null);
   const [displayedGems, setDisplayedGems] = useState(gemBalance);
-  const [expandedPackId, setExpandedPackId] = useState<string | null>(SHOP_PACKS[0]?.id ?? null);
+  const [expandedPackId, setExpandedPackId] = useState<string | null>(null);
   const [freezeCelebration, setFreezeCelebration] = useState<FunctionalProductId | null>(null);
   const displayedGemRef = useRef(gemBalance);
   const storeReady = !loading && !isHydrating;
@@ -217,6 +260,81 @@ export default function ShopPage() {
   const collectionThemes = PATH_THEME_IDS.map((themeId) => PATH_THEMES[themeId]);
   const ownedThemes = cosmetics.owned.pathThemes.map((themeId) => PATH_THEMES[themeId]).slice(0, 10);
   const accentGlow = withAlpha(pathTheme.accentColor, 0.18);
+
+  const getFunctionalCardState = (product: typeof SHOP_FUNCTIONAL_PRODUCTS[number]) => {
+    const canAfford = infiniteGemsEnabled || gemBalance >= product.price;
+
+    switch (product.id) {
+      case "heart_refill": {
+        const atCap = heartRefillCount >= HEART_REFILL_CAP;
+        return {
+          statusLabel: `Stored ${heartRefillCount} / ${HEART_REFILL_CAP}`,
+          badgeLabel: heartRefillCount > 0 ? "Ready" : undefined,
+          purchaseDisabled: atCap || !canAfford,
+          purchaseLabel: atCap ? "At Cap" : canAfford ? "Buy" : "Need Gems",
+        };
+      }
+      case "streak_freeze": {
+        const atCap = streakFreezeCount >= STREAK_FREEZE_CAP;
+        return {
+          statusLabel: `Stored ${streakFreezeCount} / ${STREAK_FREEZE_CAP}`,
+          badgeLabel: streakFreezeCount > 0 ? "Ready" : undefined,
+          purchaseDisabled: atCap || !canAfford,
+          purchaseLabel: atCap ? "At Cap" : canAfford ? "Buy" : "Need Gems",
+        };
+      }
+      case "streak_shield_pack": {
+        const blocked = streakFreezeCount > 0 || !canAfford;
+        return {
+          statusLabel: `Stored ${streakFreezeCount} / ${STREAK_FREEZE_CAP}`,
+          badgeLabel: streakFreezeCount > 0 ? "Own Freezes" : undefined,
+          purchaseDisabled: blocked,
+          purchaseLabel: streakFreezeCount > 0 ? "Own Freezes" : canAfford ? "Buy" : "Need Gems",
+        };
+      }
+      case "xp_boost":
+        return {
+          statusLabel: xpBoostActive ? `Active ${xpBoostCountdown}` : "1 hour • doubles XP",
+          badgeLabel: xpBoostActive ? "Active" : undefined,
+          purchaseDisabled: xpBoostActive || !canAfford,
+          purchaseLabel: xpBoostActive ? "Active" : canAfford ? "Buy" : "Need Gems",
+        };
+      case "perfect_run_token": {
+        const atCap = perfectRunTokenCount >= PERFECT_RUN_TOKEN_CAP;
+        return {
+          statusLabel: `Stored ${perfectRunTokenCount} / ${PERFECT_RUN_TOKEN_CAP}`,
+          badgeLabel: perfectRunTokenCount > 0 ? `${perfectRunTokenCount} ready` : undefined,
+          purchaseDisabled: atCap || !canAfford,
+          purchaseLabel: atCap ? "At Cap" : canAfford ? "Buy" : "Need Gems",
+        };
+      }
+      case "unlimited_hearts_pass":
+        return {
+          statusLabel: unlimitedHeartsActive ? `Active ${unlimitedHeartsCountdown}` : "24 hours • or use 1 Perfect Run Token",
+          badgeLabel: unlimitedHeartsActive ? "Active" : undefined,
+          purchaseDisabled: unlimitedHeartsActive || !canAfford,
+          purchaseLabel: unlimitedHeartsActive ? "Active" : canAfford ? "Buy" : "Need Gems",
+          secondaryLabel: !unlimitedHeartsActive && perfectRunTokenCount > 0 ? "Use Token" : undefined,
+          secondaryDisabled: false,
+        };
+      case "hint_token": {
+        const atCap = hintTokenCount >= HINT_TOKEN_CAP;
+        return {
+          statusLabel: `Stored ${hintTokenCount} / ${HINT_TOKEN_CAP}`,
+          badgeLabel: hintTokenCount > 0 ? `${hintTokenCount} ready` : undefined,
+          purchaseDisabled: atCap || !canAfford,
+          purchaseLabel: atCap ? "At Cap" : canAfford ? "Buy" : "Need Gems",
+        };
+      }
+      default:
+        return {
+          statusLabel: undefined,
+          badgeLabel: undefined,
+          purchaseDisabled: !canAfford,
+          purchaseLabel: canAfford ? "Buy" : "Need Gems",
+        };
+    }
+  };
 
   const handleConfirmPurchase = async (entryId: FunctionalProductId) => {
     if (processingId) return;
@@ -421,33 +539,22 @@ export default function ShopPage() {
                     <p className="mt-2 text-xl font-black text-white">Utility only. Helpful, but not the star of the shop.</p>
                   </div>
                   <div className="flex flex-wrap gap-2 text-[11px] font-black uppercase tracking-[0.18em] text-white/36">
-                    <span className="rounded-full border border-white/10 bg-white/6 px-3 py-2">Freezes {streakFreezeCount}</span>
-                    <span className="rounded-full border border-white/10 bg-white/6 px-3 py-2">Perfect Tokens {perfectRunTokenCount}</span>
+                    <span className="rounded-full border border-white/10 bg-white/6 px-3 py-2">Heart Refills {heartRefillCount}/{HEART_REFILL_CAP}</span>
+                    <span className="rounded-full border border-white/10 bg-white/6 px-3 py-2">Freezes {streakFreezeCount}/{STREAK_FREEZE_CAP}</span>
+                    <span className="rounded-full border border-white/10 bg-white/6 px-3 py-2">Hints {hintTokenCount}/{HINT_TOKEN_CAP}</span>
+                    <span className="rounded-full border border-white/10 bg-white/6 px-3 py-2">Perfect Tokens {perfectRunTokenCount}/{PERFECT_RUN_TOKEN_CAP}</span>
                     <span className="rounded-full border border-white/10 bg-white/6 px-3 py-2">
                       {xpBoostActive ? `2x XP ${xpBoostCountdown}` : "No XP Boost"}
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-white/6 px-3 py-2">
+                      {unlimitedHeartsActive ? `Unlimited Hearts ${unlimitedHeartsCountdown}` : "Hearts limited"}
                     </span>
                   </div>
                 </div>
                 <div className="mt-5 grid gap-4 lg:grid-cols-4">
                   {SHOP_FUNCTIONAL_PRODUCTS.map((product) => {
                     const preview = getFunctionalProductById(product.id);
-                    const canAfford = infiniteGemsEnabled || gemBalance >= product.price;
-                    const ownedStateLabel =
-                      product.id === "streak_freeze"
-                        ? `Hold ${streakFreezeCount}`
-                        : product.id === "streak_shield_pack"
-                          ? `Hold ${streakFreezeCount}`
-                          : product.id === "xp_boost"
-                            ? (xpBoostActive ? `Active ${xpBoostCountdown}` : undefined)
-                            : `Hold ${perfectRunTokenCount}`;
-                    const pseudoOwned =
-                      product.id === "streak_freeze"
-                        ? streakFreezeCount >= 3
-                        : product.id === "streak_shield_pack"
-                          ? streakFreezeCount > 0
-                          : product.id === "xp_boost"
-                            ? xpBoostActive
-                            : perfectRunTokenCount >= 3;
+                    const state = getFunctionalCardState(product);
 
                     return (
                       <CompactFunctionalCard
@@ -457,14 +564,23 @@ export default function ShopPage() {
                         description={preview?.description ?? product.description}
                         price={product.price}
                         accent={product.accent}
-                        statusLabel={ownedStateLabel}
-                        owned={pseudoOwned}
+                        statusLabel={state.statusLabel}
+                        badgeLabel={state.badgeLabel}
                         confirming={confirmingId === product.id}
                         processing={processingId === product.id}
-                        canAfford={canAfford && !pseudoOwned}
+                        purchaseDisabled={state.purchaseDisabled}
+                        purchaseLabel={state.purchaseLabel}
+                        secondaryLabel={state.secondaryLabel}
+                        secondaryDisabled={state.secondaryDisabled}
                         onPurchaseClick={() => setConfirmingId(product.id)}
                         onConfirmPurchase={() => void handleConfirmPurchase(product.id)}
                         onCancelConfirm={() => setConfirmingId(null)}
+                        onSecondaryAction={() => {
+                          if (product.id !== "unlimited_hearts_pass") return;
+                          if (activateUnlimitedHeartsWithToken()) {
+                            setConfirmingId(null);
+                          }
+                        }}
                       />
                     );
                   })}
@@ -515,23 +631,7 @@ export default function ShopPage() {
               <div className="grid gap-4 lg:grid-cols-4">
                 {SHOP_FUNCTIONAL_PRODUCTS.map((product) => {
                   const preview = getFunctionalProductById(product.id);
-                  const canAfford = infiniteGemsEnabled || gemBalance >= product.price;
-                  const ownedStateLabel =
-                    product.id === "streak_freeze"
-                      ? `Hold ${streakFreezeCount}`
-                      : product.id === "streak_shield_pack"
-                        ? `Hold ${streakFreezeCount}`
-                        : product.id === "xp_boost"
-                          ? (xpBoostActive ? `Active ${xpBoostCountdown}` : undefined)
-                          : `Hold ${perfectRunTokenCount}`;
-                  const pseudoOwned =
-                    product.id === "streak_freeze"
-                      ? streakFreezeCount >= 3
-                      : product.id === "streak_shield_pack"
-                        ? streakFreezeCount > 0
-                        : product.id === "xp_boost"
-                          ? xpBoostActive
-                          : perfectRunTokenCount >= 3;
+                  const state = getFunctionalCardState(product);
 
                   return (
                     <CompactFunctionalCard
@@ -541,14 +641,23 @@ export default function ShopPage() {
                       description={preview?.description ?? product.description}
                       price={product.price}
                       accent={product.accent}
-                      statusLabel={ownedStateLabel}
-                      owned={pseudoOwned}
+                      statusLabel={state.statusLabel}
+                      badgeLabel={state.badgeLabel}
                       confirming={confirmingId === product.id}
                       processing={processingId === product.id}
-                      canAfford={canAfford && !pseudoOwned}
+                      purchaseDisabled={state.purchaseDisabled}
+                      purchaseLabel={state.purchaseLabel}
+                      secondaryLabel={state.secondaryLabel}
+                      secondaryDisabled={state.secondaryDisabled}
                       onPurchaseClick={() => setConfirmingId(product.id)}
                       onConfirmPurchase={() => void handleConfirmPurchase(product.id)}
                       onCancelConfirm={() => setConfirmingId(null)}
+                      onSecondaryAction={() => {
+                        if (product.id !== "unlimited_hearts_pass") return;
+                        if (activateUnlimitedHeartsWithToken()) {
+                          setConfirmingId(null);
+                        }
+                      }}
                     />
                   );
                 })}

@@ -241,6 +241,8 @@ function LearnInner() {
   const { enabled: ambientEffectsEnabled, setEnabled: setAmbientEffectsEnabled, hydrated: ambientHydrated } = useAmbientEffectsPreference();
   const searchParams = useSearchParams();
   const [completedLessons, setCompletedLessons] = useState<string[]>([]);
+  const [arcProgress, setArcProgress] = useState<Record<string, { completedLessonIndices?: number[]; status?: string }>>({});
+  const [activeSessionNodeId, setActiveSessionNodeId] = useState<string | null>(null);
   const [xp, setXp] = useState(0);
   const [streak, setStreak] = useState(0);
   const [gems, setGems] = useState(0);
@@ -265,6 +267,7 @@ function LearnInner() {
   const pathAnimationReadyRef = useRef(false);
   const previousCompletedRef = useRef<Set<string>>(new Set());
   const previousUnlockedRef = useRef<Set<string>>(new Set());
+  const pathCelebrationHandledRef = useRef<string | null>(null);
   const mounted = useSyncExternalStore(subscribe, () => true, () => false);
   const sections = useMemo(() => getCourseSections(currentLanguage), [currentLanguage]);
   const miniCourses = useMemo(() => getMiniCourses(currentLanguage), [currentLanguage]);
@@ -330,6 +333,7 @@ function LearnInner() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       setViewerId(null);
+      setActiveSessionNodeId(null);
       setLoading(false);
       return;
     }
@@ -351,6 +355,8 @@ function LearnInner() {
     setViewerId(user.id);
     setCurrentLanguage(activeLanguage);
     setCompletedLessons(merged.completed_lessons);
+    setArcProgress(merged.arc_progress);
+    setActiveSessionNodeId(merged.active_lesson_session?.nodeId ?? null);
     setXp(merged.xp);
     setStreak(merged.streak);
     setGems(merged.gems);
@@ -379,12 +385,12 @@ function LearnInner() {
     };
   }, [searchParams]);
 
-  const updateChestInventory = (nextChests: RewardChest[]) => {
+  const updateChestInventory = useCallback((nextChests: RewardChest[]) => {
     setRewardChests(nextChests);
     if (viewerId) {
       setStoredRewardChests(viewerId, currentLanguage, nextChests);
     }
-  };
+  }, [currentLanguage, viewerId]);
 
   const syncChestRewards = async (nextGems: number, nextClaimedChests: string[]) => {
     setGems(nextGems);
@@ -428,14 +434,14 @@ function LearnInner() {
     updateChestInventory(progressed.chests);
   };
 
-  const ensureChestReady = (chest: RewardChest) => {
+  const ensureChestReady = useCallback((chest: RewardChest) => {
     const existing = rewardChests.find((entry) => entry.id === chest.id);
     if (existing) return existing;
 
     const next = upsertRewardChest(rewardChests, chest);
     updateChestInventory(next);
     return next.find((entry) => entry.id === chest.id) ?? chest;
-  };
+  }, [rewardChests, updateChestInventory]);
 
   const getDisplayChest = (chestId: string, fallback: RewardChest) => {
     return rewardChests.find((entry) => entry.id === chestId)
@@ -473,12 +479,60 @@ function LearnInner() {
     }
     return null;
   };
-  const currentLessonKey = findCurrentLesson();
+  const currentLessonKey = activeSessionNodeId && !completedLessons.includes(activeSessionNodeId)
+    ? activeSessionNodeId
+    : findCurrentLesson();
   const startLessonHref = currentLessonKey
     ? `/learn/${currentLessonKey.split("-")[0]}/${currentLessonKey.split("-")[1]}?lang=${currentLanguage}`
     : "/learn";
   const currentWeekToday = weeklyStreak.find((day) => day.isToday)?.dateKey ?? "today";
   const streakRiskSessionKey = streakRisk ? `${currentLanguage}:${currentWeekToday}` : null;
+
+  useEffect(() => {
+    if (loading) return;
+    const celebrateNode = searchParams.get("celebrateNode");
+    const openChestUnit = searchParams.get("openChest");
+    if (!celebrateNode && !openChestUnit) {
+      pathCelebrationHandledRef.current = null;
+      return;
+    }
+
+    const signature = `${celebrateNode ?? ""}:${openChestUnit ?? ""}:${currentLanguage}:${viewerId ?? "guest"}`;
+    if (pathCelebrationHandledRef.current === signature) return;
+    pathCelebrationHandledRef.current = signature;
+
+    const kickoffId = window.setTimeout(() => {
+      if (celebrateNode) {
+        setRecentlyCompletedKey(celebrateNode);
+        window.setTimeout(() => {
+          setRecentlyCompletedKey((current) => (current === celebrateNode ? null : current));
+        }, 2200);
+
+        if (pathTheme.id === "celestial") {
+          setAuroraBurstKey((value) => value + 1);
+        } else if (pathTheme.id === "the_void") {
+          setVoidFlashKey((value) => value + 1);
+        }
+      }
+
+      if (openChestUnit) {
+        const unitId = Number(openChestUnit);
+        if (Number.isFinite(unitId) && unitId > 0) {
+          const chest = ensureChestReady(createUnitRewardChest(unitId));
+          setSelectedChest(chest);
+        }
+      }
+    }, 0);
+
+    if (typeof window !== "undefined") {
+      const nextParams = new URLSearchParams(searchParams.toString());
+      nextParams.delete("celebrateNode");
+      nextParams.delete("openChest");
+      const nextQuery = nextParams.toString();
+      window.history.replaceState(null, "", nextQuery ? `/learn?${nextQuery}` : "/learn");
+    }
+    return () => window.clearTimeout(kickoffId);
+  }, [currentLanguage, ensureChestReady, loading, pathTheme.id, searchParams, viewerId]);
 
   useEffect(() => {
     if (loading) return;
@@ -628,6 +682,12 @@ function LearnInner() {
           0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(88,204,2,0.4); }
           50% { transform: scale(1.08); box-shadow: 0 0 0 12px rgba(88,204,2,0); }
         }
+        @keyframes node-complete-bounce {
+          0% { transform: translateY(0) scale(0.9); }
+          40% { transform: translateY(-10px) scale(1.12); }
+          72% { transform: translateY(2px) scale(0.98); }
+          100% { transform: translateY(0) scale(1); }
+        }
         @keyframes bob { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
         @keyframes sidebarChestSparkle {
           0%, 100% { opacity: 0.16; transform: translate3d(0, 0, 0) scale(0.92); }
@@ -652,6 +712,7 @@ function LearnInner() {
           50% { transform: scale(1.16); opacity: 1; }
         }
         .node-pulse { animation: pulse-node 2s ease-in-out infinite; }
+        .node-complete-bounce { animation: node-complete-bounce 820ms cubic-bezier(0.22,1,0.36,1); }
         .pico-bob { animation: bob 2.4s ease-in-out infinite; }
       `}</style>
 
@@ -951,6 +1012,11 @@ function LearnInner() {
                                 const unlocked = isUnlocked(unit.id, lesson.id);
                                 const completed = completedLessons.includes(`${unit.id}-${lesson.id}`);
                                 const key = `${unit.id}-${lesson.id}`;
+                                const nodeArcProgress = arcProgress[key];
+                                const completedArcLessons = completed
+                                  ? 5
+                                  : Math.min(5, nodeArcProgress?.completedLessonIndices?.length ?? 0);
+                                const inProgressArc = !completed && completedArcLessons > 0;
                                 const isChallenge = lesson.title.toLowerCase().includes("challenge");
                                 const isCurrent = key === currentLessonKey;
                                 const hasNextNode = index < displayPathNodes.length - 1;
@@ -997,7 +1063,7 @@ function LearnInner() {
                                         {isCurrent && (
                                           <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap">
                                             <span className="rounded-lg bg-gray-950 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-white">
-                                              Start
+                                              {inProgressArc ? "Continue" : "Start"}
                                             </span>
                                           </div>
                                         )}
@@ -1029,6 +1095,13 @@ function LearnInner() {
                                             />
                                           )}
                                         </a>
+                                        {inProgressArc ? (
+                                          <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap">
+                                            <span className="rounded-full bg-black/70 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white/92">
+                                              {completedArcLessons}/5
+                                            </span>
+                                          </div>
+                                        ) : null}
                                         {hasNextNode ? (
                                           pathTheme.id === "celestial" ? (
                                             <CelestialConnector className="pointer-events-none absolute left-1/2 top-full -translate-x-1/2" active={completed || unlocked} animateDraw={shouldAnimateConnector} />
@@ -1053,7 +1126,7 @@ function LearnInner() {
                                       {isCurrent && (
                                         <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap">
                                           <span className="bg-gray-900 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-lg uppercase tracking-wider">
-                                            Start
+                                            {inProgressArc ? "Continue" : "Start"}
                                           </span>
                                         </div>
                                       )}
@@ -1069,7 +1142,7 @@ function LearnInner() {
                                         onMouseLeave={() => setTooltip(null)}
                                         className={`relative flex h-14 w-14 items-center justify-center border-b-4 font-extrabold transition-all duration-150 active:translate-y-1 ${nodeShape.className} ${
                                           isCurrent ? "node-pulse" : ""
-                                        } ${unlocked || completed ? "hover:brightness-110" : "cursor-not-allowed"}`}
+                                        } ${recentlyCompletedKey === key ? "node-complete-bounce" : ""} ${unlocked || completed ? "hover:brightness-110" : "cursor-not-allowed"}`}
                                         style={{
                                           background: nodeBackground,
                                           borderColor: nodeBorder,
@@ -1093,6 +1166,13 @@ function LearnInner() {
                                           <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
                                         )}
                                       </a>
+                                      {inProgressArc ? (
+                                        <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap">
+                                          <span className="rounded-full bg-slate-950/92 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white/92">
+                                            {completedArcLessons}/5
+                                          </span>
+                                        </div>
+                                      ) : null}
                                       {hasNextNode && (
                                         <span
                                           className="pointer-events-none absolute left-1/2 top-full h-6 w-[6px] -translate-x-1/2 rounded-full"

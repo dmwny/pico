@@ -37,17 +37,23 @@ export const COSMETICS_REMOTE_TABLE = "pico_cosmetics";
 export const PICO_COSMETICS_EVENT = "pico:cosmetics-changed";
 export const STREAK_FREEZE_CAP = 3;
 export const PERFECT_RUN_TOKEN_CAP = 3;
+export const HEART_REFILL_CAP = 5;
+export const HINT_TOKEN_CAP = 10;
 export const XP_BOOST_DURATION_MS = 60 * 60 * 1000;
+export const UNLIMITED_HEARTS_DURATION_MS = 24 * 60 * 60 * 1000;
 export const PERFECT_RUN_BONUS_XP = 25;
 const DEFAULT_MUTATION_TIMESTAMP = "1970-01-01T00:00:00.000Z";
 
 export type PackId = "basic_pack" | "premium_pack" | "legendary_pack" | "mythic_pack";
 
 export type FunctionalProductId =
+  | "heart_refill"
   | "streak_freeze"
   | "streak_shield_pack"
   | "xp_boost"
-  | "perfect_run_token";
+  | "perfect_run_token"
+  | "unlimited_hearts_pass"
+  | "hint_token";
 
 export type CosmeticItemKind =
   | "pathTheme"
@@ -132,10 +138,14 @@ export type EquippedCosmetics = {
 };
 
 export type FunctionalInventory = {
+  heartRefills: number;
+  hintTokens: number;
   streakFreezes: number;
   perfectRunTokens: number;
   activeXpBoostStartedAt: string | null;
   activeXpBoostEndsAt: string | null;
+  activeUnlimitedHeartsStartedAt: string | null;
+  activeUnlimitedHeartsEndsAt: string | null;
 };
 
 export type ThemePackPityState = Record<
@@ -249,8 +259,8 @@ const THEME_PACKS: Record<PackId, ThemePackDefinition> = {
     description: "The balanced pull: strong Rare odds, real Epic density, and Legendary pity.",
     price: 250,
     odds: { common: 0.25, rare: 0.45, epic: 0.25, legendary: 0.045, mythic: 0.005 },
-    pityLabel: "Guaranteed Legendary after 10 without one",
-    pityThreshold: 10,
+    pityLabel: "Guaranteed Legendary after 50 without one",
+    pityThreshold: 50,
     guaranteeTier: "legendary",
     completionCompensation: 250,
     exampleThemeIds: ["synthwave", "cyberpunk_city", "enchanted_forest"],
@@ -262,8 +272,8 @@ const THEME_PACKS: Record<PackId, ThemePackDefinition> = {
     description: "High-tier pulls only, with Mythic pity protecting long dry streaks.",
     price: 700,
     odds: { common: 0, rare: 0.15, epic: 0.45, legendary: 0.35, mythic: 0.05 },
-    pityLabel: "Guaranteed Mythic after 5 without one",
-    pityThreshold: 5,
+    pityLabel: "Guaranteed Mythic after 25 without one",
+    pityThreshold: 25,
     guaranteeTier: "mythic",
     completionCompensation: 700,
     exampleThemeIds: ["haunted_mansion", "crystal_cavern", "celestial"],
@@ -275,8 +285,8 @@ const THEME_PACKS: Record<PackId, ThemePackDefinition> = {
     description: "No low-tier filler, loaded with Legendary pulls and the best Mythic odds.",
     price: 1800,
     odds: { common: 0, rare: 0, epic: 0.25, legendary: 0.6, mythic: 0.15 },
-    pityLabel: "Guaranteed Mythic after 3 without one",
-    pityThreshold: 3,
+    pityLabel: "Guaranteed Mythic after 15 without one",
+    pityThreshold: 15,
     guaranteeTier: "mythic",
     completionCompensation: 1800,
     exampleThemeIds: ["the_dreamscape", "the_void", "celestial"],
@@ -285,6 +295,14 @@ const THEME_PACKS: Record<PackId, ThemePackDefinition> = {
 };
 
 const FUNCTIONAL_PRODUCTS: Record<FunctionalProductId, FunctionalProductDefinition> = {
+  heart_refill: {
+    id: "heart_refill",
+    name: "Heart Refill",
+    description: "Restore a full set of 5 hearts during a failed lesson.",
+    price: 200,
+    accent: "#F87171",
+    limitLabel: `Hold up to ${HEART_REFILL_CAP}`,
+  },
   streak_freeze: {
     id: "streak_freeze",
     name: "Streak Freeze",
@@ -316,6 +334,22 @@ const FUNCTIONAL_PRODUCTS: Record<FunctionalProductId, FunctionalProductDefiniti
     price: 100,
     accent: "#F59E0B",
     limitLabel: `Hold up to ${PERFECT_RUN_TOKEN_CAP}`,
+  },
+  unlimited_hearts_pass: {
+    id: "unlimited_hearts_pass",
+    name: "Unlimited Hearts Pass",
+    description: "No heart loss for 24 hours. Can also be activated with 1 Perfect Run Token.",
+    price: 500,
+    accent: "#FB7185",
+    limitLabel: "Cannot stack while active",
+  },
+  hint_token: {
+    id: "hint_token",
+    name: "Hint Token",
+    description: "Covers one paid hint in a lesson without costing a heart.",
+    price: 100,
+    accent: "#FACC15",
+    limitLabel: `Hold up to ${HINT_TOKEN_CAP}`,
   },
 };
 
@@ -563,10 +597,14 @@ export function getDefaultCosmeticsState(): CosmeticsState {
       titleBadgeId: "scholar",
     },
     functional: {
+      heartRefills: 0,
+      hintTokens: 0,
       streakFreezes: 0,
       perfectRunTokens: 0,
       activeXpBoostStartedAt: null,
       activeXpBoostEndsAt: null,
+      activeUnlimitedHeartsStartedAt: null,
+      activeUnlimitedHeartsEndsAt: null,
     },
     pity: DEFAULT_PITY_STATE,
     stats: {
@@ -639,10 +677,18 @@ export function sanitizeCosmeticsState(value: unknown): CosmeticsState {
       titleBadgeId,
     },
     functional: {
+      heartRefills: clamp(Number(functional.heartRefills || 0), 0, HEART_REFILL_CAP),
+      hintTokens: clamp(Number(functional.hintTokens || 0), 0, HINT_TOKEN_CAP),
       streakFreezes: clamp(Number(functional.streakFreezes || 0), 0, STREAK_FREEZE_CAP),
       perfectRunTokens: clamp(Number(functional.perfectRunTokens || 0), 0, PERFECT_RUN_TOKEN_CAP),
       activeXpBoostStartedAt: typeof functional.activeXpBoostStartedAt === "string" ? functional.activeXpBoostStartedAt : null,
       activeXpBoostEndsAt: typeof functional.activeXpBoostEndsAt === "string" ? functional.activeXpBoostEndsAt : null,
+      activeUnlimitedHeartsStartedAt: typeof functional.activeUnlimitedHeartsStartedAt === "string"
+        ? functional.activeUnlimitedHeartsStartedAt
+        : null,
+      activeUnlimitedHeartsEndsAt: typeof functional.activeUnlimitedHeartsEndsAt === "string"
+        ? functional.activeUnlimitedHeartsEndsAt
+        : null,
     },
     pity: sanitizePityState(raw.pity),
     stats: {
@@ -675,6 +721,17 @@ function getMergedXpBoostWindow(localFunctional: FunctionalInventory, remoteFunc
   };
 }
 
+function getMergedUnlimitedHeartsWindow(localFunctional: FunctionalInventory, remoteFunctional: FunctionalInventory) {
+  const localEndsAt = localFunctional.activeUnlimitedHeartsEndsAt ? Date.parse(localFunctional.activeUnlimitedHeartsEndsAt) : 0;
+  const remoteEndsAt = remoteFunctional.activeUnlimitedHeartsEndsAt ? Date.parse(remoteFunctional.activeUnlimitedHeartsEndsAt) : 0;
+  const winner = localEndsAt >= remoteEndsAt ? localFunctional : remoteFunctional;
+
+  return {
+    activeUnlimitedHeartsStartedAt: winner.activeUnlimitedHeartsStartedAt,
+    activeUnlimitedHeartsEndsAt: winner.activeUnlimitedHeartsEndsAt,
+  };
+}
+
 export function mergeCosmeticsStates(localState: CosmeticsState, remoteState: CosmeticsState | null | undefined) {
   const local = sanitizeCosmeticsState(localState);
   const remote = sanitizeCosmeticsState(remoteState ?? getDefaultCosmeticsState());
@@ -695,9 +752,12 @@ export function mergeCosmeticsStates(localState: CosmeticsState, remoteState: Co
     },
     equipped: latestEquipped,
     functional: {
+      heartRefills: Math.max(local.functional.heartRefills, remote.functional.heartRefills),
+      hintTokens: Math.max(local.functional.hintTokens, remote.functional.hintTokens),
       streakFreezes: Math.max(local.functional.streakFreezes, remote.functional.streakFreezes),
       perfectRunTokens: Math.max(local.functional.perfectRunTokens, remote.functional.perfectRunTokens),
       ...getMergedXpBoostWindow(local.functional, remote.functional),
+      ...getMergedUnlimitedHeartsWindow(local.functional, remote.functional),
     },
     pity: {
       basic_pack: {
@@ -849,6 +909,12 @@ export function isXpBoostActive(state: CosmeticsState, now = Date.now()) {
   return typeof endsAt === "number" && Number.isFinite(endsAt) && endsAt > now;
 }
 
+export function isUnlimitedHeartsActive(state: CosmeticsState, now = Date.now()) {
+  const endsAt = state.functional.activeUnlimitedHeartsEndsAt ? Date.parse(state.functional.activeUnlimitedHeartsEndsAt) : null;
+  const passActive = typeof endsAt === "number" && Number.isFinite(endsAt) && endsAt > now;
+  return passActive || isXpBoostActive(state, now);
+}
+
 function withGemsSpent(state: CosmeticsState, spentGems: number) {
   if (spentGems <= 0) return state;
   return sanitizeCosmeticsState({
@@ -862,6 +928,12 @@ function withGemsSpent(state: CosmeticsState, spentGems: number) {
 
 export function getXpBoostRemainingMs(state: CosmeticsState, now = Date.now()) {
   const endsAt = state.functional.activeXpBoostEndsAt ? Date.parse(state.functional.activeXpBoostEndsAt) : null;
+  if (!endsAt || !Number.isFinite(endsAt)) return 0;
+  return Math.max(0, endsAt - now);
+}
+
+export function getUnlimitedHeartsRemainingMs(state: CosmeticsState, now = Date.now()) {
+  const endsAt = state.functional.activeUnlimitedHeartsEndsAt ? Date.parse(state.functional.activeUnlimitedHeartsEndsAt) : null;
   if (!endsAt || !Number.isFinite(endsAt)) return 0;
   return Math.max(0, endsAt - now);
 }
@@ -924,9 +996,11 @@ function updatePityState(packId: PackId, pityState: ThemePackPityState, rarity: 
 }
 
 function shouldTriggerPity(packId: PackId, pityState: ThemePackPityState) {
-  if (packId === "premium_pack") return pityState.premium_pack.sinceLegendary >= 9;
-  if (packId === "legendary_pack") return pityState.legendary_pack.sinceMythic >= 4;
-  if (packId === "mythic_pack") return pityState.mythic_pack.sinceMythic >= 2;
+  const threshold = THEME_PACKS[packId].pityThreshold;
+  if (!threshold) return false;
+  if (packId === "premium_pack") return pityState.premium_pack.sinceLegendary >= threshold - 1;
+  if (packId === "legendary_pack") return pityState.legendary_pack.sinceMythic >= threshold - 1;
+  if (packId === "mythic_pack") return pityState.mythic_pack.sinceMythic >= threshold - 1;
   return false;
 }
 
@@ -1086,6 +1160,18 @@ export function purchaseShopEntry(
     return { ok: true, entryId, nextState, nextGems: bypassCost ? gemBalance : gemBalance - price, spentGems: bypassCost ? 0 : price, grantedLabel: entry.name };
   }
 
+  if (entry.id === "heart_refill") {
+    if (state.functional.heartRefills >= HEART_REFILL_CAP) {
+      return { ok: false, entryId, reason: "cap_reached", message: `Heart refill cap reached (${HEART_REFILL_CAP})` };
+    }
+    const rawState = sanitizeCosmeticsState({
+      ...state,
+      functional: { ...state.functional, heartRefills: clamp(state.functional.heartRefills + 1, 0, HEART_REFILL_CAP) },
+    });
+    const nextState = trackSpend ? withGemsSpent(rawState, price) : rawState;
+    return { ok: true, entryId, nextState, nextGems: bypassCost ? gemBalance : gemBalance - price, spentGems: bypassCost ? 0 : price, grantedLabel: entry.name };
+  }
+
   if (entry.id === "streak_shield_pack") {
     if (state.functional.streakFreezes > 0) {
       return { ok: false, entryId, reason: "bundle_waste", message: "Use your current freezes first" };
@@ -1120,6 +1206,36 @@ export function purchaseShopEntry(
     const rawState = sanitizeCosmeticsState({
       ...state,
       functional: { ...state.functional, perfectRunTokens: clamp(state.functional.perfectRunTokens + 1, 0, PERFECT_RUN_TOKEN_CAP) },
+    });
+    const nextState = trackSpend ? withGemsSpent(rawState, price) : rawState;
+    return { ok: true, entryId, nextState, nextGems: bypassCost ? gemBalance : gemBalance - price, spentGems: bypassCost ? 0 : price, grantedLabel: entry.name };
+  }
+
+  if (entry.id === "unlimited_hearts_pass") {
+    if (isUnlimitedHeartsActive(state, now.getTime())) {
+      return { ok: false, entryId, reason: "already_active", message: "Unlimited hearts already active" };
+    }
+    const startedAt = now.toISOString();
+    const endsAt = new Date(now.getTime() + UNLIMITED_HEARTS_DURATION_MS).toISOString();
+    const rawState = sanitizeCosmeticsState({
+      ...state,
+      functional: {
+        ...state.functional,
+        activeUnlimitedHeartsStartedAt: startedAt,
+        activeUnlimitedHeartsEndsAt: endsAt,
+      },
+    });
+    const nextState = trackSpend ? withGemsSpent(rawState, price) : rawState;
+    return { ok: true, entryId, nextState, nextGems: bypassCost ? gemBalance : gemBalance - price, spentGems: bypassCost ? 0 : price, grantedLabel: entry.name };
+  }
+
+  if (entry.id === "hint_token") {
+    if (state.functional.hintTokens >= HINT_TOKEN_CAP) {
+      return { ok: false, entryId, reason: "cap_reached", message: `Hint token cap reached (${HINT_TOKEN_CAP})` };
+    }
+    const rawState = sanitizeCosmeticsState({
+      ...state,
+      functional: { ...state.functional, hintTokens: clamp(state.functional.hintTokens + 1, 0, HINT_TOKEN_CAP) },
     });
     const nextState = trackSpend ? withGemsSpent(rawState, price) : rawState;
     return { ok: true, entryId, nextState, nextGems: bypassCost ? gemBalance : gemBalance - price, spentGems: bypassCost ? 0 : price, grantedLabel: entry.name };
@@ -1213,6 +1329,28 @@ export function setStreakFreezeCount(state: CosmeticsState, count: number) {
   });
 }
 
+export function consumeHeartRefill(state: CosmeticsState) {
+  if (state.functional.heartRefills <= 0) return { nextState: state, consumed: false };
+  return {
+    nextState: sanitizeCosmeticsState({
+      ...state,
+      functional: { ...state.functional, heartRefills: state.functional.heartRefills - 1 },
+    }),
+    consumed: true,
+  };
+}
+
+export function consumeHintToken(state: CosmeticsState) {
+  if (state.functional.hintTokens <= 0) return { nextState: state, consumed: false };
+  return {
+    nextState: sanitizeCosmeticsState({
+      ...state,
+      functional: { ...state.functional, hintTokens: state.functional.hintTokens - 1 },
+    }),
+    consumed: true,
+  };
+}
+
 export function consumePerfectRunToken(state: CosmeticsState) {
   if (state.functional.perfectRunTokens <= 0) return { nextState: state, consumed: false };
   return {
@@ -1221,6 +1359,33 @@ export function consumePerfectRunToken(state: CosmeticsState) {
       functional: { ...state.functional, perfectRunTokens: state.functional.perfectRunTokens - 1 },
     }),
     consumed: true,
+  };
+}
+
+export function activateUnlimitedHeartsPassWithToken(state: CosmeticsState, now = new Date()) {
+  if (isUnlimitedHeartsActive(state, now.getTime())) {
+    return { nextState: state, consumed: false, reason: "already_active" as const };
+  }
+  if (state.functional.perfectRunTokens <= 0) {
+    return { nextState: state, consumed: false, reason: "missing_token" as const };
+  }
+
+  const consumedToken = consumePerfectRunToken(state);
+  if (!consumedToken.consumed) {
+    return { nextState: state, consumed: false, reason: "missing_token" as const };
+  }
+
+  return {
+    nextState: sanitizeCosmeticsState({
+      ...consumedToken.nextState,
+      functional: {
+        ...consumedToken.nextState.functional,
+        activeUnlimitedHeartsStartedAt: now.toISOString(),
+        activeUnlimitedHeartsEndsAt: new Date(now.getTime() + UNLIMITED_HEARTS_DURATION_MS).toISOString(),
+      },
+    }),
+    consumed: true,
+    reason: "activated" as const,
   };
 }
 
@@ -1251,13 +1416,21 @@ export function syncOpenedChestFloor(state: CosmeticsState, totalOpened: number)
 }
 
 export function clearExpiredXpBoost(state: CosmeticsState, now = Date.now()) {
-  if (!isXpBoostActive(state, now) && (state.functional.activeXpBoostEndsAt || state.functional.activeXpBoostStartedAt)) {
-    return sanitizeCosmeticsState({
-      ...state,
-      functional: { ...state.functional, activeXpBoostStartedAt: null, activeXpBoostEndsAt: null },
-    });
-  }
-  return state;
+  const boostExpired = !isXpBoostActive(state, now) && (state.functional.activeXpBoostEndsAt || state.functional.activeXpBoostStartedAt);
+  const heartsExpired = getUnlimitedHeartsRemainingMs(state, now) <= 0
+    && (state.functional.activeUnlimitedHeartsEndsAt || state.functional.activeUnlimitedHeartsStartedAt);
+  if (!boostExpired && !heartsExpired) return state;
+
+  return sanitizeCosmeticsState({
+    ...state,
+    functional: {
+      ...state.functional,
+      activeXpBoostStartedAt: boostExpired ? null : state.functional.activeXpBoostStartedAt,
+      activeXpBoostEndsAt: boostExpired ? null : state.functional.activeXpBoostEndsAt,
+      activeUnlimitedHeartsStartedAt: heartsExpired ? null : state.functional.activeUnlimitedHeartsStartedAt,
+      activeUnlimitedHeartsEndsAt: heartsExpired ? null : state.functional.activeUnlimitedHeartsEndsAt,
+    },
+  });
 }
 
 export function formatBoostCountdown(remainingMs: number) {

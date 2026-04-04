@@ -176,6 +176,13 @@ function FunctionalIcon({ accent, assetId, className }: { accent: string; assetI
   const id = assetId as FunctionalProductId;
   return (
     <BaseSvg className={className}>
+      {id === "heart_refill" && (
+        <>
+          <path d="M24 38s-11-6.9-15.1-13.3C5.8 19.8 8 12.8 13.9 11.4c3.2-.8 6.2.3 8.1 2.9 1.9-2.6 4.9-3.7 8.1-2.9 5.9 1.4 8.1 8.4 5 13.3C35 31.1 24 38 24 38Z" fill={accent} opacity="0.2" />
+          <path d="M24 36s-9.6-6.1-13.2-11.7c-2.6-4-1-9.7 3.8-10.9 2.8-.7 5.3.3 7 2.7 1.7-2.4 4.3-3.4 7-2.7 4.8 1.2 6.4 6.9 3.8 10.9C33.6 29.9 24 36 24 36Z" stroke={accent} strokeWidth="2.6" strokeLinejoin="round" />
+          <path d="M24 17v10M19 22h10" stroke={accent} strokeWidth="2.8" strokeLinecap="round" />
+        </>
+      )}
       {id === "streak_freeze" && (
         <>
           <path d="M24 10C19 10 15 14.1 15 19.2c0 8 9 16 9 16s9-8 9-16C33 14.1 29 10 24 10Z" fill={accent} opacity="0.2" />
@@ -200,6 +207,23 @@ function FunctionalIcon({ accent, assetId, className }: { accent: string; assetI
         <>
           <circle cx="24" cy="24" r="12.5" stroke={accent} strokeWidth="3.2" />
           <path d="M24 13l2.5 7.3h7.7l-6.2 4.5 2.4 7.2-6.4-4.4-6.4 4.4 2.4-7.2-6.2-4.5h7.7L24 13Z" fill={accent} opacity="0.9" />
+        </>
+      )}
+      {id === "unlimited_hearts_pass" && (
+        <>
+          <path d="M15 13.5C15 10.5 17.4 8 20.4 8c1.9 0 3.8.9 5 2.5 1.2-1.6 3.1-2.5 5-2.5 3 0 5.6 2.5 5.6 5.5 0 6.5-10.6 13.8-10.6 13.8S15 20 15 13.5Z" fill={accent} opacity="0.18" />
+          <path d="M14.5 14c0-3.1 2.4-5.6 5.4-5.6 2.1 0 3.8.9 5.1 2.7 1.2-1.8 3-2.7 5.1-2.7 3 0 5.4 2.5 5.4 5.6 0 6.2-10.5 13.4-10.5 13.4S14.5 20.2 14.5 14Z" stroke={accent} strokeWidth="2.4" strokeLinejoin="round" />
+          <path d="M15 31c2.2-2.6 4.7-3.9 7.5-3.9S27.8 28.4 30 31" stroke={accent} strokeWidth="2.4" strokeLinecap="round" opacity="0.9" />
+          <path d="M9 23c2.8-3.3 5.2-4.9 7.4-4.9 2.1 0 4 1.5 6 4.4 2-2.9 3.9-4.4 6-4.4 2.2 0 4.7 1.6 7.6 4.9" stroke={accent} strokeWidth="2.2" strokeLinecap="round" opacity="0.9" />
+        </>
+      )}
+      {id === "hint_token" && (
+        <>
+          <circle cx="24" cy="20" r="9.5" fill={accent} opacity="0.18" />
+          <path d="M24 10.5c-4.6 0-8.3 3.5-8.3 8 0 2.8 1.3 4.7 3.3 6.3 1.1.9 1.8 1.8 2 2.8h6c.2-1 .9-1.9 2-2.8 2-1.6 3.3-3.5 3.3-6.3 0-4.5-3.7-8-8.3-8Z" stroke={accent} strokeWidth="2.4" strokeLinejoin="round" />
+          <path d="M20.5 30.5h7M21.5 34h5" stroke={accent} strokeWidth="2.4" strokeLinecap="round" />
+          <circle cx="34.5" cy="14.5" r="4.2" fill="none" stroke={accent} strokeWidth="2.2" />
+          <path d="M34.5 12.6v3.8M32.6 14.5h3.8" stroke={accent} strokeWidth="2.2" strokeLinecap="round" />
         </>
       )}
     </BaseSvg>

@@ -50,6 +50,7 @@ const LANGUAGE_HAS_PLACEMENT: Record<LearningLanguage, boolean> = {
 export interface LessonMeta {
   id: number;
   title: string;
+  concept: string;
 }
 
 export interface UnitMeta {
@@ -91,19 +92,84 @@ export interface MiniCourseMeta {
 
 type UnitLessonBlueprint = [string, string, string, string, string, string];
 
+function slugifyConcept(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+}
+
+function inferLessonConcept(unitTitle: string, lessonTitle: string) {
+  const unit = unitTitle.toLowerCase();
+  const lesson = lessonTitle.toLowerCase();
+  const combined = `${unit} ${lesson}`;
+
+  if (combined.includes("print") || combined.includes("console.log") || combined.includes("write line") || unit.includes("hello")) {
+    return "print-statements";
+  }
+  if (combined.includes("comment")) {
+    return "comments";
+  }
+  if (unit.includes("variable")) {
+    return "variables";
+  }
+  if (unit.includes("input") || unit.includes("scanner") || lesson.includes("prompt")) {
+    return "user-input";
+  }
+  if (unit.includes("string")) {
+    return "string-methods";
+  }
+  if (unit.includes("condition") || lesson.includes("if") || lesson.includes("else")) {
+    return "conditionals";
+  }
+  if (lesson.includes("for loop") || lesson.includes("numeric for") || lesson.includes("foreach") || combined.includes("for loops")) {
+    return "for-loops";
+  }
+  if (lesson.includes("while")) {
+    return "while-loops";
+  }
+  if (lesson.includes("range")) {
+    return "ranges";
+  }
+  if (lesson.includes("break") || lesson.includes("continue")) {
+    return "loop-control";
+  }
+  if (unit.includes("loop")) {
+    return "loops";
+  }
+  if (unit.includes("function") || unit.includes("method")) {
+    return "functions";
+  }
+  if (unit.includes("list") || unit.includes("array") || unit.includes("vector") || unit.includes("table")) {
+    return "lists";
+  }
+  if (unit.includes("dictionary") || unit.includes("object") || unit.includes("interface") || unit.includes("struct") || unit.includes("module")) {
+    return "dictionaries";
+  }
+  if (unit.includes("file") || unit.includes("dom")) {
+    return "file-handling";
+  }
+  if (unit.includes("class") || unit.includes("enum") || unit.includes("metatable")) {
+    return "classes";
+  }
+
+  return slugifyConcept(lessonTitle);
+}
+
 function buildUnit(id: number, title: string, description: string, lessons: UnitLessonBlueprint): UnitMeta {
   return {
     id,
     title,
     description,
     lessons: [
-      { id: 1, title: lessons[0] },
-      { id: 2, title: lessons[1] },
-      { id: 3, title: lessons[2] },
-      { id: 4, title: lessons[3] },
-      { id: 5, title: lessons[4] },
-      { id: 6, title: lessons[5] },
-      { id: 7, title: "Unit challenge" },
+      { id: 1, title: lessons[0], concept: inferLessonConcept(title, lessons[0]) },
+      { id: 2, title: lessons[1], concept: inferLessonConcept(title, lessons[1]) },
+      { id: 3, title: lessons[2], concept: inferLessonConcept(title, lessons[2]) },
+      { id: 4, title: lessons[3], concept: inferLessonConcept(title, lessons[3]) },
+      { id: 5, title: lessons[4], concept: inferLessonConcept(title, lessons[4]) },
+      { id: 6, title: lessons[5], concept: inferLessonConcept(title, lessons[5]) },
+      { id: 7, title: "Unit challenge", concept: `${slugifyConcept(title)}-challenge` },
     ],
   };
 }
