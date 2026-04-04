@@ -1,13 +1,17 @@
 "use client";
 
-import { useState, useEffect, useCallback, useSyncExternalStore } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import type { CSSProperties } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import Pico from "@/components/Pico";
+import AmbientEffectsLayer from "@/components/theme/AmbientEffectsLayer";
+import MythicThemeLayer from "@/components/theme/MythicThemeLayer";
 import { checkAchievements, ACHIEVEMENTS } from "@/lib/achievements";
 import { getCourseSections, getLessonTopic, LearningLanguage, normalizeLanguage } from "@/lib/courseContent";
 import { resolveActiveLanguage, setStoredLanguageProgress, mergeProgressSources, getStoredLanguageProgress } from "@/lib/progress";
 import { useCosmetics } from "@/contexts/CosmeticsContext";
+import { useThemeContext } from "@/contexts/ThemeContext";
 import { PERFECT_RUN_BONUS_XP } from "@/lib/cosmetics";
 import { RewardChestArt } from "@/components/rewards/RewardChest";
 import RewardChestModal from "@/components/rewards/RewardChestModal";
@@ -23,10 +27,10 @@ import {
   setStoredRewardChests,
   upsertRewardChest,
 } from "@/lib/rewardChests";
+import { mixHex, withAlpha } from "@/lib/themes";
+import { applyQualifiedActivity, getLocalTimezone } from "@/lib/streaks";
 
 const TOTAL_QUESTIONS = 4;
-const LESSON_TIME_LIMIT = 90;
-
 type LessonQuestion = {
   type?: "arrange" | "fill" | "multiple_choice" | "output";
   instruction?: string;
@@ -45,10 +49,6 @@ type TeachingContent = {
   tip?: string;
 };
 
-function subscribe() {
-  return () => {};
-}
-
 function countBlankMarkers(codeLines: string[] = []) {
   return codeLines.reduce((count, line) => count + (line.match(/_{2,}/g) || []).length, 0);
 }
@@ -63,46 +63,6 @@ function getArrangeBlankCount(question: LessonQuestion | null | undefined) {
   const markerCount = countBlankMarkers(question?.codeLines || []);
   const answerCount = Array.isArray(question?.answer) ? question.answer.length : 0;
   return answerCount > 0 ? Math.min(markerCount, answerCount) : markerCount;
-}
-
-function getSupabaseErrorDetails(error: unknown) {
-  if (!error || typeof error !== "object") return null;
-
-  const maybeError = error as {
-    message?: string;
-    code?: string;
-    details?: string;
-    hint?: string;
-  };
-
-  const details = {
-    message: maybeError.message || null,
-    code: maybeError.code || null,
-    details: maybeError.details || null,
-    hint: maybeError.hint || null,
-  };
-
-  return Object.values(details).some(Boolean) ? details : null;
-}
-
-function getDayKey(date = new Date()) {
-  return date.toISOString().split("T")[0];
-}
-
-function getDayGap(lastPlayed: string | null | undefined, todayKey: string) {
-  if (!lastPlayed) return null;
-  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(lastPlayed)
-    ? lastPlayed
-    : (() => {
-        const parsed = new Date(lastPlayed);
-        return Number.isNaN(parsed.getTime()) ? null : getDayKey(parsed);
-      })();
-
-  if (!normalized) return null;
-
-  const today = new Date(`${todayKey}T00:00:00.000Z`);
-  const previous = new Date(`${normalized}T00:00:00.000Z`);
-  return Math.round((today.getTime() - previous.getTime()) / 86_400_000);
 }
 
 function getUnlockedUnitRewardChest(
@@ -234,17 +194,204 @@ function AchievementToast({ achievement, onDone }: { achievement: string | null;
   );
 }
 
+function highlightCodeLine(line: string) {
+  const tokenPattern = /(#[^\n]*$|\/\/[^\n]*$|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\b(?:import|from|const|let|var|def|class|return|if|else|for|while|print|await|async|new|function|true|false|null)\b|\b\d+\b)/g;
+  const matches = [...line.matchAll(tokenPattern)];
+  if (matches.length === 0) return [{ value: line, className: "text-slate-200" }];
+
+  const segments: Array<{ value: string; className: string }> = [];
+  let cursor = 0;
+
+  matches.forEach((match) => {
+    const token = match[0];
+    const index = match.index ?? 0;
+    if (index > cursor) {
+      segments.push({ value: line.slice(cursor, index), className: "text-slate-200" });
+    }
+    segments.push({
+      value: token,
+      className: token.startsWith("#") || token.startsWith("//")
+        ? "text-slate-500"
+        : token.startsWith("\"") || token.startsWith("'")
+          ? "text-amber-300"
+          : /^\d+$/.test(token)
+            ? "text-fuchsia-300"
+            : "text-sky-300",
+    });
+    cursor = index + token.length;
+  });
+
+  if (cursor < line.length) {
+    segments.push({ value: line.slice(cursor), className: "text-slate-200" });
+  }
+
+  return segments;
+}
+
+function LessonCodeBlock({
+  title,
+  lines,
+  footer,
+}: {
+  title: string;
+  lines: string[];
+  footer?: string | null;
+}) {
+  return (
+    <div className="overflow-hidden rounded-[1.7rem] border border-slate-800/90 bg-[#07111f] shadow-[0_24px_60px_rgba(2,6,23,0.36)]">
+      <div className="flex items-center justify-between border-b border-white/6 px-4 py-3">
+        <p className="text-[0.65rem] font-black uppercase tracking-[0.28em] text-slate-500">{title}</p>
+        <div className="flex gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-rose-400/80" />
+          <span className="h-2.5 w-2.5 rounded-full bg-amber-300/80" />
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
+        </div>
+      </div>
+      <div className="space-y-1.5 px-4 py-4 font-mono text-[0.95rem] leading-7">
+        {lines.map((line, index) => (
+          <div key={`${title}-${index}`} className="grid grid-cols-[2rem_1fr] gap-3">
+            <span className="select-none text-right text-[0.78rem] font-semibold text-slate-500">{index + 1}</span>
+            <code className="whitespace-pre-wrap break-words">
+              {highlightCodeLine(line).map((segment, segmentIndex) => (
+                <span key={`${index}-${segmentIndex}`} className={segment.className}>{segment.value}</span>
+              ))}
+            </code>
+          </div>
+        ))}
+      </div>
+      {footer ? <div className="border-t border-white/6 px-4 py-3 text-xs font-semibold text-slate-400">{footer}</div> : null}
+    </div>
+  );
+}
+
+function QuestionPips({
+  total,
+  current,
+  answered,
+  accentColor,
+  glowColor,
+}: {
+  total: number;
+  current: number;
+  answered: number;
+  accentColor: string;
+  glowColor: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      {Array.from({ length: total }, (_, index) => {
+        const complete = index < answered;
+        const active = index === current;
+
+        return (
+          <span
+            key={`lesson-pip-${index}`}
+            className="h-2.5 rounded-full transition-all duration-300"
+            style={{
+              width: active ? 28 : 12,
+              background: complete || active ? accentColor : "rgba(148,163,184,0.26)",
+              boxShadow: complete || active ? `0 0 18px ${glowColor}` : "none",
+              opacity: complete || active ? 1 : 0.72,
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function LessonParticleBurst({
+  active,
+  color,
+}: {
+  active: boolean;
+  color: string;
+}) {
+  if (!active) return null;
+
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      {Array.from({ length: 16 }).map((_, index) => (
+        <span
+          key={`lesson-burst-${index}`}
+          className="absolute left-1/2 top-1/2 rounded-full"
+          style={{
+            width: 5 + (index % 3) * 2,
+            height: 5 + (index % 3) * 2,
+            background: color,
+            boxShadow: `0 0 18px ${color}`,
+            "--lesson-burst-x": `${Math.cos((index / 16) * Math.PI * 2) * (72 + (index % 4) * 10)}px`,
+            "--lesson-burst-y": `${Math.sin((index / 16) * Math.PI * 2) * (56 + (index % 3) * 10)}px`,
+            animation: `lessonBurst 620ms cubic-bezier(0.22,1,0.36,1) ${index * 12}ms forwards`,
+          } as CSSProperties}
+        />
+      ))}
+    </div>
+  );
+}
+
+function RewardTrackStrip({
+  chests,
+  onSelect,
+  accentColor,
+  compact = false,
+}: {
+  chests: RewardChest[];
+  onSelect: (chest: RewardChest) => void;
+  accentColor: string;
+  compact?: boolean;
+}) {
+  const visibleChests = chests.slice(0, 4);
+
+  return (
+    <div className={`flex gap-3 overflow-x-auto pb-1 ${compact ? "" : "pt-2"}`}>
+      {visibleChests.map((rewardChest) => {
+        const opened = rewardChest.state === "opened";
+
+        return (
+          <button
+            key={rewardChest.id}
+            type="button"
+            onClick={() => onSelect(rewardChest)}
+            className={`relative flex shrink-0 flex-col items-center rounded-[1.25rem] border px-3 py-3 text-center transition ${
+              opened ? "opacity-55 saturate-75" : "hover:-translate-y-0.5"
+            } ${opened ? "" : "animate-[lessonLockedPulse_3.2s_ease-in-out_infinite]"} ${compact ? "w-[5.6rem]" : "w-[6.2rem]"}`}
+            style={{
+              borderColor: opened ? "rgba(148,163,184,0.22)" : withAlpha(accentColor, 0.26),
+              background: opened ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.88)",
+            }}
+          >
+            <RewardChestArt
+              rarity={rewardChest.currentRarity}
+              opened={opened}
+              compact
+              className={`mx-auto ${compact ? "w-[3.6rem]" : "w-[4.1rem]"}`}
+            />
+            <p className="mt-2 text-[0.58rem] font-black uppercase tracking-[0.18em] text-slate-400">
+              {opened ? "spent" : "ready"}
+            </p>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function LessonPage() {
+  const { pathTheme, nodeEffect } = useThemeContext();
   const {
     isXpBoostActiveAt,
     spendPerfectRunToken,
     perfectRunTokenCount,
-    consumeStreakFreezeCharge,
     recordOpenedChest,
     infiniteGemsEnabled,
+    applyQualifiedStreakActivity,
     updateProgress,
     progress: globalProgress,
+    streakFreezeCount,
+    pendingDailyStreakCelebration,
+    pendingStreakMilestone,
   } = useCosmetics();
   const params = useParams();
   const router = useRouter();
@@ -290,18 +437,15 @@ export default function LessonPage() {
   const [gemAmount, setGemAmount] = useState(0);
   const [flashState, setFlashState] = useState<"none" | "correct" | "wrong">("none");
   const [shakeKey, setShakeKey] = useState(0);
-  const [achievement, setAchievement] = useState<string | null>(null);
+  const [visibleAchievement, setVisibleAchievement] = useState<string | null>(null);
+  const [achievementQueue, setAchievementQueue] = useState<string[]>([]);
+  const [holdAchievementToast, setHoldAchievementToast] = useState(false);
   const [alreadyEarnedAchievements, setAlreadyEarnedAchievements] = useState<string[]>([]);
   const [claimedChests, setClaimedChests] = useState<string[]>([]);
   const [rewardChests, setRewardChests] = useState<RewardChest[]>([]);
   const [chestReward, setChestReward] = useState<RewardChest | null>(null);
-  const lessonMounted = useSyncExternalStore(subscribe, () => true, () => false);
-
-  // Load lesson + existing achievements
-  useEffect(() => {
-    loadLesson();
-    loadEarnedAchievements();
-  }, []);
+  const hasBlockingStreakOverlay = Boolean(pendingDailyStreakCelebration || pendingStreakMilestone);
+  const sawBlockingStreakOverlayRef = useRef(false);
 
   useEffect(() => {
     if (!startTime || phase !== "quiz") return;
@@ -313,7 +457,30 @@ export default function LessonPage() {
     return () => window.clearInterval(timer);
   }, [phase, startTime]);
 
-  const loadEarnedAchievements = async () => {
+  useEffect(() => {
+    if (!hasBlockingStreakOverlay || !visibleAchievement) return;
+    setAchievementQueue((currentQueue) => [visibleAchievement, ...currentQueue]);
+    setVisibleAchievement(null);
+  }, [hasBlockingStreakOverlay, visibleAchievement]);
+
+  useEffect(() => {
+    if (hasBlockingStreakOverlay) {
+      sawBlockingStreakOverlayRef.current = true;
+      return;
+    }
+    if (!holdAchievementToast || !sawBlockingStreakOverlayRef.current) return;
+    sawBlockingStreakOverlayRef.current = false;
+    setHoldAchievementToast(false);
+  }, [hasBlockingStreakOverlay, holdAchievementToast]);
+
+  useEffect(() => {
+    if (hasBlockingStreakOverlay || holdAchievementToast || visibleAchievement || achievementQueue.length === 0) return;
+    const [nextAchievement, ...remaining] = achievementQueue;
+    setVisibleAchievement(nextAchievement);
+    setAchievementQueue(remaining);
+  }, [achievementQueue, hasBlockingStreakOverlay, holdAchievementToast, visibleAchievement]);
+
+  const loadEarnedAchievements = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     const activeLanguage = await resolveActiveLanguage(user.id);
@@ -326,18 +493,7 @@ export default function LessonPage() {
     if (data) {
       setAlreadyEarnedAchievements(JSON.parse(data.achievements || "[]"));
     }
-  };
-
-  // Keyboard shortcut
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Enter") {
-        if (feedback) { next(); }
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [feedback]);
+  }, []);
 
   // Set up arrange tiles when question changes
   useEffect(() => {
@@ -354,7 +510,7 @@ export default function LessonPage() {
     }
   }, [current, questions]);
 
-  const loadLesson = async () => {
+  const loadLesson = useCallback(async () => {
     setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -395,7 +551,13 @@ export default function LessonPage() {
       setQuestions([]);
     }
     setLoading(false);
-  };
+  }, [lessonId, requestedLanguage, unitId]);
+
+  // Load lesson + existing achievements
+  useEffect(() => {
+    void loadLesson();
+    void loadEarnedAchievements();
+  }, [loadEarnedAchievements, loadLesson]);
 
   const updateChestInventory = (nextChests: RewardChest[]) => {
     setRewardChests(nextChests);
@@ -519,7 +681,7 @@ export default function LessonPage() {
   };
 
   const triggerAchievement = (name: string) => {
-    setAchievement(name);
+    setAchievementQueue((currentQueue) => [...currentQueue, name]);
   };
 
   // ── FIXED: cache-busting navigation so learn page re-fetches on return ──
@@ -557,26 +719,7 @@ export default function LessonPage() {
     return q.answer ? String(q.answer) : "";
   };
 
-  const next = useCallback(async () => {
-    if (current + 1 >= TOTAL_QUESTIONS) {
-      await saveProgress();
-      setShowConfetti(true);
-      setTimeout(() => setShowConfetti(false), 3000);
-      if (correctCount + (feedback?.correct ? 1 : 0) === TOTAL_QUESTIONS && !alreadyEarnedAchievements.includes("perfect_lesson")) {
-        triggerAchievement("Flawless");
-        setAlreadyEarnedAchievements((prev) => [...prev, "perfect_lesson"]);
-      }
-      setPhase("done");
-    } else {
-      setCurrent((p) => p + 1);
-      setFeedback(null);
-      setSelectedOption(null);
-      setSelectedFill(null);
-      setArrangedTiles([]);
-    }
-  }, [current, feedback, correctCount, alreadyEarnedAchievements]);
-
-  const saveProgress = async () => {
+  const saveProgress = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     const lessonLanguage = currentLanguage ?? requestedLanguage ?? await resolveActiveLanguage(user.id);
@@ -597,164 +740,124 @@ export default function LessonPage() {
       localClaimedChests,
     );
     const currentGems = localProgress?.gems ?? gems;
+    const mergedExisting = mergeProgressSources(lessonLanguage, existing, localProgress);
+    const completed = mergedExisting.completed_lessons.includes(lessonKey)
+      ? mergedExisting.completed_lessons
+      : [...mergedExisting.completed_lessons, lessonKey];
+    const rewardChest = getUnlockedUnitRewardChest(
+      lessonLanguage,
+      Number(unitId),
+      completed,
+      localClaimedChests,
+      localRewardChests,
+    );
+    const nextRewardChests = rewardChest ? upsertRewardChest(localRewardChests, rewardChest) : localRewardChests;
+    const totalPerfect = mergedExisting.today_perfect + (perfect ? 1 : 0);
+    const baseProgressBeforeAchievements = {
+      ...mergedExisting,
+      completed_lessons: completed,
+      xp: mergedExisting.xp + xp,
+      gems: currentGems,
+      claimed_chests: localClaimedChests,
+      today_xp: mergedExisting.today_xp + xp,
+      today_lessons: mergedExisting.today_lessons + 1,
+      today_perfect: totalPerfect,
+    };
+    const streakPreview = applyQualifiedActivity(
+      baseProgressBeforeAchievements,
+      streakFreezeCount,
+      new Date(),
+      baseProgressBeforeAchievements.streak_timezone ?? getLocalTimezone(),
+    );
+    const shouldEarn = checkAchievements(
+      completed,
+      baseProgressBeforeAchievements.xp,
+      streakPreview.nextProgress.streak ?? baseProgressBeforeAchievements.streak,
+      perfect,
+      timeTaken,
+      streak,
+      totalPerfect,
+    );
+    const alreadyEarned = mergedExisting.achievements;
+    const newlyEarned = shouldEarn.filter((id: string) => !alreadyEarned.includes(id));
+    const allEarned = [...alreadyEarned, ...newlyEarned];
+    const baseProgress = {
+      ...baseProgressBeforeAchievements,
+      achievements: allEarned,
+    };
 
-    if (existing) {
-      const completed: string[] = JSON.parse(existing.completed_lessons || "[]");
-      const alreadyDone = completed.includes(lessonKey);
-      if (!alreadyDone) completed.push(lessonKey);
-      const rewardChest = getUnlockedUnitRewardChest(lessonLanguage, Number(unitId), completed, localClaimedChests, localRewardChests);
-      const nextRewardChests = rewardChest ? upsertRewardChest(localRewardChests, rewardChest) : localRewardChests;
+    const streakResult = await applyQualifiedStreakActivity({
+      language: lessonLanguage,
+      baseProgress,
+    });
+    const nextProgress = streakResult?.progress ?? baseProgress;
+    const streakOverlayQueued = Boolean(streakResult?.milestoneReward || nextProgress.streak_pending_daily_celebration);
 
-      const newXp = existing.xp + xp;
-      const alreadyEarned: string[] = JSON.parse(existing.achievements || "[]");
+    if (streakOverlayQueued) {
+      setHoldAchievementToast(true);
+    }
 
-      const totalPerfect = (existing.today_perfect || 0) + (perfect ? 1 : 0);
+    setStoredRewardChests(user.id, lessonLanguage, nextRewardChests);
+    setRewardChests(nextRewardChests);
+    setGems(nextProgress.gems);
 
-      const shouldEarn = checkAchievements(
-        completed,
-        newXp,
-        existing.streak || 0,
-        perfect,
-        timeTaken,
-        streak,
-        totalPerfect,
-      );
-
-      const newlyEarned = shouldEarn.filter((id: string) => !alreadyEarned.includes(id));
-      const allEarned = [...alreadyEarned, ...newlyEarned];
-
-      // ── Streak logic ────────────────────────────────────────────────────
-      const today = getDayKey();
-      const dayGap = getDayGap(existing.last_played, today);
-      const newStreak =
-        dayGap === 0
-          ? existing.streak || 0
-          : dayGap === 1
-            ? (existing.streak || 0) + 1
-            : dayGap === 2
-              ? (consumeStreakFreezeCharge() ? (existing.streak || 0) + 1 : 1)
-              : 1;
-
-      const updatedProgress = {
-        completed_lessons: JSON.stringify(completed),
-        xp: newXp,
-        streak: newStreak,
-        achievements: JSON.stringify(allEarned),
-        today_xp: (existing.today_xp || 0) + xp,
-        today_lessons: (existing.today_lessons || 0) + 1,
-        today_perfect: (existing.today_perfect || 0) + (perfect ? 1 : 0),
-        last_played: today,
-      };
-
-      const syncResponse = await fetch("/api/progress", {
-        method: "POST",
-        body: JSON.stringify({
-          userId: user.id,
-          language: lessonLanguage,
-          values: updatedProgress,
-        }),
-      });
-      const { error } = await syncResponse.json();
-
-      const merged = mergeProgressSources(lessonLanguage, { ...existing, ...updatedProgress }, localProgress);
-      setStoredLanguageProgress(user.id, lessonLanguage, {
-        ...merged,
-        gems: currentGems,
-        claimed_chests: localClaimedChests,
-      });
-      setStoredRewardChests(user.id, lessonLanguage, nextRewardChests);
-      setRewardChests(nextRewardChests);
-
-      if (error) {
-        const details = getSupabaseErrorDetails(error);
-        console.warn(
-          details
-            ? "Supabase progress sync failed. Local progress was saved, but cross-device sync may still be blocked."
-            : "Supabase progress sync failed. Local progress was saved. If this keeps happening, the pico_progress table may still be missing the (user_id, language) unique constraint.",
-          details ?? undefined
-        );
-      }
-
-      // Only show toast for achievements not already triggered in-lesson
-      if (newlyEarned.length > 0) {
-        const alreadyTriggeredInLesson = ["streak_3", "perfect_lesson"];
-        const toShow = newlyEarned.filter((id: string) => !alreadyTriggeredInLesson.includes(id) || !alreadyEarnedAchievements.includes(id));
-        if (toShow.length > 0) {
-          const achievementData = ACHIEVEMENTS.find((a) => a.id === toShow[0]);
-          if (achievementData) triggerAchievement(achievementData.title);
-        }
-      }
-
-      if (rewardChest) {
-        setChestReward(nextRewardChests.find((entry) => entry.id === rewardChest.id) ?? rewardChest);
-      }
-    } else {
-      const today = getDayKey();
-      const shouldEarn = checkAchievements([lessonKey], xp, 0, perfect, timeTaken, streak, perfect ? 1 : 0);
-      const rewardChest = getUnlockedUnitRewardChest(lessonLanguage, Number(unitId), [lessonKey], localClaimedChests, localRewardChests);
-      const nextRewardChests = rewardChest ? upsertRewardChest(localRewardChests, rewardChest) : localRewardChests;
-
-      const insertedProgress = {
-        user_id: user.id,
-        xp,
-        streak: 1,
-        last_played: today,
-        completed_lessons: JSON.stringify([lessonKey]),
-        achievements: JSON.stringify(shouldEarn),
-        today_xp: xp,
-        today_lessons: 1,
-        today_perfect: perfect ? 1 : 0,
-        language: lessonLanguage,
-      };
-
-      const syncResponse = await fetch("/api/progress", {
-        method: "POST",
-        body: JSON.stringify({
-          userId: user.id,
-          language: lessonLanguage,
-          values: {
-            xp,
-            streak: 1,
-            last_played: today,
-            completed_lessons: JSON.stringify([lessonKey]),
-            achievements: JSON.stringify(shouldEarn),
-            today_xp: xp,
-            today_lessons: 1,
-            today_perfect: perfect ? 1 : 0,
-          },
-        }),
-      });
-      const { error } = await syncResponse.json();
-
-      const merged = mergeProgressSources(lessonLanguage, insertedProgress, localProgress);
-      setStoredLanguageProgress(user.id, lessonLanguage, {
-        ...merged,
-        gems: currentGems,
-        claimed_chests: localClaimedChests,
-      });
-      setStoredRewardChests(user.id, lessonLanguage, nextRewardChests);
-      setRewardChests(nextRewardChests);
-
-      if (error) {
-        const details = getSupabaseErrorDetails(error);
-        console.warn(
-          details
-            ? "Supabase progress sync failed. Local progress was saved, but cross-device sync may still be blocked."
-            : "Supabase progress sync failed. Local progress was saved. If this keeps happening, the pico_progress table may still be missing the (user_id, language) unique constraint.",
-          details ?? undefined
-        );
-      }
-
-      if (shouldEarn.length > 0) {
-        const achievementData = ACHIEVEMENTS.find((a) => a.id === shouldEarn[0]);
+    if (newlyEarned.length > 0) {
+      const alreadyTriggeredInLesson = ["streak_3", "perfect_lesson"];
+      const toShow = newlyEarned.filter((id: string) => !alreadyTriggeredInLesson.includes(id) || !alreadyEarnedAchievements.includes(id));
+      if (toShow.length > 0) {
+        const achievementData = ACHIEVEMENTS.find((a) => a.id === toShow[0]);
         if (achievementData) triggerAchievement(achievementData.title);
       }
-
-      if (rewardChest) {
-        setChestReward(nextRewardChests.find((entry) => entry.id === rewardChest.id) ?? rewardChest);
-      }
     }
-  };
+
+    if (rewardChest) {
+      setChestReward(nextRewardChests.find((entry) => entry.id === rewardChest.id) ?? rewardChest);
+    }
+  }, [
+    alreadyEarnedAchievements,
+    applyQualifiedStreakActivity,
+    correctCount,
+    currentLanguage,
+    elapsedSeconds,
+    gems,
+    lessonId,
+    requestedLanguage,
+    startTime,
+    streakFreezeCount,
+    streak,
+    unitId,
+    xp,
+  ]);
+
+  const next = useCallback(async () => {
+    if (current + 1 >= TOTAL_QUESTIONS) {
+      await saveProgress();
+      setShowConfetti(true);
+      setTimeout(() => setShowConfetti(false), 3000);
+      if (correctCount + (feedback?.correct ? 1 : 0) === TOTAL_QUESTIONS && !alreadyEarnedAchievements.includes("perfect_lesson")) {
+        triggerAchievement("Flawless");
+        setAlreadyEarnedAchievements((prev) => [...prev, "perfect_lesson"]);
+      }
+      setPhase("done");
+    } else {
+      setCurrent((p) => p + 1);
+      setFeedback(null);
+      setSelectedOption(null);
+      setSelectedFill(null);
+      setArrangedTiles([]);
+    }
+  }, [alreadyEarnedAchievements, correctCount, current, feedback, saveProgress]);
+
+  // Keyboard shortcut
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Enter" && feedback) {
+        void next();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [feedback, next]);
 
   // ── Render: arrange code lines ──────────────────────────────────────────────
   const renderArrangeCode = (q: LessonQuestion) => {
@@ -808,11 +911,12 @@ export default function LessonPage() {
   // ── Loading ──────────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <main className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
+      <main className="relative flex min-h-screen items-center justify-center overflow-hidden" style={{ background: pathTheme.surfaceBackground }}>
+        <div className="pointer-events-none absolute inset-0" style={{ background: pathTheme.pageOverlay, opacity: 0.9 }} />
+        <div className="relative z-10 text-center">
           <Pico size={100} mood="happy" className="mx-auto mb-2" />
-          <div className="animate-spin h-10 w-10 border-4 border-green-500 border-t-transparent rounded-full mx-auto mb-4" />
-          <p className="text-gray-500 font-semibold">Preparing your lesson...</p>
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-t-transparent" style={{ borderColor: pathTheme.accentColor, borderTopColor: "transparent" }} />
+          <p className="font-semibold" style={{ color: withAlpha(pathTheme.surfaceText, 0.7) }}>Preparing your lesson...</p>
         </div>
       </main>
     );
@@ -821,17 +925,23 @@ export default function LessonPage() {
   // ── Teaching phase ───────────────────────────────────────────────────────────
   if (phase === "teaching" && teaching) {
     return (
-      <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#eff6ff,_#f8fafc_46%,_#f8fafc_100%)]">
-        <div className="max-w-3xl mx-auto px-4 py-10">
-          <button onClick={goBack} className="text-gray-400 hover:text-gray-600 font-bold mb-8 block">
+      <main className="relative min-h-screen overflow-hidden" style={{ background: pathTheme.surfaceBackground }}>
+        <div className="pointer-events-none absolute inset-0" style={{ background: pathTheme.pageOverlay, opacity: 0.92 }} />
+        {pathTheme.id === "celestial" || pathTheme.id === "the_void" ? (
+          <MythicThemeLayer themeId={pathTheme.id} className="opacity-70" />
+        ) : (
+          <AmbientEffectsLayer effects={pathTheme.ambientEffects} enabled className="opacity-50" />
+        )}
+        <div className="relative z-10 max-w-4xl mx-auto px-4 py-10">
+          <button onClick={goBack} className="font-bold mb-8 block" style={{ color: withAlpha(pathTheme.surfaceText, 0.66) }}>
             Back
           </button>
 
           <div className="grid gap-6 lg:grid-cols-[0.88fr_1.12fr]">
-            <div className="rounded-[2rem] border border-emerald-100 bg-white/90 p-6 shadow-sm">
+            <div className="rounded-[2rem] border p-6 shadow-sm backdrop-blur" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.22), background: pathTheme.surfaceDark }}>
               <div className="flex items-end gap-4">
                 <Pico size={96} mood="happy" />
-                <div className="rounded-[1.7rem] rounded-bl-sm bg-emerald-500 px-5 py-4 text-white shadow-sm">
+                <div className="rounded-[1.7rem] rounded-bl-sm px-5 py-4 text-white shadow-sm" style={{ background: pathTheme.accentColor }}>
                   <p className="text-xs font-extrabold uppercase tracking-wider mb-1">
                     Coach
                   </p>
@@ -842,8 +952,8 @@ export default function LessonPage() {
               </div>
             </div>
 
-            <div className="rounded-[2rem] border border-slate-200 bg-white/95 p-8 shadow-sm">
-              <p className="text-xs font-extrabold uppercase tracking-wider text-emerald-600 mb-1">
+            <div className="rounded-[2rem] border bg-white/92 p-8 shadow-sm" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.2) }}>
+              <p className="text-xs font-extrabold uppercase tracking-wider mb-1" style={{ color: pathTheme.accentColor }}>
                 Unit {unitId} · Lesson {lessonId}
               </p>
               <h1 className="text-3xl font-extrabold text-slate-900">{teaching.title}</h1>
@@ -859,8 +969,8 @@ export default function LessonPage() {
               )}
 
               {teaching.tip && (
-                <div className="mt-6 bg-emerald-50 border-2 border-emerald-100 rounded-2xl p-4">
-                  <p className="text-emerald-700 font-bold text-sm">Tip: {teaching.tip}</p>
+                <div className="mt-6 rounded-2xl border-2 p-4" style={{ background: withAlpha(pathTheme.accentColor, 0.08), borderColor: withAlpha(pathTheme.accentColor, 0.18) }}>
+                  <p className="font-bold text-sm" style={{ color: mixHex(pathTheme.accentColor, "#0f172a", 0.26) }}>Tip: {teaching.tip}</p>
                 </div>
               )}
 
@@ -872,7 +982,8 @@ export default function LessonPage() {
                   setPerfectRunConverted(false);
                   setPhase("quiz");
                 }}
-                className="mt-8 w-full bg-emerald-500 text-white font-extrabold py-4 rounded-2xl hover:bg-emerald-600 transition shadow-md text-lg"
+                className="mt-8 w-full text-white font-extrabold py-4 rounded-2xl transition shadow-md text-lg"
+                style={{ background: pathTheme.accentColor }}
               >
                 Start Lesson
               </button>
@@ -891,7 +1002,7 @@ export default function LessonPage() {
       <>
         <Confetti active={showConfetti} />
         <GemFloat show={showGemBurst} amount={gemAmount} />
-        <AchievementToast achievement={achievement} onDone={() => setAchievement(null)} />
+        <AchievementToast achievement={visibleAchievement} onDone={() => setVisibleAchievement(null)} />
         <RewardChestModal
           key={chestReward?.id ?? "lesson-done-reward-empty"}
           chest={chestReward}
@@ -899,23 +1010,24 @@ export default function LessonPage() {
           onOpen={handleChestOpened}
           onProgress={handleChestProgress}
         />
-        <main className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-          <div className="max-w-md w-full text-center">
+        <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4" style={{ background: pathTheme.surfaceBackground }}>
+          <div className="pointer-events-none absolute inset-0" style={{ background: pathTheme.pageOverlay, opacity: 0.92 }} />
+          <div className="relative z-10 max-w-md w-full text-center">
             <Pico size={150} mood={perfect ? "celebrate" : "happy"} className="mx-auto" />
-            <div className="bg-white rounded-3xl shadow-sm py-10 px-12 -mt-6">
-              <h2 className="text-3xl font-extrabold text-gray-900 mb-2">
+            <div className="rounded-3xl border shadow-sm py-10 px-12 -mt-6" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.22), background: pathTheme.surfaceCard }}>
+              <h2 className="text-3xl font-extrabold mb-2" style={{ color: pathTheme.surfaceText }}>
                 {perfect ? "Perfect!" : "Lesson Complete!"}
               </h2>
-              <p className="text-gray-500 font-semibold mb-6">
+              <p className="font-semibold mb-6" style={{ color: withAlpha(pathTheme.surfaceText, 0.66) }}>
                 {correctCount} of {TOTAL_QUESTIONS} correct · {timeTaken}s · +{xp} XP
               </p>
               <div className="mb-6 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
-                  <p className="text-xs font-extrabold uppercase tracking-[0.22em] text-gray-400">streak</p>
+                <div className="rounded-2xl border px-4 py-4" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.14), background: withAlpha("#ffffff", 0.42) }}>
+                  <p className="text-xs font-extrabold uppercase tracking-[0.22em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.46) }}>streak</p>
                   <p className="mt-2 text-2xl font-extrabold text-orange-500">{streak}</p>
                 </div>
-                <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
-                  <p className="text-xs font-extrabold uppercase tracking-[0.22em] text-gray-400">gems</p>
+                <div className="rounded-2xl border px-4 py-4" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.14), background: withAlpha("#ffffff", 0.42) }}>
+                  <p className="text-xs font-extrabold uppercase tracking-[0.22em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.46) }}>gems</p>
                   <p className="mt-2 text-2xl font-extrabold text-cyan-600">{infiniteGemsEnabled ? "∞" : gems}</p>
                 </div>
               </div>
@@ -950,7 +1062,8 @@ export default function LessonPage() {
                         { syncRemote: true },
                       );
                     }}
-                    className="mt-4 w-full rounded-[1rem] bg-amber-500 py-3 text-sm font-extrabold text-white transition hover:bg-amber-600"
+                    className="mt-4 w-full rounded-[1rem] py-3 text-sm font-extrabold text-white transition"
+                    style={{ background: mixHex(pathTheme.accentColor, "#f59e0b", 0.46) }}
                   >
                     Use Token ({perfectRunTokenCount})
                   </button>
@@ -989,7 +1102,8 @@ export default function LessonPage() {
               {/* FIXED: uses goBack with cache-bust so learn page re-fetches */}
               <button
                 onClick={goBack}
-                className="w-full bg-green-500 text-white font-extrabold py-4 rounded-2xl hover:bg-green-600 transition shadow-md text-lg"
+                className="w-full text-white font-extrabold py-4 rounded-2xl transition shadow-md text-lg"
+                style={{ background: pathTheme.accentColor }}
               >
                 Continue
               </button>
@@ -1002,385 +1116,384 @@ export default function LessonPage() {
 
   // ── Quiz phase ───────────────────────────────────────────────────────────────
   const question = questions[current];
-  const progress = ((current) / TOTAL_QUESTIONS) * 100;
   const answeredCount = feedback ? current + 1 : current;
   const taskProgress = (answeredCount / TOTAL_QUESTIONS) * 100;
-  const secondsLeft = Math.max(0, LESSON_TIME_LIMIT - elapsedSeconds);
-  const timerLow = secondsLeft <= 20;
-  const bgClass =
-    flashState === "correct"
-      ? "bg-green-50"
-      : flashState === "wrong"
-      ? "bg-red-50"
-      : "bg-gray-50";
+  const coachTitle = feedback
+    ? feedback.correct
+      ? "Locked in."
+      : "One more pass."
+    : question?.type === "arrange"
+      ? "Assemble the pattern."
+      : question?.type === "fill"
+        ? "Fill the exact gap."
+        : "Read, predict, commit.";
+  const coachTip = feedback
+    ? feedback.correct
+      ? "Keep the mental model. The next prompt will build on the same pattern."
+      : "Slow the read-down. The blank or output usually reveals itself from the surrounding syntax."
+    : question?.type === "arrange"
+      ? "Start with the earliest blank and let each placement constrain the next one."
+      : question?.type === "fill"
+        ? "Scan the line around the blank before you touch the options."
+        : "Read the code once for shape, then once for exact behavior.";
+  const canSubmit =
+    !!feedback
+    || (question?.type === "arrange" && arrangedTiles.some((tile) => tile))
+    || (question?.type === "fill" && !!selectedFill)
+    || ((question?.type === "multiple_choice" || question?.type === "output") && !!selectedOption);
 
   return (
-      <>
-        <XPFloat show={showXP} amount={xpAmount} />
-        <GemFloat show={showGemBurst} amount={gemAmount} />
-        <AchievementToast achievement={achievement} onDone={() => setAchievement(null)} />
-        <RewardChestModal
-          key={chestReward?.id ?? "lesson-quiz-reward-empty"}
-          chest={chestReward}
-          onClose={() => setChestReward(null)}
-          onOpen={handleChestOpened}
-          onProgress={handleChestProgress}
-        />
+    <>
+      <XPFloat show={showXP} amount={xpAmount} />
+      <GemFloat show={showGemBurst} amount={gemAmount} />
+      <AchievementToast achievement={visibleAchievement} onDone={() => setVisibleAchievement(null)} />
+      <RewardChestModal
+        key={chestReward?.id ?? "lesson-quiz-reward-empty"}
+        chest={chestReward}
+        onClose={() => setChestReward(null)}
+        onOpen={handleChestOpened}
+        onProgress={handleChestProgress}
+      />
 
-      <main className={`min-h-screen ${bgClass} transition-colors duration-300 bg-[radial-gradient(circle_at_top,_rgba(240,249,255,0.9),_transparent_42%),linear-gradient(180deg,#f8fafc_0%,#f8fafc_100%)]`}>
-        <div className="mx-auto max-w-5xl px-4 pt-6 pb-10">
-          <div className="mb-5 grid gap-4 lg:grid-cols-[1fr_auto]">
-            <div className="rounded-[1.8rem] border border-white/80 bg-white/90 px-5 py-4 shadow-sm">
-              <div className="flex items-center gap-4 mb-3">
-                <button onClick={goBack} className="text-gray-400 hover:text-gray-600 font-extrabold text-xl w-8 h-8 flex items-center justify-center">
-                  ✕
-                </button>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-[11px] font-extrabold uppercase tracking-[0.24em] text-slate-400">Lesson progress</p>
-                    <span className="text-sm font-extrabold text-slate-500">{answeredCount}/{TOTAL_QUESTIONS}</span>
-                  </div>
-                  <div className="mt-2 h-3 rounded-full bg-slate-100 overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-[linear-gradient(90deg,#22c55e,#38bdf8)] transition-all duration-500"
-                      style={{ width: `${taskProgress}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
+      <main className="relative min-h-screen overflow-hidden" style={{ background: pathTheme.surfaceBackground }}>
+        <style>{`
+          @keyframes lessonBurst {
+            0% { transform: translate3d(0, 0, 0) scale(0.4); opacity: 0; }
+            18% { opacity: 1; }
+            100% { transform: translate3d(var(--lesson-burst-x), var(--lesson-burst-y), 0) scale(1.12); opacity: 0; }
+          }
+          @keyframes lessonWrongShake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-10px); }
+            40% { transform: translateX(10px); }
+            60% { transform: translateX(-7px); }
+            80% { transform: translateX(7px); }
+          }
+          @keyframes lessonLockedPulse {
+            0%, 100% { transform: translateY(0); box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+            50% { transform: translateY(-3px); box-shadow: 0 0 0 8px rgba(255,255,255,0); }
+          }
+        `}</style>
+        <div className="pointer-events-none absolute inset-0" style={{ background: pathTheme.pageOverlay, opacity: 0.92 }} />
+        {pathTheme.id === "celestial" || pathTheme.id === "the_void" ? (
+          <MythicThemeLayer themeId={pathTheme.id} className="opacity-70" />
+        ) : (
+          <AmbientEffectsLayer effects={pathTheme.ambientEffects} enabled className="opacity-45" />
+        )}
 
-              <div className="grid gap-3 sm:grid-cols-4">
-                <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
-                  <p className="text-[10px] font-extrabold uppercase tracking-[0.22em] text-slate-400">xp</p>
-                  <p className="mt-2 text-xl font-extrabold text-emerald-600">{xp}</p>
-                </div>
-                <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
-                  <p className="text-[10px] font-extrabold uppercase tracking-[0.22em] text-slate-400">streak</p>
-                  <p className="mt-2 text-xl font-extrabold text-orange-500">{streak}</p>
-                </div>
-                <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
-                  <p className="text-[10px] font-extrabold uppercase tracking-[0.22em] text-slate-400">gems</p>
-                  <p className="mt-2 text-xl font-extrabold text-cyan-600">{infiniteGemsEnabled ? "∞" : gems}</p>
-                </div>
-                <div className={`rounded-2xl border px-4 py-3 ${timerLow ? "border-red-200 bg-red-50" : "border-slate-100 bg-slate-50"}`}>
-                  <p className={`text-[10px] font-extrabold uppercase tracking-[0.22em] ${timerLow ? "text-red-400" : "text-slate-400"}`}>timer</p>
-                  <p className={`mt-2 text-xl font-extrabold ${timerLow ? "text-red-600 animate-pulse" : "text-slate-900"}`}>
-                    {lessonMounted ? `${secondsLeft}s` : "--"}
-                  </p>
-                </div>
-              </div>
+        <div className="relative z-10 flex min-h-screen flex-col">
+          <header
+            className="sticky top-0 z-20 border-b backdrop-blur-xl"
+            style={{ borderColor: withAlpha(pathTheme.accentColor, 0.22), background: pathTheme.surfaceDark }}
+          >
+            <div className="h-1.5 w-full overflow-hidden" style={{ background: withAlpha("#ffffff", 0.08) }}>
+              <div className="h-full transition-all duration-500" style={{ width: `${taskProgress}%`, background: pathTheme.accentColor }} />
             </div>
-
-            <div className="flex items-center justify-between gap-3 rounded-[1.8rem] border border-white/80 bg-white/90 px-5 py-4 shadow-sm lg:w-[240px]">
-              <div>
-                <p className="text-[11px] font-extrabold uppercase tracking-[0.24em] text-slate-400">lives</p>
-                <div className="mt-2 flex gap-1.5">
-                  {Array.from({ length: 3 }, (_, i) => (
-                    <span key={i} className={`text-xl transition ${i < lives ? "opacity-100" : "opacity-20"}`}>❤️</span>
+            <div className="mx-auto w-full max-w-7xl px-4 py-3">
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={goBack}
+                  className="flex h-10 w-10 items-center justify-center rounded-full text-xl font-black transition hover:bg-white/8"
+                  style={{ color: pathTheme.surfaceText }}
+                >
+                  ×
+                </button>
+                <div className="flex items-center gap-1.5">
+                  {Array.from({ length: 3 }, (_, index) => (
+                    <span key={`lesson-heart-${index}`} className={`text-xl transition ${index < lives ? "opacity-100" : "opacity-20"}`}>❤️</span>
                   ))}
                 </div>
               </div>
-              {claimedChests.length > 0 ? (
-                <div className="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2 text-center">
-                  <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-amber-600">chests</p>
-                  <p className="mt-1 text-lg font-extrabold text-amber-700">{claimedChests.length}</p>
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-            <div key={`${current}-${shakeKey}`}>
-              <div className="relative rounded-[2rem] border border-white/80 bg-white/95 p-5 shadow-sm">
-                <div className={`pointer-events-none absolute inset-0 rounded-[2rem] transition ${
-                  flashState === "correct"
-                    ? "bg-emerald-100/55 ring-2 ring-emerald-200"
-                    : flashState === "wrong"
-                      ? "bg-red-100/45 ring-2 ring-red-200"
-                      : "bg-transparent"
-                }`} />
-
-                <div className="relative flex items-end gap-4">
-                  <Pico
-                    size={98}
-                    mood={feedback ? (feedback.correct ? "celebrate" : "sad") : streak >= 3 ? "celebrate" : "happy"}
-                  />
-                  <div className="flex-1 rounded-[1.7rem] rounded-bl-sm border border-slate-200 bg-slate-50 px-5 py-4">
-                    <p className="text-[11px] font-extrabold uppercase tracking-[0.24em] text-slate-400">Current task</p>
-                    <p className="mt-2 text-2xl font-extrabold leading-9 text-slate-900">{question?.instruction}</p>
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                {[
+                  { label: "XP", value: xp.toString(), tone: "#34d399" },
+                  { label: "Streak", value: streak.toString(), tone: "#fb923c" },
+                  { label: "Gems", value: infiniteGemsEnabled ? "∞" : gems.toString(), tone: pathTheme.accentColor },
+                ].map((stat) => (
+                  <div key={stat.label} className="rounded-[1rem] border px-3 py-2.5" style={{ borderColor: withAlpha("#ffffff", 0.1), background: withAlpha("#ffffff", 0.05) }}>
+                    <p className="text-[0.58rem] font-black uppercase tracking-[0.24em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.58) }}>{stat.label}</p>
+                    <p className="mt-1 text-base font-black" style={{ color: stat.tone }}>{stat.value}</p>
                   </div>
+                ))}
+              </div>
+            </div>
+          </header>
+
+          <div className="mx-auto flex w-full max-w-7xl flex-1 px-4 py-6">
+            <div className="grid w-full gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <section key={`${current}-${shakeKey}`} className="min-w-0">
+                <div className="mb-4 flex items-center justify-between gap-4">
+                  <QuestionPips
+                    total={TOTAL_QUESTIONS}
+                    current={current}
+                    answered={answeredCount}
+                    accentColor={pathTheme.accentColor}
+                    glowColor={nodeEffect.particleColor}
+                  />
+                  <p className="text-xs font-black uppercase tracking-[0.22em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.56) }}>
+                    {answeredCount}/{TOTAL_QUESTIONS}
+                  </p>
                 </div>
 
-                <div className="relative mt-6 rounded-[1.7rem] border-2 border-slate-100 bg-slate-950 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-                  {question?.type === "arrange" && (
-                    <>
-                      <div className="mb-4">{renderArrangeCode(question)}</div>
-                      <div className="flex flex-wrap gap-2 min-h-[48px]">
-                        {availableArrangeTiles.map((tile, i) => (
-                          <button
-                            key={`${tile}-${i}`}
-                            onClick={() => {
-                              if (feedback) return;
-                              const nextEmpty = arrangedTiles.findIndex((t) => !t);
-                              if (nextEmpty === -1) return;
-                              const newTiles = [...arrangedTiles];
-                              newTiles[nextEmpty] = tile;
-                              setArrangedTiles(newTiles);
-                              setAvailableArrangeTiles((prev) => {
-                                const copy = [...prev];
-                                copy.splice(i, 1);
-                                return copy;
-                              });
-                            }}
-                            disabled={!!feedback}
-                            className="px-4 py-2 bg-white border-2 border-b-4 border-slate-200 rounded-xl font-mono font-bold text-slate-800 hover:bg-slate-50 transition disabled:opacity-50"
-                          >
-                            {tile}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
+                <article
+                  className={`relative overflow-hidden rounded-[2.3rem] border p-5 shadow-[0_28px_80px_rgba(15,23,42,0.18)] sm:p-7 ${flashState === "wrong" ? "animate-[lessonWrongShake_420ms_ease-in-out]" : ""}`}
+                  style={{ borderColor: withAlpha(pathTheme.accentColor, 0.18), background: "rgba(255,255,255,0.94)" }}
+                >
+                  <div
+                    className="pointer-events-none absolute inset-0 transition"
+                    style={{
+                      background: flashState === "correct"
+                        ? `radial-gradient(circle at top, ${withAlpha(pathTheme.accentColor, 0.18)} 0%, transparent 42%)`
+                        : flashState === "wrong"
+                          ? "radial-gradient(circle at top, rgba(248,113,113,0.18) 0%, transparent 42%)"
+                          : "transparent",
+                    }}
+                  />
+                  <LessonParticleBurst active={flashState === "correct"} color={nodeEffect.particleColor} />
 
-                  {question?.type === "fill" && (
-                    <>
-                      {question.codeLines && (
-                        <div className="mb-4 space-y-1.5">
-                          {question.codeLines.map((line: string, i: number) => (
-                            <div key={i} className="flex gap-2">
-                              <span className="text-slate-500 font-mono text-sm">{i + 1}</span>
-                              <span className="text-emerald-300 font-mono text-sm">{line}</span>
-                            </div>
+                  <div className="relative flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[0.68rem] font-black uppercase tracking-[0.3em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.48) }}>
+                        Exercise
+                      </p>
+                      <h1 className="mt-3 text-3xl font-black leading-tight text-slate-950 sm:text-[2.2rem]">
+                        {question?.instruction}
+                      </h1>
+                    </div>
+                    <div className="hidden rounded-full border bg-white/70 p-2 shadow-sm sm:block" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.18) }}>
+                      <Pico
+                        size={72}
+                        mood={feedback ? (feedback.correct ? "celebrate" : "sad") : streak >= 3 ? "celebrate" : "happy"}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-[1.4rem] border px-4 py-3 lg:hidden" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.16), background: withAlpha(pathTheme.accentColor, 0.08) }}>
+                    <div className="flex items-center gap-3">
+                      <Pico size={44} mood={feedback ? (feedback.correct ? "celebrate" : "sad") : "happy"} />
+                      <p className="text-sm font-semibold leading-6 text-slate-700">{coachTip}</p>
+                    </div>
+                  </div>
+
+                  <div className="relative mt-6 space-y-5">
+                    {question?.type === "arrange" ? (
+                      <>
+                        <div className="overflow-hidden rounded-[1.7rem] border border-slate-800/90 bg-[#07111f] shadow-[0_24px_60px_rgba(2,6,23,0.36)]">
+                          <div className="border-b border-white/6 px-4 py-3">
+                            <p className="text-[0.65rem] font-black uppercase tracking-[0.28em] text-slate-500">Arrange The Code</p>
+                          </div>
+                          <div className="px-4 py-4">{renderArrangeCode(question)}</div>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                          {availableArrangeTiles.map((tile, index) => (
+                            <button
+                              key={`${tile}-${index}`}
+                              type="button"
+                              onClick={() => {
+                                if (feedback) return;
+                                const nextEmpty = arrangedTiles.findIndex((entry) => !entry);
+                                if (nextEmpty === -1) return;
+                                const nextTiles = [...arrangedTiles];
+                                nextTiles[nextEmpty] = tile;
+                                setArrangedTiles(nextTiles);
+                                setAvailableArrangeTiles((previous) => {
+                                  const copy = [...previous];
+                                  copy.splice(index, 1);
+                                  return copy;
+                                });
+                              }}
+                              disabled={!!feedback}
+                              className="rounded-[1.2rem] border-2 border-b-4 bg-white px-4 py-4 text-left font-mono text-base font-bold text-slate-800 transition hover:-translate-y-0.5 disabled:opacity-50"
+                              style={{ borderColor: "#dbe4ee" }}
+                            >
+                              {tile}
+                            </button>
                           ))}
                         </div>
-                      )}
-                      <div className="flex flex-wrap gap-2">
-                        {(question.tiles || []).map((tile: string, i: number) => (
-                          <button
-                            key={i}
-                            onClick={() => !feedback && setSelectedFill(tile)}
-                            disabled={!!feedback}
-                            className={`px-4 py-2 border-2 border-b-4 rounded-xl font-mono font-bold transition ${
-                              selectedFill === tile
-                                ? "border-emerald-400 bg-emerald-50 text-emerald-700"
-                                : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
-                            }`}
-                          >
-                            {tile}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
+                      </>
+                    ) : null}
 
-                  {(question?.type === "multiple_choice" || question?.type === "output") && (
-                    <>
-                      {question.codeLines && (
-                        <div className="mb-4 space-y-1.5">
-                          {question.codeLines.map((line: string, i: number) => (
-                            <div key={i} className="flex gap-2">
-                              <span className="text-slate-500 font-mono text-sm">{i + 1}</span>
-                              <span className="text-emerald-300 font-mono text-sm">{line}</span>
-                            </div>
+                    {question?.type === "fill" && question.codeLines ? (
+                      <>
+                        <LessonCodeBlock title="Complete The Snippet" lines={question.codeLines} />
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                          {(question.tiles || []).map((tile, index) => (
+                            <button
+                              key={`${tile}-${index}`}
+                              type="button"
+                              onClick={() => !feedback && setSelectedFill(tile)}
+                              disabled={!!feedback}
+                              className={`rounded-[1.2rem] border-2 border-b-4 px-4 py-4 text-left font-mono text-base font-bold transition ${
+                                selectedFill === tile ? "bg-emerald-50 text-emerald-700" : "bg-white text-slate-800"
+                              }`}
+                              style={{ borderColor: selectedFill === tile ? "#34d399" : "#dbe4ee" }}
+                            >
+                              {tile}
+                            </button>
                           ))}
                         </div>
-                      )}
-                      <div className="space-y-3">
-                        {(question.options || []).map((option: string, i: number) => (
-                          <button
-                            key={i}
-                            onClick={() => !feedback && setSelectedOption(option)}
-                            disabled={!!feedback}
-                            className={`w-full text-left px-6 py-4 rounded-2xl border-2 border-b-4 font-bold transition ${
-                              selectedOption === option
-                                ? "border-emerald-400 bg-emerald-50 text-emerald-700"
-                                : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
-                            }`}
-                          >
-                            {option}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
+                      </>
+                    ) : null}
 
-                {feedback && (
-                  <div className={`mt-5 rounded-[1.7rem] p-6 border-2 shadow-sm transition ${
-                    feedback.correct
-                      ? "bg-emerald-50 border-emerald-200 ring-4 ring-emerald-100"
-                      : "bg-red-50 border-red-200"
-                  }`}>
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className={`font-extrabold text-xl mb-1 ${feedback.correct ? "text-emerald-600" : "text-red-600"}`}>
-                          {feedback.correct ? `Correct!${streak >= 3 ? " Streak bonus!" : ""}` : "Not quite"}
-                        </p>
-                        <p className={`font-semibold leading-7 ${feedback.correct ? "text-emerald-700" : "text-red-700"}`}>
-                          {feedback.explanation}
-                        </p>
+                    {(question?.type === "multiple_choice" || question?.type === "output") ? (
+                      <>
+                        {question.codeLines?.length ? (
+                          <LessonCodeBlock
+                            title={question.type === "output" ? "Read The Output Path" : "Read The Snippet"}
+                            lines={question.codeLines}
+                            footer={question.type === "output" ? "Predict the exact result before you choose." : null}
+                          />
+                        ) : null}
+                        <div className="space-y-3">
+                          {(question.options || []).map((option, index) => (
+                            <button
+                              key={`${option}-${index}`}
+                              type="button"
+                              onClick={() => !feedback && setSelectedOption(option)}
+                              disabled={!!feedback}
+                              className={`w-full rounded-[1.35rem] border-2 border-b-4 px-5 py-4 text-left text-lg font-bold transition ${
+                                selectedOption === option ? "bg-emerald-50 text-emerald-700" : "bg-white text-slate-800"
+                              }`}
+                              style={{ borderColor: selectedOption === option ? "#34d399" : "#dbe4ee" }}
+                            >
+                              {option}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+
+                  {feedback ? (
+                    <div
+                      className="mt-5 rounded-[1.7rem] border-2 p-5 shadow-sm"
+                      style={{
+                        borderColor: feedback.correct ? withAlpha(pathTheme.accentColor, 0.26) : "rgba(248,113,113,0.32)",
+                        background: feedback.correct ? withAlpha(pathTheme.accentColor, 0.08) : "rgba(254,242,242,0.92)",
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className={`text-xl font-black ${feedback.correct ? "text-emerald-600" : "text-red-600"}`}>
+                            {feedback.correct ? `Correct!${streak >= 3 ? " Streak bonus." : ""}` : "Not quite."}
+                          </p>
+                          <p className={`mt-2 font-semibold leading-7 ${feedback.correct ? "text-emerald-700" : "text-red-700"}`}>
+                            {feedback.explanation}
+                          </p>
+                        </div>
+                        {feedback.correct ? (
+                          <div
+                            className="flex h-14 w-14 items-center justify-center rounded-2xl text-white shadow-lg"
+                            style={{ background: pathTheme.accentColor }}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          </div>
+                        ) : null}
                       </div>
-                      {feedback.correct ? (
-                        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500 text-white shadow-lg">
-                          <svg xmlns="http://www.w3.org/2000/svg" className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
+
+                      {!feedback.correct ? (
+                        <div className="mt-4 rounded-[1.2rem] bg-red-100/80 px-4 py-4">
+                          <p className="text-xs font-black uppercase tracking-[0.2em] text-red-500">Correct Answer</p>
+                          <pre className="mt-2 whitespace-pre-wrap font-mono text-sm font-bold text-red-700">{getCorrectAnswerText(question)}</pre>
+                        </div>
+                      ) : null}
+
+                      {feedback.correct && question?.consoleOutput ? (
+                        <div className="mt-4">
+                          <LessonCodeBlock title="Mini Run Preview" lines={question.consoleOutput.split("\n")} />
                         </div>
                       ) : null}
                     </div>
-                    {!feedback.correct && (
-                      <div className="text-red-600 font-bold mt-4 text-sm">
-                        <p>Correct answer:</p>
-                        <pre className="mt-2 font-mono bg-red-100 px-3 py-3 rounded-xl whitespace-pre-wrap">{getCorrectAnswerText(question)}</pre>
-                      </div>
-                    )}
-                    {feedback.correct && question?.consoleOutput && (
-                      <div className="mt-4">
-                        <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-2">Mini run preview</p>
-                        <div className="bg-slate-950 rounded-2xl p-4">
-                          <p className="text-emerald-300 font-mono text-sm">{question.consoleOutput}</p>
+                  ) : null}
+
+                  <div className="mt-5 lg:hidden">
+                    <div className="rounded-[1.5rem] border px-4 py-4" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.16), background: "rgba(255,255,255,0.86)" }}>
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[0.62rem] font-black uppercase tracking-[0.24em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.48) }}>Reward Track</p>
+                          <p className="mt-1 text-sm font-semibold text-slate-700">Stay on the path and tap chests as they unlock.</p>
                         </div>
                       </div>
-                    )}
+                      <RewardTrackStrip chests={rewardChests} onSelect={setChestReward} accentColor={pathTheme.accentColor} compact />
+                    </div>
                   </div>
-                )}
 
-                <button
-                  onClick={feedback ? next : checkAnswer}
-                  disabled={
-                    checking ||
-                    (!feedback && question?.type === "arrange" && arrangedTiles.every((t) => !t)) ||
-                    (!feedback && question?.type === "fill" && !selectedFill) ||
-                    (!feedback && (question?.type === "multiple_choice" || question?.type === "output") && !selectedOption)
-                  }
-                  className="mt-5 w-full bg-emerald-500 text-white font-extrabold py-4 rounded-2xl hover:bg-emerald-600 transition shadow-md disabled:opacity-40 text-lg"
-                >
-                  {checking ? "Checking..." : feedback ? "Continue →" : "Check answer"}
-                </button>
-              </div>
-
-              {lives === 0 && !feedback && (
-                <div className="bg-white rounded-3xl shadow p-8 text-center mt-5">
-                  <p className="text-4xl mb-3">{"💀"}</p>
-                  <h2 className="text-2xl font-extrabold text-gray-900 mb-2">Out of lives!</h2>
-                  <p className="text-gray-500 font-semibold mb-6">Take a break and come back stronger.</p>
                   <button
-                    onClick={() => {
-                      setLives(3);
-                      setStreak(0);
-                      setCurrent(0);
-                      setFeedback(null);
-                      setSelectedOption(null);
-                      setSelectedFill(null);
-                      setArrangedTiles([]);
-                      setAvailableArrangeTiles([]);
-                      setStartTime(Date.now());
-                      setElapsedSeconds(0);
-                    }}
-                    className="bg-black text-white px-6 py-3 rounded-xl hover:bg-gray-800 transition font-extrabold"
+                    onClick={feedback ? next : checkAnswer}
+                    disabled={checking || !canSubmit}
+                    className="mt-5 w-full rounded-[1.4rem] py-4 text-lg font-extrabold text-white transition disabled:opacity-40"
+                    style={{ background: pathTheme.accentColor, boxShadow: `0 18px 36px ${withAlpha(pathTheme.accentColor, 0.26)}` }}
                   >
-                    Try Again
+                    {checking ? "Checking..." : feedback ? "Continue" : "Check Answer"}
                   </button>
-                </div>
-              )}
+                </article>
 
-              <p className="text-center text-gray-300 text-xs font-semibold mt-3 mb-2">
-                Press Enter to continue
-              </p>
-            </div>
+                {lives === 0 && !feedback ? (
+                  <div className="mt-5 rounded-[2rem] border bg-white/92 p-8 text-center shadow-sm" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.18) }}>
+                    <p className="mb-3 text-4xl">💀</p>
+                    <h2 className="text-2xl font-extrabold text-gray-900">Out of lives.</h2>
+                    <p className="mt-2 font-semibold text-gray-500">Reset and take another clean pass through the lesson.</p>
+                    <button
+                      onClick={() => {
+                        setLives(3);
+                        setStreak(0);
+                        setCurrent(0);
+                        setFeedback(null);
+                        setSelectedOption(null);
+                        setSelectedFill(null);
+                        setArrangedTiles([]);
+                        setAvailableArrangeTiles([]);
+                        setStartTime(Date.now());
+                        setElapsedSeconds(0);
+                      }}
+                      className="mt-6 rounded-[1rem] px-6 py-3 font-extrabold text-white"
+                      style={{ background: pathTheme.accentColor }}
+                    >
+                      Try Again
+                    </button>
+                  </div>
+                ) : null}
 
-            <aside className="space-y-4">
-              <div className="rounded-[1.8rem] border border-white/80 bg-white/95 p-5 shadow-sm">
-                <p className="text-[11px] font-extrabold uppercase tracking-[0.24em] text-slate-400">Coach</p>
-                <div className="mt-4 flex items-start gap-3">
-                  <Pico size={72} mood={feedback ? (feedback.correct ? "celebrate" : "sad") : "happy"} />
-                  <div className="min-w-0">
-                    <p className="text-lg font-extrabold text-slate-900">
-                      {feedback
-                        ? feedback.correct
-                          ? "Nice. Lock it in."
-                          : "Reset and read the shape."
-                        : question?.type === "arrange"
-                          ? "Place each piece into the blanks."
-                          : question?.type === "fill"
-                            ? "Pick the missing token."
-                            : "Choose the best answer."}
-                    </p>
-                    <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                      {question?.type === "arrange"
-                        ? "Start with the earliest blank. The order usually reveals itself."
-                        : question?.type === "fill"
-                          ? "Scan the code line first, then match the missing word."
-                          : "Read the code, predict the result, then commit."}
-                    </p>
+                <p className="mt-3 text-center text-xs font-semibold" style={{ color: withAlpha(pathTheme.surfaceText, 0.5) }}>
+                  Press Enter to continue
+                </p>
+              </section>
+
+              <aside className="hidden lg:flex lg:flex-col lg:gap-4">
+                <div
+                  className="rounded-[2rem] border p-5 text-white shadow-[0_24px_60px_rgba(15,23,42,0.18)]"
+                  style={{ borderColor: withAlpha(pathTheme.accentColor, 0.18), background: pathTheme.surfaceDark }}
+                >
+                  <p className="text-[0.68rem] font-black uppercase tracking-[0.28em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.46) }}>Coach Tip</p>
+                  <div className="mt-4 flex items-start gap-3">
+                    <Pico size={72} mood={feedback ? (feedback.correct ? "celebrate" : "sad") : "happy"} />
+                    <div className="min-w-0">
+                      <p className="text-lg font-black" style={{ color: pathTheme.surfaceText }}>{coachTitle}</p>
+                      <p className="mt-2 text-sm font-semibold leading-6" style={{ color: withAlpha(pathTheme.surfaceText, 0.72) }}>{coachTip}</p>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="rounded-[1.8rem] border border-white/80 bg-white/95 p-5 shadow-sm">
-                <p className="text-[11px] font-extrabold uppercase tracking-[0.24em] text-slate-400">Momentum</p>
-                <div className="mt-4 rounded-[1.4rem] border border-slate-100 bg-slate-50 px-4 py-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-extrabold text-slate-900">Question {current + 1}</p>
-                    <span className="text-sm font-extrabold text-slate-400">{TOTAL_QUESTIONS - answeredCount} left</span>
+                <div className="rounded-[2rem] border bg-white/92 p-5 shadow-sm" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.18) }}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-[0.68rem] font-black uppercase tracking-[0.28em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.46) }}>Reward Track</p>
+                      <h2 className="mt-2 text-xl font-black text-slate-950">Path Momentum</h2>
+                    </div>
+                    <span className="rounded-full border px-3 py-1 text-[0.62rem] font-black uppercase tracking-[0.22em]" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.18), color: pathTheme.accentColor }}>
+                      {rewardChests.length} tracked
+                    </span>
                   </div>
-                  <div className="mt-3 h-2 rounded-full bg-white overflow-hidden">
-                    <div className="h-full rounded-full bg-[linear-gradient(90deg,#22c55e,#f59e0b)] transition-all" style={{ width: `${progress}%` }} />
-                  </div>
-                </div>
-
-                <div className="mt-4 rounded-[1.4rem] border border-slate-100 bg-slate-50 px-4 py-4">
-                  <p className="text-sm font-extrabold text-slate-900">Reward track</p>
-                  <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                    Finish units to earn chests, then tap through the lock for a shot at a higher rarity.
+                  <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
+                    Locked chests pulse until they are spent. Opened chests stay muted so your next reward stands out immediately.
                   </p>
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    {rewardChests.slice(0, 4).map((rewardChest) => {
-                      const theme = getChestTheme(rewardChest.currentRarity);
-
-                      return (
-                        <button
-                          key={rewardChest.id}
-                          type="button"
-                          onClick={() => setChestReward(rewardChest)}
-                          className={`rounded-[1.2rem] border p-3 text-left transition hover:-translate-y-0.5 ${theme.cardClass}`}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-slate-400">
-                              {rewardChest.state === "opened" ? "opened" : "ready"}
-                            </p>
-                            <span className={`rounded-full border px-2 py-1 text-[8px] font-extrabold uppercase tracking-[0.16em] ${theme.chipClass}`}>
-                              {theme.label}
-                            </span>
-                          </div>
-                          <RewardChestArt
-                            rarity={rewardChest.currentRarity}
-                            opened={rewardChest.state === "opened"}
-                            compact
-                            className="mx-auto mt-2 w-full max-w-[4.2rem]"
-                          />
-                          <p className="mt-2 text-[11px] font-bold leading-5 text-slate-500">
-                            {rewardChest.state === "opened"
-                              ? `${rewardChest.gemAmount ?? 0} gems`
-                              : rewardChest.sourceLabel}
-                          </p>
-                        </button>
-                      );
-                    })}
-
-                    {Array.from({ length: Math.max(0, 4 - rewardChests.slice(0, 4).length) }).map((_, index) => (
-                      <div
-                        key={`lesson-reward-slot-${index}`}
-                        className="rounded-[1.2rem] border border-dashed border-slate-200 bg-white px-3 py-3 text-center"
-                      >
-                        <RewardChestArt rarity="common" compact className="mx-auto w-full max-w-[4rem] opacity-30 saturate-0" />
-                        <p className="mt-2 text-[9px] font-extrabold uppercase tracking-[0.18em] text-slate-300">upcoming</p>
-                      </div>
-                    ))}
-                  </div>
+                  <RewardTrackStrip chests={rewardChests} onSelect={setChestReward} accentColor={pathTheme.accentColor} />
                 </div>
-              </div>
-            </aside>
+              </aside>
+            </div>
           </div>
         </div>
       </main>

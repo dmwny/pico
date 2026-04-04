@@ -1,6 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useThemeContext } from "@/contexts/ThemeContext";
+import { withAlpha } from "@/lib/themes";
 
 const LANGUAGE_META: Record<string, { label: string; glyph: string; tone: string }> = {
   python: { label: "Python", glyph: "PY", tone: "bg-[#3776AB] text-white" },
@@ -18,6 +20,7 @@ interface LanguageSwitcherProps {
 
 export default function LanguageSwitcher({ currentLanguage }: LanguageSwitcherProps) {
   const router = useRouter();
+  const { pathTheme } = useThemeContext();
   const meta = LANGUAGE_META[currentLanguage] ?? {
     label: currentLanguage,
     glyph: "ST",
@@ -27,7 +30,12 @@ export default function LanguageSwitcher({ currentLanguage }: LanguageSwitcherPr
   return (
     <button
       onClick={() => router.push("/languages")}
-      className="surface-sheet w-full bg-[#F8F5F0] px-4 py-4 text-left"
+      className="w-full rounded-[1.7rem] border px-4 py-4 text-left shadow-[0_16px_34px_rgba(15,23,42,0.12)]"
+      style={{
+        borderColor: withAlpha(pathTheme.accentColor, 0.22),
+        background: pathTheme.surfaceCard,
+        color: pathTheme.surfaceText,
+      }}
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -35,12 +43,12 @@ export default function LanguageSwitcher({ currentLanguage }: LanguageSwitcherPr
             {meta.glyph}
           </div>
           <div>
-            <p className="text-[0.68rem] font-bold uppercase tracking-[0.24em] text-[#556675]">Language</p>
-            <p className="mt-1 text-sm font-bold text-[#2C3E50]">{meta.label}</p>
+            <p className="text-[0.68rem] font-bold uppercase tracking-[0.24em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.62) }}>Language</p>
+            <p className="mt-1 text-sm font-bold" style={{ color: pathTheme.surfaceText }}>{meta.label}</p>
           </div>
         </div>
 
-        <span className="underline-slide text-[0.68rem] font-bold uppercase tracking-[0.24em] text-[#2C3E50]">
+        <span className="text-[0.68rem] font-bold uppercase tracking-[0.24em]" style={{ color: pathTheme.accentColor }}>
           Open
         </span>
       </div>

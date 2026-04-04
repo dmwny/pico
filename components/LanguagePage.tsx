@@ -266,18 +266,21 @@ export default function LanguagePage() {
     return () => window.removeEventListener("click", closeMenu);
   }, []);
 
-  async function handleConfirm() {
-    if (!selected || !userId) return;
+  async function openLanguage(languageId: string) {
+    if (!userId) return;
+
+    setSelected(languageId);
+    setOpenLibraryMenu(null);
     setLoading(true);
 
-    const isSameLanguage = selected === currentLanguage;
+    const isSameLanguage = languageId === currentLanguage;
 
     if (!isSameLanguage) {
       const { data: savedProgress } = await supabase
         .from("pico_progress")
         .select("*")
         .eq("user_id", userId)
-        .eq("language", selected)
+        .eq("language", languageId)
         .maybeSingle();
 
       if (!savedProgress) {
@@ -285,7 +288,7 @@ export default function LanguagePage() {
           method: "POST",
           body: JSON.stringify({
             userId,
-            language: selected,
+            language: languageId,
             values: {
               xp: 0,
               streak: 0,
@@ -300,13 +303,18 @@ export default function LanguagePage() {
         });
       }
 
-      setStoredActiveLanguage(userId, selected);
-      router.push(savedProgress ? "/learn" : languageHasPlacement(selected) ? "/placement" : "/learn");
+      setStoredActiveLanguage(userId, languageId);
+      router.push(savedProgress ? "/learn" : languageHasPlacement(languageId) ? "/placement" : "/learn");
       return;
     }
 
-    setStoredActiveLanguage(userId, selected);
+    setStoredActiveLanguage(userId, languageId);
     router.push("/learn");
+  }
+
+  async function handleConfirm() {
+    if (!selected) return;
+    await openLanguage(selected);
   }
 
   const activeCard = LANGUAGE_CARDS.find((card) => card.id === (selected ?? currentLanguage ?? "python")) ?? LANGUAGE_CARDS[0];
@@ -373,15 +381,26 @@ export default function LanguagePage() {
               <article
                 key={language.id}
                 onClick={() => {
-                  if (isLive) {
-                    setSelected(language.id);
+                  if (isLive && !loading) {
+                    void openLanguage(language.id);
                   }
                 }}
+                onKeyDown={(event) => {
+                  if (!isLive || loading) return;
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    void openLanguage(language.id);
+                  }
+                }}
+                role={isLive ? "button" : undefined}
+                tabIndex={isLive ? 0 : undefined}
+                aria-disabled={isLive ? loading : undefined}
+                aria-label={isLive ? `Open ${language.label} course` : undefined}
                 className={`surface-sheet relative overflow-hidden px-5 py-5 transition ${language.footprint} ${
                   isLive
                     ? isSelected
-                      ? "border-[#2C3E50] bg-[#FBF8F4] shadow-[0_18px_40px_rgba(44,62,80,0.1)]"
-                      : "cursor-pointer hover:-translate-y-0.5"
+                      ? "cursor-pointer touch-manipulation border-[#2C3E50] bg-[#FBF8F4] shadow-[0_18px_40px_rgba(44,62,80,0.1)]"
+                      : "cursor-pointer touch-manipulation hover:-translate-y-0.5"
                     : "bg-[#E7E3DC]"
                 }`}
               >

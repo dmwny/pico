@@ -18,6 +18,7 @@ import {
   getProfileBorder,
   getTitleBadge,
   getTrailEffect,
+  withAlpha,
 } from "@/lib/themes";
 
 function formatScore(value: number) {
@@ -129,6 +130,7 @@ export default function ProfilePage() {
     streak,
     gemBalance,
     infiniteGemsEnabled,
+    isHydrating,
     xp,
   } = useCosmetics();
   const [flashId, setFlashId] = useState<string | null>(null);
@@ -162,11 +164,76 @@ export default function ProfilePage() {
     }, 900);
   };
 
+  if (isHydrating) {
+    return (
+      <main className="relative min-h-screen overflow-hidden" style={{ background: activeTheme.surfaceBackground }}>
+        <div className="pointer-events-none absolute inset-0" style={{ background: activeTheme.pageOverlay, opacity: 0.92 }} />
+        <AppTopNav />
+        <div className="relative z-10 mx-auto max-w-6xl px-4 py-10 sm:px-6">
+          <section className="rounded-[2.6rem] border border-slate-800/50 bg-slate-950 px-6 py-7 shadow-[0_36px_90px_rgba(15,23,42,0.28)] sm:px-8">
+            <div className="grid gap-8 lg:grid-cols-[0.62fr_0.38fr]">
+              <div>
+                <div className="h-3 w-24 animate-pulse rounded-full bg-white/15" />
+                <div className="mt-4 h-10 w-52 animate-pulse rounded-full bg-white/15" />
+                <div className="mt-4 h-4 w-72 animate-pulse rounded-full bg-white/10" />
+                <div className="mt-2 h-4 w-64 animate-pulse rounded-full bg-white/10" />
+                <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <div key={index} className="rounded-[1.35rem] border border-white/10 bg-white/8 px-4 py-4 backdrop-blur-sm">
+                      <div className="h-3 w-20 animate-pulse rounded-full bg-white/10" />
+                      <div className="mt-4 h-8 w-16 animate-pulse rounded-full bg-white/15" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-col items-center justify-center rounded-[2rem] border border-white/10 bg-white/8 px-6 py-8 text-center backdrop-blur-sm">
+                <div className="h-32 w-32 animate-pulse rounded-full bg-white/12" />
+                <div className="mt-5 h-3 w-28 animate-pulse rounded-full bg-white/10" />
+                <div className="mt-3 h-6 w-36 animate-pulse rounded-full bg-white/15" />
+              </div>
+            </div>
+          </section>
+
+          <div className="mt-8 grid gap-6 xl:grid-cols-[0.58fr_0.42fr]">
+            {Array.from({ length: 2 }).map((_, index) => (
+              <section key={index} className="rounded-[2rem] border border-white/70 bg-[rgba(255,255,255,0.88)] p-5 shadow-[0_22px_50px_rgba(15,23,42,0.08)]">
+                <div className="h-3 w-28 animate-pulse rounded-full bg-slate-200" />
+                <div className="mt-4 h-8 w-48 animate-pulse rounded-full bg-slate-200" />
+                <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                  {Array.from({ length: 4 }).map((__, innerIndex) => (
+                    <div key={innerIndex} className="rounded-[1.4rem] border border-slate-100 bg-slate-50 px-4 py-4">
+                      <div className="h-3 w-24 animate-pulse rounded-full bg-slate-200" />
+                      <div className="mt-4 h-20 animate-pulse rounded-[1rem] bg-slate-200" />
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)]">
+    <main className="relative min-h-screen overflow-hidden" style={{ background: activeTheme.surfaceBackground }}>
+      <div className="pointer-events-none absolute inset-0" style={{ background: activeTheme.pageOverlay, opacity: 0.92 }} />
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background: `radial-gradient(circle at 14% 16%, ${activeTheme.nodeGlow}, transparent 26%), radial-gradient(circle at 82% 22%, ${activeTheme.trailGlow}, transparent 28%)`,
+        }}
+      />
       <AppTopNav />
-      <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
-        <section className="relative overflow-hidden rounded-[2.6rem] border border-slate-800/60 bg-slate-950 px-6 py-7 text-white shadow-[0_36px_90px_rgba(15,23,42,0.28)] sm:px-8">
+      <div className="relative z-10 mx-auto max-w-6xl px-4 py-10 sm:px-6">
+        <section
+          className="relative overflow-hidden rounded-[2.6rem] border px-6 py-7 text-white shadow-[0_36px_90px_rgba(15,23,42,0.28)] sm:px-8"
+          style={{
+            borderColor: `${activeTheme.accentColor}33`,
+            background: activeTheme.surfaceDark,
+            boxShadow: `0 36px 90px ${activeTheme.nodeGlow}`,
+          }}
+        >
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.12),transparent_24%)]" />
           <div
             className="pointer-events-none absolute inset-y-0 right-[-10%] w-[44%] blur-3xl"
@@ -233,11 +300,14 @@ export default function ProfilePage() {
         </section>
 
         <div className="mt-8 grid gap-6 xl:grid-cols-[0.58fr_0.42fr]">
-          <section className="rounded-[2rem] border border-white/70 bg-[rgba(255,255,255,0.88)] p-5 shadow-[0_22px_50px_rgba(15,23,42,0.08)]">
+          <section
+            className="rounded-[2rem] border p-5 shadow-[0_22px_50px_rgba(15,23,42,0.08)]"
+            style={{ borderColor: `${activeTheme.accentColor}29`, background: activeTheme.surfaceCard }}
+          >
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-[0.68rem] font-black uppercase tracking-[0.28em] text-slate-400">Scorecard</p>
-                <h2 className="mt-2 text-2xl font-black text-slate-950">Progress Highlights</h2>
+                <p className="text-[0.68rem] font-black uppercase tracking-[0.28em]" style={{ color: withAlpha(activeTheme.surfaceText, 0.46) }}>Scorecard</p>
+                <h2 className="mt-2 text-2xl font-black" style={{ color: activeTheme.surfaceText }}>Progress Highlights</h2>
               </div>
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -248,27 +318,30 @@ export default function ProfilePage() {
                 { label: "Chests Opened", value: profileStats.chestsOpened, accent: "text-violet-600" },
                 { label: "Gems Spent", value: profileStats.gemsSpent, accent: "text-fuchsia-600" },
               ].map((stat) => (
-                <div key={stat.label} className="rounded-[1.4rem] border border-slate-100 bg-slate-50 px-4 py-4">
-                  <p className="text-[0.62rem] font-black uppercase tracking-[0.22em] text-slate-400">{stat.label}</p>
+                <div key={stat.label} className="rounded-[1.4rem] border px-4 py-4" style={{ borderColor: withAlpha(activeTheme.accentColor, 0.12), background: withAlpha("#ffffff", 0.4) }}>
+                  <p className="text-[0.62rem] font-black uppercase tracking-[0.22em]" style={{ color: withAlpha(activeTheme.surfaceText, 0.46) }}>{stat.label}</p>
                   <p className={`mt-3 text-3xl font-black ${stat.accent}`}>{formatScore(stat.value)}</p>
                 </div>
               ))}
             </div>
           </section>
 
-          <section className="rounded-[2rem] border border-white/70 bg-[rgba(255,255,255,0.88)] p-5 shadow-[0_22px_50px_rgba(15,23,42,0.08)]">
+          <section
+            className="rounded-[2rem] border p-5 shadow-[0_22px_50px_rgba(15,23,42,0.08)]"
+            style={{ borderColor: `${activeTheme.accentColor}29`, background: activeTheme.surfaceCard }}
+          >
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-[0.68rem] font-black uppercase tracking-[0.28em] text-slate-400">Owned Cosmetics</p>
-                <h2 className="mt-2 text-2xl font-black text-slate-950">Current Loadout</h2>
+                <p className="text-[0.68rem] font-black uppercase tracking-[0.28em]" style={{ color: withAlpha(activeTheme.surfaceText, 0.46) }}>Owned Cosmetics</p>
+                <h2 className="mt-2 text-2xl font-black" style={{ color: activeTheme.surfaceText }}>Current Loadout</h2>
               </div>
-              <Link href="/shop" className="text-sm font-black text-emerald-600 hover:text-emerald-700">
+              <Link href="/shop" className="text-sm font-black hover:brightness-110" style={{ color: activeTheme.accentColor }}>
                 Open shop
               </Link>
             </div>
 
             <div className="mt-5 space-y-3">
-              <Link href="/shop" className="block rounded-[1.45rem] border border-slate-100 bg-slate-50 p-3 transition hover:-translate-y-0.5 hover:shadow-sm">
+              <Link href="/shop" className="block rounded-[1.45rem] border p-3 transition hover:-translate-y-0.5 hover:shadow-sm" style={{ borderColor: withAlpha(activeTheme.accentColor, 0.12), background: withAlpha("#ffffff", 0.38) }}>
                 <ThemeTile
                   name={activeTheme.name}
                   background={activeTheme.previewBackground}
@@ -282,23 +355,23 @@ export default function ProfilePage() {
               </Link>
 
               <div className="grid gap-3 sm:grid-cols-2">
-                <Link href="/shop" className="block rounded-[1.45rem] border border-slate-100 bg-slate-50 p-4 transition hover:-translate-y-0.5 hover:shadow-sm">
-                  <p className="text-[0.62rem] font-black uppercase tracking-[0.22em] text-slate-400">Chest Skin</p>
+                <Link href="/shop" className="block rounded-[1.45rem] border p-4 transition hover:-translate-y-0.5 hover:shadow-sm" style={{ borderColor: withAlpha(activeTheme.accentColor, 0.12), background: withAlpha("#ffffff", 0.38) }}>
+                  <p className="text-[0.62rem] font-black uppercase tracking-[0.22em]" style={{ color: withAlpha(activeTheme.surfaceText, 0.46) }}>Chest Skin</p>
                   <div className="mt-4 flex items-center justify-between gap-4">
                     <div>
-                      <p className="text-lg font-black text-slate-900">{activeChestSkin.name}</p>
-                      <p className="mt-1 text-sm font-semibold text-slate-500">{activeChestSkin.description}</p>
+                      <p className="text-lg font-black" style={{ color: activeTheme.surfaceText }}>{activeChestSkin.name}</p>
+                      <p className="mt-1 text-sm font-semibold" style={{ color: withAlpha(activeTheme.surfaceText, 0.64) }}>{activeChestSkin.description}</p>
                     </div>
                     <ChestIllustration state="closed" rarity="rare" skin={appearance.chestSkinId} className="w-[4.4rem]" />
                   </div>
                 </Link>
 
-                <Link href="/shop" className="block rounded-[1.45rem] border border-slate-100 bg-slate-50 p-4 transition hover:-translate-y-0.5 hover:shadow-sm">
-                  <p className="text-[0.62rem] font-black uppercase tracking-[0.22em] text-slate-400">Trail Effect</p>
+                <Link href="/shop" className="block rounded-[1.45rem] border p-4 transition hover:-translate-y-0.5 hover:shadow-sm" style={{ borderColor: withAlpha(activeTheme.accentColor, 0.12), background: withAlpha("#ffffff", 0.38) }}>
+                  <p className="text-[0.62rem] font-black uppercase tracking-[0.22em]" style={{ color: withAlpha(activeTheme.surfaceText, 0.46) }}>Trail Effect</p>
                   <div className="mt-4 flex items-center justify-between gap-4">
                     <div>
-                      <p className="text-lg font-black text-slate-900">{activeTrail.name}</p>
-                      <p className="mt-1 text-sm font-semibold text-slate-500">{activeTrail.description}</p>
+                      <p className="text-lg font-black" style={{ color: activeTheme.surfaceText }}>{activeTrail.name}</p>
+                      <p className="mt-1 text-sm font-semibold" style={{ color: withAlpha(activeTheme.surfaceText, 0.64) }}>{activeTrail.description}</p>
                     </div>
                     <TrailPreview gradient={activeTrail.gradient} glow={activeTrail.glow} />
                   </div>
@@ -309,13 +382,16 @@ export default function ProfilePage() {
         </div>
 
         <div className="mt-8 grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
-          <section className="rounded-[2rem] border border-white/70 bg-[rgba(255,255,255,0.9)] p-5 shadow-[0_22px_50px_rgba(15,23,42,0.08)]">
+          <section
+            className="rounded-[2rem] border p-5 shadow-[0_22px_50px_rgba(15,23,42,0.08)]"
+            style={{ borderColor: `${activeTheme.accentColor}29`, background: activeTheme.surfaceCard }}
+          >
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-[0.68rem] font-black uppercase tracking-[0.28em] text-slate-400">Title Badges</p>
-                <h2 className="mt-2 text-2xl font-black text-slate-950">Badge Collection</h2>
+                <p className="text-[0.68rem] font-black uppercase tracking-[0.28em]" style={{ color: withAlpha(activeTheme.surfaceText, 0.46) }}>Title Badges</p>
+                <h2 className="mt-2 text-2xl font-black" style={{ color: activeTheme.surfaceText }}>Badge Collection</h2>
               </div>
-              <Link href="/shop" className="text-sm font-black text-emerald-600 hover:text-emerald-700">
+              <Link href="/shop" className="text-sm font-black hover:brightness-110" style={{ color: activeTheme.accentColor }}>
                 Get more
               </Link>
             </div>
@@ -391,13 +467,16 @@ export default function ProfilePage() {
             </div>
           </section>
 
-          <section className="rounded-[2rem] border border-white/70 bg-[rgba(255,255,255,0.9)] p-5 shadow-[0_22px_50px_rgba(15,23,42,0.08)]">
+          <section
+            className="rounded-[2rem] border p-5 shadow-[0_22px_50px_rgba(15,23,42,0.08)]"
+            style={{ borderColor: `${activeTheme.accentColor}29`, background: activeTheme.surfaceCard }}
+          >
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-[0.68rem] font-black uppercase tracking-[0.28em] text-slate-400">Profile Borders</p>
-                <h2 className="mt-2 text-2xl font-black text-slate-950">Border Vault</h2>
+                <p className="text-[0.68rem] font-black uppercase tracking-[0.28em]" style={{ color: withAlpha(activeTheme.surfaceText, 0.46) }}>Profile Borders</p>
+                <h2 className="mt-2 text-2xl font-black" style={{ color: activeTheme.surfaceText }}>Border Vault</h2>
               </div>
-              <Link href="/shop" className="text-sm font-black text-emerald-600 hover:text-emerald-700">
+              <Link href="/shop" className="text-sm font-black hover:brightness-110" style={{ color: activeTheme.accentColor }}>
                 Get more
               </Link>
             </div>

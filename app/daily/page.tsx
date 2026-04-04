@@ -3,40 +3,25 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import {
-  getStoredLanguageProgress,
-  mergeProgressSources,
-  resolveActiveLanguage,
-  setStoredLanguageProgress,
-} from "@/lib/progress";
 import AppTopNav from "@/components/AppTopNav";
 import MobileDock from "@/components/MobileDock";
 import { getLanguageCommentPrefix, getLanguageLabel, type LearningLanguage } from "@/lib/courseContent";
 import { useCosmetics } from "@/contexts/CosmeticsContext";
-
-function getDayKey(date = new Date()) {
-  return date.toISOString().split("T")[0];
-}
-
-function normalizeDayKey(value: string | null | undefined) {
-  if (!value) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : getDayKey(parsed);
-}
-
-function getDayGap(lastPlayed: string | null | undefined, todayKey: string) {
-  const normalized = normalizeDayKey(lastPlayed);
-  if (!normalized) return null;
-
-  const today = new Date(`${todayKey}T00:00:00.000Z`);
-  const previous = new Date(`${normalized}T00:00:00.000Z`);
-  return Math.round((today.getTime() - previous.getTime()) / 86_400_000);
-}
+import { useThemeContext } from "@/contexts/ThemeContext";
+import { withAlpha } from "@/lib/themes";
+import { getLocalDateKey, getLocalTimezone } from "@/lib/streaks";
 
 export default function DailyChallenge() {
   const router = useRouter();
-  const { consumeStreakFreezeCharge, isXpBoostActiveAt } = useCosmetics();
+  const { pathTheme } = useThemeContext();
+  const {
+    activeLanguage,
+    applyQualifiedStreakActivity,
+    isHydrating,
+    isXpBoostActiveAt,
+    loading: cosmeticsLoading,
+    progress: globalProgress,
+  } = useCosmetics();
   const [challenge, setChallenge] = useState<{
     title: string;
     prompt: string;
@@ -58,21 +43,12 @@ export default function DailyChallenge() {
   const checkAndLoad = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push("/login"); return; }
-    const activeLanguage = await resolveActiveLanguage(user.id);
+    if (cosmeticsLoading || isHydrating || !activeLanguage || !globalProgress) return;
+
     setCurrentLanguage(activeLanguage);
 
-    const { data } = await supabase
-      .from("pico_progress")
-      .select("*")
-      .eq("user_id", user.id)
-      .eq("language", activeLanguage)
-      .maybeSingle();
-    const localProgress = getStoredLanguageProgress(user.id, activeLanguage);
-    const merged = mergeProgressSources(activeLanguage, data, localProgress);
-    setStoredLanguageProgress(user.id, activeLanguage, merged);
-
-    const today = getDayKey();
-    if (normalizeDayKey(merged.last_played) === today) {
+    const today = getLocalDateKey(new Date(), globalProgress.streak_timezone ?? getLocalTimezone());
+    if (globalProgress.streak_activity_dates.includes(today)) {
       setAlreadyDone(true);
       setLoading(false);
       return;
@@ -82,7 +58,7 @@ export default function DailyChallenge() {
     const json = await res.json();
     setChallenge(json);
     setLoading(false);
-  }, [router]);
+  }, [activeLanguage, cosmeticsLoading, globalProgress, isHydrating, router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -121,66 +97,27 @@ export default function DailyChallenge() {
   };
 
   const saveStreak = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { data: existing } = await supabase
-      .from("pico_progress")
-      .select("*")
-      .eq("user_id", user.id)
-      .eq("language", currentLanguage)
-      .maybeSingle();
-
-    const today = getDayKey();
-    const localProgress = getStoredLanguageProgress(user.id, currentLanguage);
-    const merged = mergeProgressSources(currentLanguage, existing, localProgress);
-    const dayGap = getDayGap(merged.last_played, today);
+    if (!activeLanguage || !globalProgress) return;
     const xpReward = isXpBoostActiveAt(Date.now()) ? 100 : 50;
     setAwardedXp(xpReward);
 
-    let newStreak = merged.streak || 0;
-    if (dayGap === 1) {
-      newStreak += 1;
-    } else if (dayGap === 2) {
-      newStreak = consumeStreakFreezeCharge() ? merged.streak + 1 : 1;
-    } else if (dayGap === 0) {
-      newStreak = merged.streak;
-    } else {
-      newStreak = 1;
-    }
-
-    const nextProgress = {
-      ...merged,
-      xp: merged.xp + xpReward,
-      streak: newStreak,
-      today_xp: merged.today_xp + xpReward,
-      today_lessons: merged.today_lessons + 1,
-      last_played: today,
+    const baseProgress = {
+      ...globalProgress,
+      xp: globalProgress.xp + xpReward,
+      today_xp: globalProgress.today_xp + xpReward,
+      today_lessons: globalProgress.today_lessons + 1,
     };
 
-    setStoredLanguageProgress(user.id, currentLanguage, nextProgress);
-
-    await fetch("/api/progress", {
-      method: "POST",
-      body: JSON.stringify({
-        userId: user.id,
-        language: currentLanguage,
-        values: {
-          xp: nextProgress.xp,
-          streak: nextProgress.streak,
-          today_xp: nextProgress.today_xp,
-          today_lessons: nextProgress.today_lessons,
-          last_played: today,
-        },
-      }),
-    }).catch(() => {
-      console.warn("Daily challenge progress sync failed after local save.");
+    await applyQualifiedStreakActivity({
+      language: activeLanguage,
+      baseProgress,
     });
   };
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <main className="relative flex min-h-screen items-center justify-center overflow-hidden" style={{ background: pathTheme.surfaceBackground }}>
+        <div className="pointer-events-none absolute inset-0" style={{ background: pathTheme.pageOverlay, opacity: 0.9 }} />
         <div className="animate-spin h-10 w-10 border-4 border-green-500 border-t-transparent rounded-full"></div>
       </main>
     );
@@ -188,13 +125,14 @@ export default function DailyChallenge() {
 
   if (alreadyDone) {
     return (
-      <main className="min-h-screen mobile-dock-pad bg-gray-50">
+      <main className="relative min-h-screen mobile-dock-pad overflow-hidden" style={{ background: pathTheme.surfaceBackground }}>
+        <div className="pointer-events-none absolute inset-0" style={{ background: pathTheme.pageOverlay, opacity: 0.9 }} />
         <AppTopNav />
-        <div className="flex min-h-[calc(100vh-6rem)] items-center justify-center px-4">
-          <div className="bg-white rounded-3xl shadow-sm p-12 max-w-md w-full text-center">
-            <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Return tomorrow.</h2>
-            <p className="text-gray-500 font-semibold mb-8">Daily completion is already recorded.</p>
-            <button onClick={() => router.push("/learn")} className="bg-green-500 text-white font-extrabold px-8 py-4 rounded-2xl hover:bg-green-600 transition shadow-md w-full">
+        <div className="relative z-10 flex min-h-[calc(100vh-6rem)] items-center justify-center px-4">
+          <div className="max-w-md w-full rounded-3xl border p-12 text-center shadow-sm" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.22), background: pathTheme.surfaceCard }}>
+            <h2 className="text-3xl font-extrabold mb-2" style={{ color: pathTheme.surfaceText }}>Return tomorrow.</h2>
+            <p className="font-semibold mb-8" style={{ color: withAlpha(pathTheme.surfaceText, 0.68) }}>Daily completion is already recorded.</p>
+            <button onClick={() => router.push("/learn")} className="font-extrabold px-8 py-4 rounded-2xl transition shadow-md w-full text-white" style={{ background: pathTheme.accentColor }}>
               Open Learn
             </button>
           </div>
@@ -206,18 +144,19 @@ export default function DailyChallenge() {
 
   if (done) {
     return (
-      <main className="min-h-screen mobile-dock-pad bg-gray-50">
+      <main className="relative min-h-screen mobile-dock-pad overflow-hidden" style={{ background: pathTheme.surfaceBackground }}>
+        <div className="pointer-events-none absolute inset-0" style={{ background: pathTheme.pageOverlay, opacity: 0.9 }} />
         <AppTopNav />
-        <div className="flex min-h-[calc(100vh-6rem)] items-center justify-center px-4">
-          <div className="bg-white rounded-3xl shadow-sm p-12 max-w-md w-full text-center">
-            <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg">
+        <div className="relative z-10 flex min-h-[calc(100vh-6rem)] items-center justify-center px-4">
+          <div className="max-w-md w-full rounded-3xl border p-12 text-center shadow-sm" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.22), background: pathTheme.surfaceCard }}>
+            <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg text-white" style={{ background: pathTheme.accentColor }}>
               <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Maintain streak.</h2>
-            <p className="text-gray-500 font-semibold mb-2">Added {awardedXp} XP to progress.</p>
-            <button onClick={() => router.push("/learn")} className="mt-6 bg-green-500 text-white font-extrabold px-8 py-4 rounded-2xl hover:bg-green-600 transition shadow-md w-full">
+            <h2 className="text-3xl font-extrabold mb-2" style={{ color: pathTheme.surfaceText }}>Maintain streak.</h2>
+            <p className="font-semibold mb-2" style={{ color: withAlpha(pathTheme.surfaceText, 0.68) }}>Added {awardedXp} XP to progress.</p>
+            <button onClick={() => router.push("/learn")} className="mt-6 font-extrabold px-8 py-4 rounded-2xl transition shadow-md w-full text-white" style={{ background: pathTheme.accentColor }}>
               Open Learn
             </button>
           </div>
@@ -228,28 +167,29 @@ export default function DailyChallenge() {
   }
 
   return (
-    <main className="min-h-screen mobile-dock-pad bg-gray-50">
+    <main className="relative min-h-screen mobile-dock-pad overflow-hidden" style={{ background: pathTheme.surfaceBackground }}>
+      <div className="pointer-events-none absolute inset-0" style={{ background: pathTheme.pageOverlay, opacity: 0.9 }} />
       <AppTopNav />
-      <div className="max-w-2xl mx-auto px-4 py-12">
-        <button onClick={() => router.push("/learn")} className="text-gray-400 hover:text-gray-600 font-bold mb-8 block">
+      <div className="relative z-10 max-w-2xl mx-auto px-4 py-12">
+        <button onClick={() => router.push("/learn")} className="font-bold mb-8 block" style={{ color: withAlpha(pathTheme.surfaceText, 0.62) }}>
           Open Learn
         </button>
 
-        <div className="bg-green-500 rounded-3xl p-6 mb-6 shadow-md">
+        <div className="rounded-3xl p-6 mb-6 shadow-md text-white" style={{ background: pathTheme.surfaceDark }}>
           <p className="text-white text-xs font-extrabold uppercase tracking-wider mb-1">Daily</p>
           <h1 className="text-2xl font-extrabold text-white">{challenge?.title}</h1>
           <p className="text-green-100 font-semibold mt-1">Submit one solution today.</p>
         </div>
 
-        <div className="bg-white rounded-3xl shadow-sm p-6 mb-4">
-          <h2 className="text-lg font-extrabold text-gray-900 mb-3">Read task</h2>
-          <pre className="text-gray-700 font-semibold text-sm whitespace-pre-wrap leading-relaxed">
+        <div className="rounded-3xl border shadow-sm p-6 mb-4" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.22), background: pathTheme.surfaceCard }}>
+          <h2 className="text-lg font-extrabold mb-3" style={{ color: pathTheme.surfaceText }}>Read task</h2>
+          <pre className="font-semibold text-sm whitespace-pre-wrap leading-relaxed" style={{ color: withAlpha(pathTheme.surfaceText, 0.8) }}>
             {challenge?.prompt}
           </pre>
         </div>
 
-        <div className="bg-white rounded-3xl shadow-sm p-6 mb-4">
-          <h2 className="text-lg font-extrabold text-gray-900 mb-3">Write code</h2>
+        <div className="rounded-3xl border shadow-sm p-6 mb-4" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.22), background: pathTheme.surfaceCard }}>
+          <h2 className="text-lg font-extrabold mb-3" style={{ color: pathTheme.surfaceText }}>Write code</h2>
           <textarea
             className="w-full h-48 p-4 bg-gray-900 text-green-400 font-mono text-sm rounded-2xl border-0 focus:outline-none focus:ring-2 focus:ring-green-400 resize-none"
             placeholder={`${getLanguageCommentPrefix(currentLanguage)} Write your ${getLanguageLabel(currentLanguage)} code here...`}
@@ -271,7 +211,8 @@ export default function DailyChallenge() {
         <button
           onClick={checkCode}
           disabled={checking || !code.trim()}
-          className="w-full bg-green-500 text-white font-extrabold py-4 rounded-2xl hover:bg-green-600 transition shadow-md disabled:opacity-40 text-lg"
+          className="w-full text-white font-extrabold py-4 rounded-2xl transition shadow-md disabled:opacity-40 text-lg"
+          style={{ background: pathTheme.accentColor }}
         >
           {checking ? "Verify Code..." : "Submit Code"}
         </button>

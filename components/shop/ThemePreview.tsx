@@ -1,5 +1,6 @@
 "use client";
 
+import AmbientEffectsLayer, { useAmbientEffectsPreference } from "@/components/theme/AmbientEffectsLayer";
 import { ChestIllustration } from "@/components/rewards/ChestIllustration";
 import { ResolvedCosmeticAppearance } from "@/lib/cosmetics";
 import { getNodeEffect, getPathTheme, getTrailEffect } from "@/lib/themes";
@@ -22,9 +23,31 @@ type PreviewPathItem =
       offset: number;
     };
 
-function getShapeClass(shape: ReturnType<typeof getPathTheme>["nodeShape"]) {
-  void shape;
-  return "rounded-[1.15rem]";
+function getShapePresentation(shape: ReturnType<typeof getPathTheme>["nodeShape"]) {
+  switch (shape) {
+    case "circle":
+      return { className: "rounded-full", style: undefined };
+    case "hex":
+      return { className: "", style: { clipPath: "polygon(25% 8%, 75% 8%, 100% 50%, 75% 92%, 25% 92%, 0% 50%)" } };
+    case "diamond":
+      return { className: "", style: { clipPath: "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)" } };
+    case "marker":
+      return { className: "", style: { clipPath: "polygon(50% 0%, 100% 40%, 100% 78%, 50% 100%, 0% 78%, 0% 40%)" } };
+    case "fold":
+      return { className: "rounded-[1rem]", style: { clipPath: "polygon(8% 0%, 100% 0%, 100% 84%, 84% 100%, 0% 100%, 0% 12%)" } };
+    case "pixel":
+      return { className: "rounded-none", style: { clipPath: "polygon(12% 0%, 88% 0%, 88% 12%, 100% 12%, 100% 88%, 88% 88%, 88% 100%, 12% 100%, 12% 88%, 0% 88%, 0% 12%, 12% 12%)" } };
+    case "arch":
+      return { className: "rounded-t-[1.4rem] rounded-b-[0.9rem]", style: undefined };
+    case "orbital":
+      return { className: "rounded-full", style: { boxShadow: "inset 0 0 0 2px rgba(255,255,255,0.18)" } };
+    case "crystal":
+      return { className: "", style: { clipPath: "polygon(50% 0%, 86% 26%, 72% 100%, 28% 100%, 14% 26%)" } };
+    case "star":
+      return { className: "", style: { clipPath: "polygon(50% 0%, 61% 34%, 98% 36%, 68% 58%, 79% 92%, 50% 72%, 21% 92%, 32% 58%, 2% 36%, 39% 34%)" } };
+    default:
+      return { className: "rounded-[1.15rem]", style: undefined };
+  }
 }
 
 function NodeParticles({
@@ -75,7 +98,7 @@ function PreviewNode({
 }) {
   const theme = getPathTheme(appearance.pathThemeId);
   const nodeEffect = getNodeEffect(appearance.nodeEffectId);
-  const baseClass = getShapeClass(theme.nodeShape);
+  const shapePresentation = getShapePresentation(theme.nodeShape);
   const complete = status === "completed";
   const current = status === "current";
   const background = complete ? theme.nodeCompletedBackground : theme.nodeAvailableBackground;
@@ -86,11 +109,12 @@ function PreviewNode({
 
   return (
     <div
-      className={`relative flex items-center justify-center border-b-4 font-black shadow-lg ${sizeClass} ${baseClass}`}
+      className={`relative flex items-center justify-center border-b-4 font-black shadow-lg ${sizeClass} ${shapePresentation.className}`}
       style={{
         background,
         borderColor: border,
         color: textColor,
+        ...shapePresentation.style,
         boxShadow: current
           ? `0 0 0 7px ${theme.nodeCurrentRing}, 0 18px 36px ${theme.nodeGlow}`
           : `0 18px 30px ${complete ? theme.nodeCompletedGlow : theme.nodeGlow}`,
@@ -146,6 +170,7 @@ function TrailSegment({
   appearance: ResolvedCosmeticAppearance;
   hero?: boolean;
 }) {
+  const theme = getPathTheme(appearance.pathThemeId);
   const trail = getTrailEffect(appearance.trailEffectId);
   const heightClass = hero ? "h-11" : "h-9";
 
@@ -154,8 +179,8 @@ function TrailSegment({
       <span
         className="absolute h-full w-[6px] rounded-full"
         style={{
-          background: trail.gradient,
-          boxShadow: `0 0 18px ${trail.glow}`,
+          background: theme.trailGradient,
+          boxShadow: `0 0 18px ${theme.trailGlow}`,
         }}
       />
       {Array.from({ length: 3 }).map((_, index) => (
@@ -292,6 +317,7 @@ export default function ThemePreview({
   includedHighlights?: PreviewHighlight[];
 }) {
   const theme = getPathTheme(appearance.pathThemeId);
+  const { enabled: ambientEffectsEnabled } = useAmbientEffectsPreference();
 
   return (
     <div
@@ -327,6 +353,7 @@ export default function ThemePreview({
       `}</style>
 
       <div className="pointer-events-none absolute inset-0 opacity-90" style={{ background: theme.pageOverlay }} />
+      <AmbientEffectsLayer effects={theme.ambientEffects} enabled={ambientEffectsEnabled} preview className="opacity-80" />
       <div
         className="pointer-events-none absolute inset-y-0 left-[-12%] w-[42%] rotate-[12deg] blur-3xl"
         style={{ background: theme.heroBackground, opacity: hero ? 0.44 : 0.28 }}

@@ -18,7 +18,14 @@ import {
 import { RewardChestArt } from "@/components/rewards/RewardChest";
 
 type RewardChestModalProps = {
-  chest: RewardChest | null;
+  chest?: RewardChest | null;
+  onClose: () => void;
+  onOpen?: (result: RewardChestOpenResult) => void | Promise<void>;
+  onProgress?: (result: RewardChestProgressResult) => void | Promise<void>;
+};
+
+type GemRewardChestModalProps = {
+  chest: RewardChest;
   onClose: () => void;
   onOpen: (result: RewardChestOpenResult) => void | Promise<void>;
   onProgress?: (result: RewardChestProgressResult) => void | Promise<void>;
@@ -332,7 +339,25 @@ function getActiveRarityTitleStyle(rarity: ChestRarity | null, mode: RewardTitle
   };
 }
 
-export default function RewardChestModal({ chest, onClose, onOpen, onProgress }: RewardChestModalProps) {
+export default function RewardChestModal({
+  chest,
+  onClose,
+  onOpen,
+  onProgress,
+}: RewardChestModalProps) {
+  if (!chest || !onOpen) return null;
+
+  return (
+    <GemRewardChestModal
+      chest={chest}
+      onClose={onClose}
+      onOpen={onOpen}
+      onProgress={onProgress}
+    />
+  );
+}
+
+function GemRewardChestModal({ chest, onClose, onOpen, onProgress }: GemRewardChestModalProps) {
   const runTokenRef = useRef(0);
   const lastTapAtRef = useRef<number | null>(null);
 
@@ -414,8 +439,6 @@ export default function RewardChestModal({ chest, onClose, onOpen, onProgress }:
       window.cancelAnimationFrame(rafId);
     };
   }, [rewardCountToken, showRewardValue, gemAmount, displayRarity, chest?.id]);
-
-  if (!chest) return null;
 
   const theme = getChestTheme(displayRarity);
   const sceneRarity = auraRarity ?? displayRarity;

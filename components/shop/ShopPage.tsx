@@ -1,36 +1,29 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AppTopNav from "@/components/AppTopNav";
-import ItemCard from "@/components/shop/ItemCard";
-import PackCard from "@/components/shop/PackCard";
-import ThemePreview from "@/components/shop/ThemePreview";
+import PackOpeningModal from "@/components/shop/PackOpeningModal";
+import ShopItemIcon from "@/components/shop/ShopItemIcon";
+import ThemeCollectionCard from "@/components/shop/ThemeCollectionCard";
+import ThemeMiniCard from "@/components/shop/ThemeMiniCard";
+import ThemePackCard from "@/components/shop/ThemePackCard";
+import { SnowflakeIcon } from "@/components/streak/StreakFlame";
 import { useCosmetics } from "@/contexts/CosmeticsContext";
+import { useThemeContext } from "@/contexts/ThemeContext";
 import {
-  CosmeticCatalogItem,
-  CosmeticItemId,
   FunctionalProductId,
-  getCosmeticItemById,
-  getFeaturedPackForDate,
   getFunctionalProductById,
-  getPreviewAppearanceForItem,
-  getPackById,
-  isCosmeticEquipped,
-  isCosmeticOwned,
-  isPackOwned,
-  resolveAppearanceForPack,
   SHOP_FUNCTIONAL_PRODUCTS,
   SHOP_PACKS,
-  SHOP_VISIBLE_ITEMS,
-  ShopEntryId,
   ShopTab,
+  SuccessfulThemePackOpenResult,
 } from "@/lib/cosmetics";
-import { getChestSkin, getPathTheme, getTitleBadge, getTrailEffect } from "@/lib/themes";
+import { PATH_THEME_IDS, PATH_THEMES, mixHex, withAlpha } from "@/lib/themes";
 
-const TAB_OPTIONS: { id: ShopTab; label: string; kicker: string }[] = [
-  { id: "packs", label: "Packs", kicker: "Featured bundles" },
-  { id: "items", label: "Items", kicker: "Mix and match cosmetics" },
-  { id: "functional", label: "Functional", kicker: "Useful utility boosts" },
+const TAB_OPTIONS: { id: ShopTab; label: string }[] = [
+  { id: "packs", label: "Packs" },
+  { id: "collection", label: "Collection" },
+  { id: "functional", label: "Functional" },
 ];
 
 function GemIcon() {
@@ -45,43 +38,152 @@ function GemIcon() {
 }
 
 function formatCompactGems(value: number, infinite = false) {
-  return infinite ? "∞" : value.toLocaleString("en-US");
+  if (infinite) return "∞";
+  if (value < 1_000) return value.toString();
+  if (value < 10_000) return `${(value / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
+  if (value < 1_000_000) return `${Math.round(value / 100) / 10}k`.replace(".0k", "k");
+  return `${Math.round(value / 100_000) / 10}m`.replace(".0m", "m");
 }
 
-function groupItems(items: CosmeticCatalogItem[]) {
-  return {
-    pathThemes: items.filter((item) => item.kind === "pathTheme"),
-    chestSkins: items.filter((item) => item.kind === "chestSkin"),
-    trailEffects: items.filter((item) => item.kind === "trailEffect"),
-    nodeEffects: items.filter((item) => item.kind === "nodeEffect"),
-    flair: items.filter((item) => item.kind === "profileBorder" || item.kind === "titleBadge"),
-  };
+function CompactFunctionalCard({
+  id,
+  name,
+  description,
+  price,
+  accent,
+  statusLabel,
+  owned,
+  confirming,
+  processing,
+  canAfford,
+  onPurchaseClick,
+  onConfirmPurchase,
+  onCancelConfirm,
+}: {
+  id: FunctionalProductId;
+  name: string;
+  description: string;
+  price: number;
+  accent: string;
+  statusLabel?: string;
+  owned?: boolean;
+  confirming?: boolean;
+  processing?: boolean;
+  canAfford?: boolean;
+  onPurchaseClick: () => void;
+  onConfirmPurchase: () => void;
+  onCancelConfirm: () => void;
+}) {
+  const { pathTheme } = useThemeContext();
+  return (
+    <article
+      className="rounded-[1.5rem] border p-4 shadow-[0_20px_40px_rgba(2,6,23,0.2)]"
+      style={{
+        borderColor: withAlpha(pathTheme.accentColor, 0.16),
+        background: pathTheme.surfaceCard,
+      }}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[1rem] border"
+          style={{
+            borderColor: withAlpha(pathTheme.accentColor, 0.16),
+            background: withAlpha("#000000", 0.12),
+          }}
+        >
+          <ShopItemIcon kind="functional" assetId={id} accent={accent} className="h-8 w-8" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-black" style={{ color: pathTheme.surfaceText }}>{name}</p>
+          <p className="mt-1 text-xs font-semibold leading-5" style={{ color: withAlpha(pathTheme.surfaceText, 0.62) }}>{description}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[0.62rem] font-black uppercase tracking-[0.22em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.42) }}>Price</p>
+          <p className="mt-1 text-base font-black" style={{ color: pathTheme.surfaceText }}>{price}</p>
+          {statusLabel ? <p className="mt-1 text-[10px] font-black uppercase tracking-[0.18em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.42) }}>{statusLabel}</p> : null}
+        </div>
+        {owned ? (
+          <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-emerald-200">
+            Ready
+          </span>
+        ) : confirming ? (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onConfirmPurchase}
+              disabled={processing}
+              className="rounded-full px-3 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-white"
+              style={{ background: pathTheme.accentColor }}
+            >
+              {processing ? "..." : "Confirm"}
+            </button>
+            <button
+              type="button"
+              onClick={onCancelConfirm}
+              disabled={processing}
+              className="rounded-full border px-3 py-2 text-[11px] font-black uppercase tracking-[0.18em]"
+              style={{
+                borderColor: withAlpha(pathTheme.accentColor, 0.18),
+                background: withAlpha("#000000", 0.06),
+                color: withAlpha(pathTheme.surfaceText, 0.72),
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onPurchaseClick}
+            disabled={!canAfford || processing}
+            className={`rounded-full px-4 py-2 text-[11px] font-black uppercase tracking-[0.18em] ${canAfford ? "" : "cursor-not-allowed"}`}
+            style={canAfford
+              ? {
+                  background: pathTheme.accentColor,
+                  color: "#ffffff",
+                }
+              : {
+                  background: withAlpha(pathTheme.surfaceText, 0.08),
+                  color: withAlpha(pathTheme.surfaceText, 0.32),
+                }}
+          >
+            {canAfford ? "Buy" : "Need Gems"}
+          </button>
+        )}
+      </div>
+    </article>
+  );
 }
 
 export default function ShopPage() {
+  const { pathTheme } = useThemeContext();
   const {
     cosmetics,
     gemBalance,
     infiniteGemsEnabled,
-    appearance,
     loading,
+    isHydrating,
+    openThemePack,
     purchaseEntry,
-    equipItem,
-    equipPack,
+    equipTheme,
     streakFreezeCount,
     perfectRunTokenCount,
     xpBoostCountdown,
     xpBoostActive,
   } = useCosmetics();
 
-  const featuredPack = useMemo(() => getFeaturedPackForDate(), []);
   const [activeTab, setActiveTab] = useState<ShopTab>("packs");
-  const [previewEntryId, setPreviewEntryId] = useState<ShopEntryId>(featuredPack.id);
-  const [confirmingId, setConfirmingId] = useState<ShopEntryId | null>(null);
-  const [celebratingId, setCelebratingId] = useState<ShopEntryId | null>(null);
-  const [processingId, setProcessingId] = useState<ShopEntryId | null>(null);
+  const [confirmingId, setConfirmingId] = useState<FunctionalProductId | string | null>(null);
+  const [processingId, setProcessingId] = useState<FunctionalProductId | string | null>(null);
+  const [packOpening, setPackOpening] = useState<SuccessfulThemePackOpenResult | null>(null);
   const [displayedGems, setDisplayedGems] = useState(gemBalance);
+  const [expandedPackId, setExpandedPackId] = useState<string | null>(SHOP_PACKS[0]?.id ?? null);
+  const [freezeCelebration, setFreezeCelebration] = useState<FunctionalProductId | null>(null);
   const displayedGemRef = useRef(gemBalance);
+  const storeReady = !loading && !isHydrating;
 
   useEffect(() => {
     displayedGemRef.current = displayedGems;
@@ -96,197 +198,134 @@ export default function ShopPage() {
 
     const tick = (timestamp: number) => {
       if (!startAt) startAt = timestamp;
-      const progress = Math.min(1, (timestamp - startAt) / 560);
+      const progress = Math.min(1, (timestamp - startAt) / 640);
       const eased = 1 - (1 - progress) ** 3;
       setDisplayedGems(Math.round(startValue + (targetValue - startValue) * eased));
-      if (progress < 1) {
-        frameId = window.requestAnimationFrame(tick);
-      }
+      if (progress < 1) frameId = window.requestAnimationFrame(tick);
     };
 
     frameId = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(frameId);
   }, [gemBalance]);
 
-  const previewAppearance = useMemo(() => {
-    const pack = getPackById(previewEntryId as never);
-    if (pack) return resolveAppearanceForPack(pack.id);
+  useEffect(() => {
+    if (!freezeCelebration) return undefined;
+    const timeout = window.setTimeout(() => setFreezeCelebration(null), 2200);
+    return () => window.clearTimeout(timeout);
+  }, [freezeCelebration]);
 
-    const item = getCosmeticItemById(previewEntryId as CosmeticItemId);
-    if (item) return getPreviewAppearanceForItem(item);
+  const collectionThemes = PATH_THEME_IDS.map((themeId) => PATH_THEMES[themeId]);
+  const ownedThemes = cosmetics.owned.pathThemes.map((themeId) => PATH_THEMES[themeId]).slice(0, 10);
+  const accentGlow = withAlpha(pathTheme.accentColor, 0.18);
 
-    return resolveAppearanceForPack(featuredPack.id);
-  }, [featuredPack.id, previewEntryId]);
-
-  const previewPack = useMemo(() => getPackById(previewEntryId as never) ?? featuredPack, [featuredPack, previewEntryId]);
-  const previewTheme = getPathTheme(previewAppearance.pathThemeId);
-  const heroHighlights = useMemo(() => {
-    const chest = getChestSkin(previewPack.chestSkinId);
-    const trail = getTrailEffect(previewPack.trailEffectId);
-    const badge = getTitleBadge(previewPack.titleBadgeId);
-
-    return [
-      { label: `${chest.name} Skin`, accent: chest.accent },
-      { label: `${trail.name} Trail`, accent: trail.particleColor },
-      { label: `${badge?.name ?? "Exclusive"} Title`, accent: getPathTheme(previewPack.themeId).previewHighlight },
-    ];
-  }, [previewPack]);
-  const firstPack = SHOP_PACKS[0];
-  const firstPackTheme = getPathTheme(firstPack.themeId);
-  const groupedItems = groupItems(SHOP_VISIBLE_ITEMS.filter((item) => item.kind !== "pathTheme" || item.assetId !== "default"));
-
-  const handleConfirmPurchase = async (entryId: ShopEntryId) => {
+  const handleConfirmPurchase = async (entryId: FunctionalProductId) => {
     if (processingId) return;
     setProcessingId(entryId);
     try {
       const result = await purchaseEntry(entryId);
       if (!result.ok) return;
-
+      if (entryId === "streak_freeze" || entryId === "streak_shield_pack") {
+        setFreezeCelebration(entryId);
+      }
       setConfirmingId(null);
-      setCelebratingId(entryId);
-      window.setTimeout(() => setCelebratingId((current) => (current === entryId ? null : current)), 900);
     } finally {
       setProcessingId(null);
     }
   };
 
-  const renderItemCard = (item: CosmeticCatalogItem) => {
-    const owned = isCosmeticOwned(cosmetics, item);
-    const equipped = isCosmeticEquipped(cosmetics, item);
-    const canAfford = infiniteGemsEnabled || gemBalance >= item.price;
-    const preview = item.kind === "titleBadge"
-      ? (
-          <span
-            className="rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-[0.18em] text-white"
-            style={{
-              background: getTitleBadge(item.assetId as never)?.tone ?? "linear-gradient(135deg,#22c55e,#16a34a)",
-              borderColor: "rgba(255,255,255,0.4)",
-            }}
-          >
-            {item.name.slice(0, 8)}
-          </span>
-        )
-      : undefined;
-
-    return (
-      <ItemCard
-        key={item.id}
-        name={item.name}
-        description={item.description}
-        price={item.price}
-        accent={item.accent}
-        owned={owned}
-        equipped={equipped}
-        confirming={confirmingId === item.id}
-        celebrating={celebratingId === item.id}
-        processing={processingId === item.id}
-        canAfford={canAfford}
-        previewed={previewEntryId === item.id}
-        preview={preview}
-        onPreview={() => setPreviewEntryId(item.id)}
-        onPurchaseClick={() => setConfirmingId(item.id)}
-        onConfirmPurchase={() => void handleConfirmPurchase(item.id)}
-        onCancelConfirm={() => setConfirmingId(null)}
-        onEquip={() => equipItem(item.id)}
-      />
-    );
+  const handleConfirmPackOpen = async (packId: string) => {
+    if (processingId) return;
+    setProcessingId(packId);
+    try {
+      const result = await openThemePack(packId as typeof SHOP_PACKS[number]["id"]);
+      if (!result.ok) return;
+      setConfirmingId(null);
+      setPackOpening(result);
+    } finally {
+      setProcessingId(null);
+    }
   };
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#f8fafc_0%,#f1f5f9_100%)]">
+    <main className="relative min-h-screen overflow-hidden text-white" style={{ background: pathTheme.surfaceBackground }}>
+      <div className="pointer-events-none absolute inset-0" style={{ background: pathTheme.pageOverlay, opacity: 0.92 }} />
+      <div
+        className="pointer-events-none absolute inset-0 opacity-70"
+        style={{
+          background: `radial-gradient(circle at 18% 16%, ${withAlpha(pathTheme.accentColor, 0.18)}, transparent 28%), radial-gradient(circle at 82% 24%, ${withAlpha(pathTheme.previewHighlight, 0.16)}, transparent 32%)`,
+        }}
+      />
       <AppTopNav />
-      <div className="mx-auto max-w-7xl px-4 pb-16 pt-8 sm:px-6">
+      <style>{`
+        @keyframes shopMoteFloat {
+          0%, 100% { transform: translate3d(0, 0, 0); opacity: 0.08; }
+          50% { transform: translate3d(18px, -24px, 0); opacity: 0.18; }
+        }
+      `}</style>
+
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        {Array.from({ length: 18 }).map((_, index) => (
+          <span
+            key={index}
+            className="absolute rounded-full bg-white/30 blur-[2px]"
+            style={{
+              left: `${(index * 19) % 100}%`,
+              top: `${(index * 13) % 100}%`,
+              width: 3 + (index % 3),
+              height: 3 + (index % 3),
+              animation: `shopMoteFloat ${12 + (index % 5) * 2.5}s ease-in-out ${index * 0.4}s infinite`,
+            }}
+          />
+        ))}
+      </div>
+
+      <div className="relative z-10 w-full px-4 pb-16 pt-8 sm:px-6 lg:px-8">
         <section
-          className="relative overflow-hidden rounded-[2.4rem] border border-white/60 px-6 pb-24 pt-7 shadow-[0_28px_60px_rgba(15,23,42,0.1)] sm:px-8"
-          style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(248,250,252,0.98) 100%)" }}
+          className="overflow-hidden rounded-[2.5rem] border px-5 py-6 shadow-[0_40px_120px_rgba(2,6,23,0.4)] sm:px-7 lg:px-8"
+          style={{
+            borderColor: withAlpha(pathTheme.accentColor, 0.18),
+            background: `${pathTheme.surfaceDark}`,
+            boxShadow: `0 40px 120px ${accentGlow}`,
+          }}
         >
-          <style>{`
-            @keyframes shopHeroArrow {
-              0%, 100% { transform: translateY(0px); opacity: 0.28; }
-              50% { transform: translateY(6px); opacity: 0.82; }
-            }
-          `}</style>
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(148,163,184,0.08),transparent_34%)]" />
-          <div className="relative z-10 grid gap-6 lg:grid-cols-[0.4fr_0.6fr]">
+          <div className="flex flex-wrap items-start justify-between gap-5">
             <div>
-              <p className="text-[0.68rem] font-black uppercase tracking-[0.28em] text-slate-500">Gem Store</p>
-              <h1 className="mt-3 text-4xl font-black text-slate-950 sm:text-5xl">Cosmetics That Change The Whole Run.</h1>
-              <p className="mt-4 max-w-xl text-base font-semibold leading-7 text-slate-600">
-                Spend reward gems on full path bundles, custom chest skins, trail energy, profile flair, and utility items that help you protect or amplify progress.
+              <p className="text-[0.72rem] font-black uppercase tracking-[0.34em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.46) }}>Pack Vault</p>
+              <h1 className="mt-4 text-4xl font-black sm:text-5xl">Open Theme Packs</h1>
+              <p className="mt-4 max-w-2xl text-base font-semibold leading-7" style={{ color: withAlpha(pathTheme.surfaceText, 0.72) }}>
+                Each pack is its own object, its own reveal, and its own chance at a world that changes how the learn path feels.
               </p>
-
-              <div className="mt-6 flex flex-wrap items-center gap-3">
-                <div className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-[rgba(255,255,255,0.78)] px-4 py-2 text-sky-700 shadow-sm">
-                  <GemIcon />
-                  <span className="text-sm font-black">
-                    {infiniteGemsEnabled ? "∞ gems enabled" : `${formatCompactGems(displayedGems)} gems ready`}
-                  </span>
-                </div>
-                {previewEntryId !== featuredPack.id && (
-                  <span className="rounded-full border border-slate-200 bg-[rgba(255,255,255,0.76)] px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">
-                    Preview Mode
-                  </span>
-                )}
-              </div>
-
-              <div className="mt-6 rounded-[1.6rem] border border-white/60 bg-[rgba(255,255,255,0.72)] p-4">
-                <p className="text-[0.68rem] font-black uppercase tracking-[0.28em] text-slate-400">
-                  {previewEntryId === featuredPack.id ? "Featured Rotation" : "Pack Preview"}
-                </p>
-                <p className="mt-2 text-2xl font-black text-slate-950">{previewPack.name}</p>
-                <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">{previewPack.description}</p>
-              </div>
             </div>
 
-            <ThemePreview
-              hero
-              appearance={previewAppearance}
-              previewMode={previewEntryId !== featuredPack.id}
-              heading={previewTheme.name}
-              includedHighlights={heroHighlights}
-            />
-          </div>
-
-          {activeTab === "packs" && (
-            <>
-              <div className="pointer-events-none absolute inset-x-0 bottom-[4.8rem] z-10 flex flex-col items-center gap-2">
-                <span className="h-5 w-px rounded-full bg-white/46" />
-                <span
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/40 bg-[rgba(255,255,255,0.2)] text-slate-700 backdrop-blur-sm"
-                  style={{ animation: "shopHeroArrow 2.2s ease-in-out infinite" }}
-                >
-                  <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
-                    <path d="M5 7.5L10 12.5L15 7.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
+            <div
+              className="rounded-[1.6rem] border px-5 py-4 shadow-[0_20px_40px_rgba(2,6,23,0.28)]"
+              style={{
+                borderColor: withAlpha(pathTheme.accentColor, 0.22),
+                background: pathTheme.surfaceCard,
+              }}
+            >
+              <p className="text-[0.62rem] font-black uppercase tracking-[0.28em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.5) }}>Gem Balance</p>
+              <div className="mt-3 flex items-center gap-3">
+                <span className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-sky-400/16 bg-sky-400/10 text-sky-200">
+                  <GemIcon />
                 </span>
-              </div>
-
-              <div className="pointer-events-none absolute inset-x-0 bottom-[-4.75rem] flex justify-center px-6">
-                <div className="w-full max-w-4xl rounded-[2rem] border border-slate-200/90 bg-white px-6 pb-6 pt-5 shadow-[0_26px_70px_rgba(15,23,42,0.14)]">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <span
-                        className="inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.22em] text-white"
-                        style={{ background: firstPackTheme.unitBannerBackground, borderColor: firstPackTheme.unitBannerBorder }}
-                      >
-                        {firstPack.bestValueLabel}
-                      </span>
-                      <p className="mt-3 text-2xl font-black text-slate-900">{firstPack.name}</p>
-                      <p className="mt-2 text-sm font-semibold text-slate-500">{firstPack.description}</p>
-                    </div>
-                    <div className="rounded-[1.2rem] border border-slate-200 bg-slate-50 px-4 py-3 text-right">
-                      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Pack Price</p>
-                      <p className="mt-2 text-2xl font-black text-slate-900">{firstPack.price}</p>
-                    </div>
-                  </div>
+                <div>
+                  <p className="text-3xl font-black" style={{ color: pathTheme.surfaceText }}>{formatCompactGems(displayedGems, infiniteGemsEnabled)}</p>
+                  <p className="text-xs font-black uppercase tracking-[0.22em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.42) }}>
+                    {infiniteGemsEnabled ? "Infinite gems enabled" : "Ready to spend"}
+                  </p>
                 </div>
               </div>
-            </>
-          )}
-        </section>
+            </div>
+          </div>
 
-        <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
-          <div className="inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
+          <div
+            className="mt-6 inline-flex rounded-full border p-1"
+            style={{
+              borderColor: withAlpha(pathTheme.accentColor, 0.18),
+              background: withAlpha("#000000", 0.18),
+            }}
+          >
             {TAB_OPTIONS.map((tab) => (
               <button
                 key={tab.id}
@@ -295,149 +334,279 @@ export default function ShopPage() {
                   setActiveTab(tab.id);
                   setConfirmingId(null);
                 }}
-                className={`rounded-full px-4 py-2 text-sm font-black transition ${
-                  activeTab === tab.id ? "text-white shadow-sm" : "text-slate-500 hover:text-slate-900"
-                }`}
-                style={activeTab === tab.id ? { background: previewTheme.unitBannerBackground } : undefined}
+                className="rounded-full px-4 py-2 text-sm font-black transition"
+                style={activeTab === tab.id
+                  ? {
+                      background: `linear-gradient(135deg, ${pathTheme.accentColor} 0%, ${mixHex(pathTheme.accentColor, pathTheme.previewHighlight, 0.36)} 100%)`,
+                      color: "#ffffff",
+                    }
+                  : {
+                      color: withAlpha(pathTheme.surfaceText, 0.58),
+                    }}
               >
                 {tab.label}
               </button>
             ))}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-slate-400">
-            <span className="rounded-full border border-slate-200 bg-white px-3 py-2">Freezes {streakFreezeCount}</span>
-            <span className="rounded-full border border-slate-200 bg-white px-3 py-2">Perfect Tokens {perfectRunTokenCount}</span>
-            <span className="rounded-full border border-slate-200 bg-white px-3 py-2">
-              {xpBoostActive ? `2x XP ${xpBoostCountdown}` : "No XP boost active"}
-            </span>
+          {activeTab === "packs" ? (
+            <div className="mt-8 space-y-8">
+              <section className="rounded-[2rem] border border-white/8 bg-[linear-gradient(180deg,rgba(8,12,24,0.9),rgba(4,7,16,0.94))] px-4 py-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:px-6">
+                <div className="grid gap-5 lg:grid-cols-2">
+                  {storeReady ? (
+                    SHOP_PACKS.map((pack, index) => (
+                      <div
+                        key={pack.id}
+                        className={`${index % 2 === 0 ? "lg:-translate-y-2" : "lg:translate-y-6"} transition-transform`}
+                      >
+                        <ThemePackCard
+                          pack={pack}
+                          pityState={cosmetics.pity}
+                          expanded={expandedPackId === pack.id}
+                          confirming={confirmingId === pack.id}
+                          celebrating={false}
+                          processing={processingId === pack.id}
+                          canAfford={infiniteGemsEnabled || gemBalance >= pack.price}
+                          onOpenClick={setConfirmingId}
+                          onConfirmOpen={(packId) => void handleConfirmPackOpen(packId)}
+                          onCancelConfirm={() => setConfirmingId(null)}
+                          onToggleExpanded={(packId) => setExpandedPackId((current) => (current === packId ? null : packId))}
+                        />
+                      </div>
+                    ))
+                  ) : (
+                    <div className="col-span-full rounded-[1.8rem] border border-white/10 bg-white/[0.04] p-8 text-center text-sm font-semibold text-white/54">
+                      Loading pack odds, pity state, and collection...
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section
+                className="rounded-[2rem] border p-5 shadow-[0_24px_60px_rgba(2,6,23,0.26)]"
+                style={{ borderColor: withAlpha(pathTheme.accentColor, 0.14), background: pathTheme.surfaceCard }}
+              >
+                <div className="flex flex-wrap items-end justify-between gap-4">
+                  <div>
+                    <p className="text-[0.68rem] font-black uppercase tracking-[0.28em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.4) }}>Your Collection</p>
+                    <p className="mt-2 text-2xl font-black" style={{ color: pathTheme.surfaceText }}>{cosmetics.owned.pathThemes.length} themes discovered</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("collection")}
+                    className="rounded-full border px-4 py-2 text-xs font-black uppercase tracking-[0.22em]"
+                    style={{
+                      borderColor: withAlpha(pathTheme.accentColor, 0.18),
+                      color: pathTheme.accentColor,
+                      background: withAlpha(pathTheme.accentColor, 0.08),
+                    }}
+                  >
+                    View Full Collection
+                  </button>
+                </div>
+                <div className="mt-5 flex gap-4 overflow-x-auto pb-2">
+                  {ownedThemes.map((theme) => (
+                    <ThemeMiniCard key={theme.id} themeId={theme.id} size="strip" className="shrink-0" />
+                  ))}
+                </div>
+              </section>
+
+              <section
+                className="rounded-[2rem] border p-5"
+                style={{ borderColor: withAlpha(pathTheme.accentColor, 0.14), background: withAlpha("#000000", 0.12) }}
+              >
+                <div className="flex flex-wrap items-end justify-between gap-4">
+                  <div>
+                    <p className="text-[0.68rem] font-black uppercase tracking-[0.28em] text-white/34">Functional Items</p>
+                    <p className="mt-2 text-xl font-black text-white">Utility only. Helpful, but not the star of the shop.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-[11px] font-black uppercase tracking-[0.18em] text-white/36">
+                    <span className="rounded-full border border-white/10 bg-white/6 px-3 py-2">Freezes {streakFreezeCount}</span>
+                    <span className="rounded-full border border-white/10 bg-white/6 px-3 py-2">Perfect Tokens {perfectRunTokenCount}</span>
+                    <span className="rounded-full border border-white/10 bg-white/6 px-3 py-2">
+                      {xpBoostActive ? `2x XP ${xpBoostCountdown}` : "No XP Boost"}
+                    </span>
+                  </div>
+                </div>
+                <div className="mt-5 grid gap-4 lg:grid-cols-4">
+                  {SHOP_FUNCTIONAL_PRODUCTS.map((product) => {
+                    const preview = getFunctionalProductById(product.id);
+                    const canAfford = infiniteGemsEnabled || gemBalance >= product.price;
+                    const ownedStateLabel =
+                      product.id === "streak_freeze"
+                        ? `Hold ${streakFreezeCount}`
+                        : product.id === "streak_shield_pack"
+                          ? `Hold ${streakFreezeCount}`
+                          : product.id === "xp_boost"
+                            ? (xpBoostActive ? `Active ${xpBoostCountdown}` : undefined)
+                            : `Hold ${perfectRunTokenCount}`;
+                    const pseudoOwned =
+                      product.id === "streak_freeze"
+                        ? streakFreezeCount >= 3
+                        : product.id === "streak_shield_pack"
+                          ? streakFreezeCount > 0
+                          : product.id === "xp_boost"
+                            ? xpBoostActive
+                            : perfectRunTokenCount >= 3;
+
+                    return (
+                      <CompactFunctionalCard
+                        key={product.id}
+                        id={product.id}
+                        name={product.name}
+                        description={preview?.description ?? product.description}
+                        price={product.price}
+                        accent={product.accent}
+                        statusLabel={ownedStateLabel}
+                        owned={pseudoOwned}
+                        confirming={confirmingId === product.id}
+                        processing={processingId === product.id}
+                        canAfford={canAfford && !pseudoOwned}
+                        onPurchaseClick={() => setConfirmingId(product.id)}
+                        onConfirmPurchase={() => void handleConfirmPurchase(product.id)}
+                        onCancelConfirm={() => setConfirmingId(null)}
+                      />
+                    );
+                  })}
+                </div>
+              </section>
+            </div>
+          ) : null}
+
+          {activeTab === "collection" ? (
+            <section className="mt-8 space-y-6">
+              <div>
+                <p className="text-[0.68rem] font-black uppercase tracking-[0.28em] text-white/34">Theme Collection</p>
+                <p className="mt-2 text-3xl font-black text-white">
+                  {cosmetics.owned.pathThemes.length} of {collectionThemes.length} discovered
+                </p>
+                <p className="mt-2 text-sm font-semibold" style={{ color: withAlpha(pathTheme.surfaceText, 0.68) }}>
+                  Discovered themes can be equipped instantly. Undiscovered themes remain silhouettes until a pack reveals them.
+                </p>
+              </div>
+
+              {storeReady ? (
+                <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+                  {collectionThemes.map((theme) => (
+                    <ThemeCollectionCard
+                      key={theme.id}
+                      theme={theme}
+                      owned={cosmetics.owned.pathThemes.includes(theme.id)}
+                      equipped={cosmetics.equipped.pathThemeId === theme.id}
+                      onEquip={() => equipTheme(theme.id)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-[1.8rem] border border-white/10 bg-white/[0.04] p-8 text-center text-sm font-semibold text-white/54">
+                  Loading your discovered themes...
+                </div>
+              )}
+            </section>
+          ) : null}
+
+          {activeTab === "functional" ? (
+            <section className="mt-8 space-y-6">
+              <div>
+                <p className="text-[0.68rem] font-black uppercase tracking-[0.28em] text-white/34">Functional</p>
+                <p className="mt-2 text-3xl font-black text-white">Utility inventory</p>
+                <p className="mt-2 text-sm font-semibold" style={{ color: withAlpha(pathTheme.surfaceText, 0.68) }}>Practical items stay direct-purchase. No randomness here.</p>
+              </div>
+              <div className="grid gap-4 lg:grid-cols-4">
+                {SHOP_FUNCTIONAL_PRODUCTS.map((product) => {
+                  const preview = getFunctionalProductById(product.id);
+                  const canAfford = infiniteGemsEnabled || gemBalance >= product.price;
+                  const ownedStateLabel =
+                    product.id === "streak_freeze"
+                      ? `Hold ${streakFreezeCount}`
+                      : product.id === "streak_shield_pack"
+                        ? `Hold ${streakFreezeCount}`
+                        : product.id === "xp_boost"
+                          ? (xpBoostActive ? `Active ${xpBoostCountdown}` : undefined)
+                          : `Hold ${perfectRunTokenCount}`;
+                  const pseudoOwned =
+                    product.id === "streak_freeze"
+                      ? streakFreezeCount >= 3
+                      : product.id === "streak_shield_pack"
+                        ? streakFreezeCount > 0
+                        : product.id === "xp_boost"
+                          ? xpBoostActive
+                          : perfectRunTokenCount >= 3;
+
+                  return (
+                    <CompactFunctionalCard
+                      key={product.id}
+                      id={product.id}
+                      name={product.name}
+                      description={preview?.description ?? product.description}
+                      price={product.price}
+                      accent={product.accent}
+                      statusLabel={ownedStateLabel}
+                      owned={pseudoOwned}
+                      confirming={confirmingId === product.id}
+                      processing={processingId === product.id}
+                      canAfford={canAfford && !pseudoOwned}
+                      onPurchaseClick={() => setConfirmingId(product.id)}
+                      onConfirmPurchase={() => void handleConfirmPurchase(product.id)}
+                      onCancelConfirm={() => setConfirmingId(null)}
+                    />
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+        </section>
+      </div>
+
+      <PackOpeningModal
+        opening={packOpening}
+        onClose={() => setPackOpening(null)}
+        onEquipNow={(themeId) => {
+          if (themeId) equipTheme(themeId);
+          setPackOpening(null);
+        }}
+      />
+      {freezeCelebration ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-8 z-[120] flex justify-center px-4">
+          <style>{`
+            @keyframes freezeAcquireCrystal {
+              0% { transform: scale(0.72) rotate(-10deg); opacity: 0; }
+              58% { transform: scale(1.12) rotate(4deg); opacity: 1; }
+              100% { transform: scale(1) rotate(0deg); opacity: 1; }
+            }
+            @keyframes freezeAcquireRing {
+              0% { transform: scale(0.72); opacity: 0.68; }
+              100% { transform: scale(1.34); opacity: 0; }
+            }
+          `}</style>
+          <div
+            className="relative overflow-hidden rounded-[1.7rem] border px-5 py-4 shadow-[0_24px_60px_rgba(8,47,73,0.26)]"
+            style={{
+              borderColor: "rgba(125,211,252,0.3)",
+              background: "linear-gradient(135deg,rgba(8,47,73,0.94) 0%,rgba(15,23,42,0.96) 100%)",
+            }}
+          >
+            <span
+              className="absolute left-5 top-1/2 h-14 w-14 -translate-y-1/2 rounded-full border border-sky-200/30"
+              style={{ animation: "freezeAcquireRing 1.6s ease-out infinite" }}
+            />
+            <div className="relative flex items-center gap-4 text-white">
+              <span
+                className="inline-flex h-14 w-14 items-center justify-center rounded-[1.25rem] border border-sky-200/24 bg-sky-200/12 text-sky-100 shadow-[0_18px_36px_rgba(56,189,248,0.22)]"
+                style={{ animation: "freezeAcquireCrystal 0.75s cubic-bezier(0.22,1,0.36,1)" }}
+              >
+                <SnowflakeIcon className="h-8 w-8" />
+              </span>
+              <div>
+                <p className="text-[0.68rem] font-black uppercase tracking-[0.22em] text-sky-200/72">Freeze Acquired</p>
+                <p className="mt-1 text-base font-black">
+                  {freezeCelebration === "streak_shield_pack" ? "Three freezes locked in." : "One freeze added to inventory."}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
-
-        {activeTab === "packs" && (
-          <section className="mt-8 grid gap-6 xl:grid-cols-2">
-            {SHOP_PACKS.map((pack) => {
-              const owned = isPackOwned(cosmetics, pack.id);
-              const equipped = appearance.pathThemeId === pack.themeId
-                && appearance.chestSkinId === pack.chestSkinId
-                && appearance.trailEffectId === pack.trailEffectId
-                && appearance.nodeEffectId === pack.nodeEffectId
-                && appearance.titleBadgeId === pack.titleBadgeId;
-
-              return (
-                <PackCard
-                  key={pack.id}
-                  pack={pack}
-                  appearance={resolveAppearanceForPack(pack.id)}
-                  owned={owned}
-                  equipped={equipped}
-                  previewed={previewEntryId === pack.id}
-                  confirming={confirmingId === pack.id}
-                  celebrating={celebratingId === pack.id}
-                  processing={processingId === pack.id}
-                  canAfford={infiniteGemsEnabled || gemBalance >= pack.price}
-                  onPreview={() => setPreviewEntryId(pack.id)}
-                  onPurchaseClick={() => setConfirmingId(pack.id)}
-                  onConfirmPurchase={() => void handleConfirmPurchase(pack.id)}
-                  onCancelConfirm={() => setConfirmingId(null)}
-                  onEquip={() => equipPack(pack.id)}
-                />
-              );
-            })}
-          </section>
-        )}
-
-        {activeTab === "items" && (
-          <section className="mt-8 space-y-8">
-            <div>
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <p className="text-[0.68rem] font-black uppercase tracking-[0.28em] text-slate-400">Path Themes</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-500">Switch the entire lesson atmosphere instantly.</p>
-                </div>
-              </div>
-              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                {SHOP_VISIBLE_ITEMS
-                  .filter((item) => item.kind === "pathTheme")
-                  .map(renderItemCard)}
-              </div>
-            </div>
-
-            <div>
-              <p className="text-[0.68rem] font-black uppercase tracking-[0.28em] text-slate-400">Chest Skins</p>
-              <div className="mt-4 grid gap-5 md:grid-cols-2 xl:grid-cols-3">{groupedItems.chestSkins.map(renderItemCard)}</div>
-            </div>
-
-            <div>
-              <p className="text-[0.68rem] font-black uppercase tracking-[0.28em] text-slate-400">Trail Effects</p>
-              <div className="mt-4 grid gap-5 md:grid-cols-2 xl:grid-cols-3">{groupedItems.trailEffects.map(renderItemCard)}</div>
-            </div>
-
-            <div>
-              <p className="text-[0.68rem] font-black uppercase tracking-[0.28em] text-slate-400">Node Effects</p>
-              <div className="mt-4 grid gap-5 md:grid-cols-2 xl:grid-cols-3">{groupedItems.nodeEffects.map(renderItemCard)}</div>
-            </div>
-
-            <div>
-              <p className="text-[0.68rem] font-black uppercase tracking-[0.28em] text-slate-400">Profile Flair</p>
-              <div className="mt-4 grid gap-5 md:grid-cols-2 xl:grid-cols-3">{groupedItems.flair.map(renderItemCard)}</div>
-            </div>
-          </section>
-        )}
-
-        {activeTab === "functional" && (
-          <section className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-            {SHOP_FUNCTIONAL_PRODUCTS.map((product) => {
-              const purchasePreview = getFunctionalProductById(product.id);
-              const canAfford = infiniteGemsEnabled || gemBalance >= product.price;
-              const previewed = previewEntryId === product.id;
-              const active = product.id === "xp_boost" ? xpBoostActive : false;
-              const ownedStateLabel =
-                product.id === "streak_freeze"
-                  ? `Hold ${streakFreezeCount}`
-                  : product.id === "streak_shield_pack"
-                    ? `Hold ${streakFreezeCount}`
-                    : product.id === "xp_boost"
-                      ? (xpBoostActive ? `Active ${xpBoostCountdown}` : undefined)
-                      : `Hold ${perfectRunTokenCount}`;
-              const pseudoOwned =
-                product.id === "streak_freeze"
-                  ? streakFreezeCount >= 3
-                  : product.id === "streak_shield_pack"
-                    ? streakFreezeCount > 0
-                    : product.id === "xp_boost"
-                      ? xpBoostActive
-                      : perfectRunTokenCount >= 3;
-
-              return (
-                <ItemCard
-                  key={product.id}
-                  name={product.name}
-                  description={purchasePreview?.description ?? product.description}
-                  price={product.price}
-                  accent={product.accent}
-                  owned={pseudoOwned || active}
-                  active={active}
-                  statusLabel={ownedStateLabel}
-                  confirming={confirmingId === product.id}
-                  celebrating={celebratingId === product.id}
-                  processing={processingId === product.id}
-                  canAfford={canAfford && !pseudoOwned}
-                  previewed={previewed}
-                  purchaseLabel="Purchase"
-                  footerNote={product.limitLabel}
-                  onPreview={() => setPreviewEntryId(featuredPack.id)}
-                  onPurchaseClick={() => setConfirmingId(product.id)}
-                  onConfirmPurchase={() => void handleConfirmPurchase(product.id as FunctionalProductId)}
-                  onCancelConfirm={() => setConfirmingId(null)}
-                />
-              );
-            })}
-          </section>
-        )}
-
-        {loading && <p className="mt-8 text-sm font-semibold text-slate-500">Loading your store inventory...</p>}
-      </div>
+      ) : null}
     </main>
   );
 }
