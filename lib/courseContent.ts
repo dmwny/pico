@@ -185,7 +185,7 @@ function buildUnit(
     description,
     lessons: [
       ...regularLessons,
-      { id: 7, title: "Unit challenge", concept: `${slugifyConcept(title)}-challenge`, kind: "challenge" },
+      { id: 7, title: "Unit challenge", concept: `${slugifyConcept(title)}-challenge`, kind: "challenge", language },
     ],
   };
 }
@@ -534,38 +534,46 @@ const LESSON_TOPICS: Partial<Record<LearningLanguage, Record<string, Record<stri
 
 const UNIT_CHALLENGES: Partial<Record<LearningLanguage, Record<string, UnitChallenge>>> = {
   python: {
-    "1": { title: "Hello World Challenge", description: "Use what you learned about print() and comments to complete this challenge.", prompt: `Write a Python program that:
+    "1": {
+      title: "Hello World Challenge", description: "Use what you learned about print() and comments to complete this challenge.", prompt: `Write a Python program that:
 1. Prints your name
 2. Prints your age
 3. Prints "I am learning Python!"
 4. Has at least one comment explaining what your code does`, exampleOutput: `Alice
 25
 I am learning Python!` },
-    "2": { title: "Variables Challenge", description: "Use variables to store and display information.", prompt: `Write a Python program that:
+    "2": {
+      title: "Variables Challenge", description: "Use variables to store and display information.", prompt: `Write a Python program that:
 1. Creates a variable called "name" with your name
 2. Creates a variable called "age" with your age
 3. Creates a variable called "city" with your city
 4. Prints all three variables`, exampleOutput: `Alice
 25
 New York` },
-    "3": { title: "User Input Challenge", description: "Build a simple interactive program using input().", prompt: `Write a Python program that:
+    "3": {
+      title: "User Input Challenge", description: "Build a simple interactive program using input().", prompt: `Write a Python program that:
 1. Asks the user for their name using input()
 2. Asks the user for their favorite color
-3. Prints a message combining both, like "Hi Alice! Your favorite color is blue."`, exampleOutput: `Hi Alice! Your favorite color is blue.` },
-    "4": { title: "Strings Challenge", description: "Use string operations to manipulate text.", prompt: `Write a Python program that:
+3. Prints a message combining both, like "Hi Alice! Your favorite color is blue."`, exampleOutput: `Hi Alice! Your favorite color is blue.`
+    },
+    "4": {
+      title: "Strings Challenge", description: "Use string operations to manipulate text.", prompt: `Write a Python program that:
 1. Creates a variable with your full name
 2. Prints your name in ALL CAPS
 3. Prints how many characters are in your name
 4. Prints a greeting using an f-string like "Hello, my name is Alice!"`, exampleOutput: `ALICE SMITH
 11
 Hello, my name is Alice Smith!` },
-    "5": { title: "Conditions Challenge", description: "Write a program that makes decisions.", prompt: `Write a Python program that:
+    "5": {
+      title: "Conditions Challenge", description: "Write a program that makes decisions.", prompt: `Write a Python program that:
 1. Creates a variable called "score" with a number between 0 and 100
 2. Prints "A" if score is 90 or above
 3. Prints "B" if score is 80-89
 4. Prints "C" if score is 70-79
-5. Prints "F" if score is below 70`, exampleOutput: `B` },
-    "6": { title: "Loops Challenge", description: "Use loops to repeat code.", prompt: `Write a Python program that:
+5. Prints "F" if score is below 70`, exampleOutput: `B`
+    },
+    "6": {
+      title: "Loops Challenge", description: "Use loops to repeat code.", prompt: `Write a Python program that:
 1. Uses a for loop to print the numbers 1 through 10
 2. Uses a while loop to count down from 5 to 1
 3. Prints "Blast off!" at the end`, exampleOutput: `1
@@ -584,13 +592,15 @@ Hello, my name is Alice Smith!` },
 2
 1
 Blast off!` },
-    "7": { title: "Functions Challenge", description: "Write and use your own functions.", prompt: `Write a Python program that:
+    "7": {
+      title: "Functions Challenge", description: "Write and use your own functions.", prompt: `Write a Python program that:
 1. Defines a function called "greet" that takes a name and prints "Hello, [name]!"
 2. Defines a function called "add" that takes two numbers and returns their sum
 3. Calls greet() with your name
 4. Calls add() with two numbers and prints the result`, exampleOutput: `Hello, Alice!
 15` },
-    "8": { title: "Lists Challenge", description: "Work with lists of data.", prompt: `Write a Python program that:
+    "8": {
+      title: "Lists Challenge", description: "Work with lists of data.", prompt: `Write a Python program that:
 1. Creates a list of 5 of your favorite foods
 2. Prints the first and last item in the list
 3. Adds a new food to the list
@@ -604,7 +614,8 @@ tacos
 ramen
 sushi
 ice cream` },
-    "9": { title: "Dictionaries Challenge", description: "Use dictionaries to store structured data.", prompt: `Write a Python program that:
+    "9": {
+      title: "Dictionaries Challenge", description: "Use dictionaries to store structured data.", prompt: `Write a Python program that:
 1. Creates a dictionary called "person" with keys: name, age, city, hobby
 2. Prints each value using its key
 3. Adds a new key called "language" with value "Python"
@@ -617,14 +628,16 @@ age: 25
 city: New York
 hobby: coding
 language: Python` },
-    "10": { title: "File Handling Challenge", description: "Read and write files.", prompt: `Write a Python program that:
+    "10": {
+      title: "File Handling Challenge", description: "Read and write files.", prompt: `Write a Python program that:
 1. Creates a file called "notes.txt" and writes three lines to it
 2. Closes the file
 3. Opens the file again and reads all the content
 4. Prints the content`, exampleOutput: `Line 1
 Line 2
 Line 3` },
-    "11": { title: "Classes Challenge", description: "Build your own class.", prompt: `Write a Python program that:
+    "11": {
+      title: "Classes Challenge", description: "Build your own class.", prompt: `Write a Python program that:
 1. Defines a class called "Dog" with attributes: name, breed, age
 2. Adds a method called "bark" that prints "[name] says: Woof!"
 3. Adds a method called "info" that prints the dog's name, breed and age
@@ -632,7 +645,8 @@ Line 3` },
 Name: Rex, Breed: Labrador, Age: 3
 Buddy says: Woof!
 Name: Buddy, Breed: Poodle, Age: 5` },
-    "12": { title: "Final Project Challenge", description: "Build a complete Python program using everything you learned.", prompt: `Build a simple contact book program that:
+    "12": {
+      title: "Final Project Challenge", description: "Build a complete Python program using everything you learned.", prompt: `Build a simple contact book program that:
 1. Has a dictionary to store contacts (name -> phone number)
 2. Has a function to add a contact
 3. Has a function to look up a contact by name
@@ -644,38 +658,46 @@ Alice: 555-1234
 Bob: 555-5678` },
   },
   javascript: {
-    "1": { title: "Hello Console Challenge", description: "Use console.log() and comments to complete this challenge.", prompt: `Write a JavaScript program that:
+    "1": {
+      title: "Hello Console Challenge", description: "Use console.log() and comments to complete this challenge.", prompt: `Write a JavaScript program that:
 1. Logs your name
 2. Logs your age
 3. Logs "I am learning JavaScript!"
 4. Has at least one comment explaining what your code does`, exampleOutput: `Alice
 25
 I am learning JavaScript!` },
-    "2": { title: "Variables Challenge", description: "Use variables to store and display information.", prompt: `Write a JavaScript program that:
+    "2": {
+      title: "Variables Challenge", description: "Use variables to store and display information.", prompt: `Write a JavaScript program that:
 1. Creates a variable called name with your name
 2. Creates a variable called age with your age
 3. Creates a variable called city with your city
 4. Logs all three variables`, exampleOutput: `Alice
 25
 New York` },
-    "3": { title: "User Input Challenge", description: "Build a simple interactive program using prompt().", prompt: `Write a JavaScript program that:
+    "3": {
+      title: "User Input Challenge", description: "Build a simple interactive program using prompt().", prompt: `Write a JavaScript program that:
 1. Asks the user for their name using prompt()
 2. Asks the user for their favorite color
-3. Logs a message combining both, like "Hi Alice! Your favorite color is blue."`, exampleOutput: `Hi Alice! Your favorite color is blue.` },
-    "4": { title: "Strings Challenge", description: "Use string operations to manipulate text.", prompt: `Write a JavaScript program that:
+3. Logs a message combining both, like "Hi Alice! Your favorite color is blue."`, exampleOutput: `Hi Alice! Your favorite color is blue.`
+    },
+    "4": {
+      title: "Strings Challenge", description: "Use string operations to manipulate text.", prompt: `Write a JavaScript program that:
 1. Creates a variable with your full name
 2. Logs your name in ALL CAPS
 3. Logs how many characters are in your name
 4. Logs a greeting using a template literal like "Hello, my name is Alice!"`, exampleOutput: `ALICE SMITH
 11
 Hello, my name is Alice Smith!` },
-    "5": { title: "Conditions Challenge", description: "Write a program that makes decisions.", prompt: `Write a JavaScript program that:
+    "5": {
+      title: "Conditions Challenge", description: "Write a program that makes decisions.", prompt: `Write a JavaScript program that:
 1. Creates a variable called score with a number between 0 and 100
 2. Logs "A" if score is 90 or above
 3. Logs "B" if score is 80-89
 4. Logs "C" if score is 70-79
-5. Logs "F" if score is below 70`, exampleOutput: `B` },
-    "6": { title: "Loops Challenge", description: "Use loops to repeat code.", prompt: `Write a JavaScript program that:
+5. Logs "F" if score is below 70`, exampleOutput: `B`
+    },
+    "6": {
+      title: "Loops Challenge", description: "Use loops to repeat code.", prompt: `Write a JavaScript program that:
 1. Uses a for loop to log the numbers 1 through 10
 2. Uses a while loop to count down from 5 to 1
 3. Logs "Blast off!" at the end`, exampleOutput: `1
@@ -694,13 +716,15 @@ Hello, my name is Alice Smith!` },
 2
 1
 Blast off!` },
-    "7": { title: "Functions Challenge", description: "Write and use your own functions.", prompt: `Write a JavaScript program that:
+    "7": {
+      title: "Functions Challenge", description: "Write and use your own functions.", prompt: `Write a JavaScript program that:
 1. Defines a function called greet that takes a name and logs "Hello, [name]!"
 2. Defines a function called add that takes two numbers and returns their sum
 3. Calls greet() with your name
 4. Calls add() with two numbers and logs the result`, exampleOutput: `Hello, Alice!
 15` },
-    "8": { title: "Arrays Challenge", description: "Work with arrays of data.", prompt: `Write a JavaScript program that:
+    "8": {
+      title: "Arrays Challenge", description: "Work with arrays of data.", prompt: `Write a JavaScript program that:
 1. Creates an array of 5 of your favorite foods
 2. Logs the first and last item in the array
 3. Adds a new food to the array
@@ -714,7 +738,8 @@ tacos
 ramen
 sushi
 ice cream` },
-    "9": { title: "Objects Challenge", description: "Use objects to store structured data.", prompt: `Write a JavaScript program that:
+    "9": {
+      title: "Objects Challenge", description: "Use objects to store structured data.", prompt: `Write a JavaScript program that:
 1. Creates an object called person with keys: name, age, city, hobby
 2. Logs each value using its key
 3. Adds a new key called language with value "JavaScript"
@@ -727,12 +752,15 @@ age: 25
 city: New York
 hobby: coding
 language: JavaScript` },
-    "10": { title: "DOM Challenge", description: "Update a web page with JavaScript.", prompt: `Write JavaScript that:
+    "10": {
+      title: "DOM Challenge", description: "Update a web page with JavaScript.", prompt: `Write JavaScript that:
 1. Selects an element with the id "message"
 2. Changes its text to "Hello from JavaScript!"
 3. Changes its color to blue
-4. Adds a click handler to a button with the id "changeBtn" that updates the text again`, exampleOutput: `Hello from JavaScript!` },
-    "11": { title: "Classes Challenge", description: "Build your own class.", prompt: `Write a JavaScript program that:
+4. Adds a click handler to a button with the id "changeBtn" that updates the text again`, exampleOutput: `Hello from JavaScript!`
+    },
+    "11": {
+      title: "Classes Challenge", description: "Build your own class.", prompt: `Write a JavaScript program that:
 1. Defines a class called Dog with properties: name, breed, age
 2. Adds a method called bark that logs "[name] says: Woof!"
 3. Adds a method called info that logs the dog's name, breed and age
@@ -740,7 +768,8 @@ language: JavaScript` },
 Name: Rex, Breed: Labrador, Age: 3
 Buddy says: Woof!
 Name: Buddy, Breed: Poodle, Age: 5` },
-    "12": { title: "Final Project Challenge", description: "Build a complete JavaScript program using everything you learned.", prompt: `Build a simple contact book program that:
+    "12": {
+      title: "Final Project Challenge", description: "Build a complete JavaScript program using everything you learned.", prompt: `Build a simple contact book program that:
 1. Has an object to store contacts (name -> phone number)
 2. Has a function to add a contact
 3. Has a function to look up a contact by name
