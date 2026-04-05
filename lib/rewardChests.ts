@@ -1,7 +1,7 @@
 import { normalizeLanguage } from "@/lib/courseContent";
 
 export type ChestRarity = "common" | "rare" | "epic" | "legendary" | "mythic";
-export type RewardChestSource = "unit" | "quest";
+export type RewardChestSource = "arc" | "challenge" | "unit" | "quest";
 export type RewardChestState = "sealed" | "opened";
 export type RewardChestRevealIntensity = "standard" | "legendary" | "mythic";
 
@@ -89,6 +89,8 @@ const CHEST_PULSE_CONFIG = {
     mythic: 0.24,
   } satisfies Record<ChestRarity, number>,
   sourceBonus: {
+    arc: 0.03,
+    challenge: 0.07,
     unit: 0.04,
     quest: 0.02,
   } satisfies Record<RewardChestSource, number>,
@@ -120,6 +122,20 @@ const CHEST_PULSE_CONFIG = {
   maximumChainChance: 0.34,
   nearMissChanceByTap: [0.48, 0.57, 0.66, 0.72],
   rewardRanges: {
+    arc: {
+      common: [18, 28],
+      rare: [34, 52],
+      epic: [72, 106],
+      legendary: [146, 210],
+      mythic: [280, 360],
+    },
+    challenge: {
+      common: [0, 0],
+      rare: [54, 78],
+      epic: [112, 158],
+      legendary: [210, 292],
+      mythic: [360, 460],
+    },
     unit: {
       common: [22, 34],
       rare: [42, 62],
@@ -301,7 +317,7 @@ function safeParseChests(value: unknown): RewardChest[] {
     if (
       typeof chest.id !== "string" ||
       typeof chest.title !== "string" ||
-      (chest.source !== "unit" && chest.source !== "quest") ||
+      (chest.source !== "arc" && chest.source !== "challenge" && chest.source !== "unit" && chest.source !== "quest") ||
       typeof chest.sourceLabel !== "string" ||
       !baseRarity ||
       !currentRarity ||
@@ -506,6 +522,38 @@ export function getUnitChestDefinition(unitNumber: number) {
   };
 }
 
+export function getArcChestDefinition(unitNumber: number, nodeId: string, nodeTitle: string) {
+  const rarity: ChestRarity = unitNumber >= 10
+    ? "legendary"
+    : unitNumber >= 7
+      ? "epic"
+      : unitNumber >= 4
+        ? "rare"
+        : "common";
+
+  return {
+    id: `arc-${nodeId}-${rarity}-chest`,
+    title: `${CHEST_THEMES[rarity].label} Chest`,
+    rarity,
+    sourceLabel: `${nodeTitle} arc reward`,
+  };
+}
+
+export function getChallengeChestDefinition(unitNumber: number) {
+  const rarity: ChestRarity = unitNumber >= 10
+    ? "legendary"
+    : unitNumber >= 5
+      ? "epic"
+      : "rare";
+
+  return {
+    id: `challenge-${unitNumber}-${rarity}-chest`,
+    title: `${CHEST_THEMES[rarity].label} Challenge Chest`,
+    rarity,
+    sourceLabel: `Unit ${unitNumber} challenge reward`,
+  };
+}
+
 export function getUnitChestInsertionProgress(unitNumber: number, lessonCount: number) {
   const safeLessonCount = Math.max(1, Math.floor(lessonCount));
   const seed = hashString(`unit:${unitNumber}:path-chest-slot`);
@@ -568,6 +616,35 @@ export function createUnitRewardChest(unitNumber: number, awardedAt?: string) {
   });
 }
 
+export function createArcRewardChest(
+  unitNumber: number,
+  nodeId: string,
+  nodeTitle: string,
+  awardedAt?: string,
+) {
+  const chest = getArcChestDefinition(unitNumber, nodeId, nodeTitle);
+  return createRewardChest({
+    id: chest.id,
+    title: chest.title,
+    source: "arc",
+    sourceLabel: chest.sourceLabel,
+    rarity: chest.rarity,
+    awardedAt,
+  });
+}
+
+export function createChallengeRewardChest(unitNumber: number, awardedAt?: string) {
+  const chest = getChallengeChestDefinition(unitNumber);
+  return createRewardChest({
+    id: chest.id,
+    title: chest.title,
+    source: "challenge",
+    sourceLabel: chest.sourceLabel,
+    rarity: chest.rarity,
+    awardedAt,
+  });
+}
+
 export function createQuestRewardChest(
   dateKey: string,
   questId: string,
@@ -597,6 +674,37 @@ export function inflateChestFromId(chestId: string): RewardChest | null {
       state: "opened",
       openedAt: new Date(0).toISOString(),
       gemAmount: getChestGemReward(chestId, unitMatch[2] as ChestRarity, "unit"),
+      tapsUsed: TOTAL_CHEST_SPINS,
+    };
+  }
+
+  const arcMatch = chestId.match(/^arc-([0-9]+-[0-9]+)-(common|rare|epic|legendary|mythic)-chest$/);
+  if (arcMatch) {
+    const nodeId = arcMatch[1];
+    const unitNumber = Number(nodeId.split("-")[0] || 0);
+    const reward = createArcRewardChest(unitNumber, nodeId, "Arc", new Date(0).toISOString());
+    return {
+      ...reward,
+      baseRarity: arcMatch[2] as ChestRarity,
+      currentRarity: arcMatch[2] as ChestRarity,
+      state: "opened",
+      openedAt: new Date(0).toISOString(),
+      gemAmount: getChestGemReward(chestId, arcMatch[2] as ChestRarity, "arc"),
+      tapsUsed: TOTAL_CHEST_SPINS,
+    };
+  }
+
+  const challengeMatch = chestId.match(/^challenge-(\d+)-(rare|epic|legendary|mythic)-chest$/);
+  if (challengeMatch) {
+    const unitNumber = Number(challengeMatch[1]);
+    const reward = createChallengeRewardChest(unitNumber, new Date(0).toISOString());
+    return {
+      ...reward,
+      baseRarity: challengeMatch[2] as ChestRarity,
+      currentRarity: challengeMatch[2] as ChestRarity,
+      state: "opened",
+      openedAt: new Date(0).toISOString(),
+      gemAmount: getChestGemReward(chestId, challengeMatch[2] as ChestRarity, "challenge"),
       tapsUsed: TOTAL_CHEST_SPINS,
     };
   }

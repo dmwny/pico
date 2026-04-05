@@ -19,21 +19,35 @@ import {
 import { ACHIEVEMENTS } from "@/lib/achievements";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import MobileDock from "@/components/MobileDock";
-import { getCourseSections, getLanguageLabel, getMiniCourses, languageHasPlacement, UnitMeta } from "@/lib/courseContent";
+import {
+  getCourseSections,
+  getLanguageLabel,
+  getMiniCourses,
+  languageHasPlacement,
+  type LessonMeta,
+  type LessonNodeType,
+  UnitMeta,
+} from "@/lib/courseContent";
 import { mergeProgressSources, resolveActiveLanguage, setStoredLanguageProgress, getStoredLanguageProgress } from "@/lib/progress";
-import { ClosedChestNode, OpenChestNode } from "@/components/rewards/PathChestNode";
+import {
+  arcRecordMapToNodeProgressMap,
+  fetchRemoteArcProgressMap,
+  getStoredArcProgressMap,
+  mergeArcProgressRecordMaps,
+  toArcProgressRecord,
+  upsertRemoteArcProgressRecords,
+} from "@/lib/lessonArc/arcProgress";
 import { RewardChestArt } from "@/components/rewards/RewardChest";
 import RewardChestModal from "@/components/rewards/RewardChestModal";
 import { useCosmetics } from "@/contexts/CosmeticsContext";
 import {
   ChestRarity,
   RewardChest,
+  createArcRewardChest,
+  createChallengeRewardChest,
   createQuestRewardChest,
-  createUnitRewardChest,
   getChestTheme,
-  getUnitChestInsertionProgress,
   getQuestChestId,
-  isUnitChestAvailable,
   getStoredRewardChests,
   mergeRewardChestsFromClaims,
   openRewardChest,
@@ -47,12 +61,20 @@ import StreakProtectedBanner from "@/components/streak/StreakProtectedBanner";
 import StreakRiskBanner from "@/components/streak/StreakRiskBanner";
 import StreakWeeklyStrip from "@/components/streak/StreakWeeklyStrip";
 import { StreakFlame, TrophyIcon } from "@/components/streak/StreakFlame";
+import { isUnitChallengeUnlocked } from "@/lib/lessonArc/unitChallenge";
+import type { LessonArcProgressMap } from "@/lib/lessonArc/types";
 
 const PATH_POSITIONS = ["ml-24", "ml-40", "ml-52", "ml-40", "ml-24"];
 
 function subscribe() {
   return () => {};
 }
+
+type OrderedPathNode = {
+  unit: UnitMeta;
+  lesson: LessonMeta;
+  key: string;
+};
 
 type GuidebookExample = {
   title: string;
@@ -154,6 +176,41 @@ function GemIcon({ className = "" }: { className?: string }) {
   );
 }
 
+function TeachingNodeIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true">
+      <path d="M4 7.5C4 6.672 4.672 6 5.5 6H11.5C12.328 6 13 6.672 13 7.5V18.5C13 17.672 12.328 17 11.5 17H5.5C4.672 17 4 17.672 4 18.5V7.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M20 7.5C20 6.672 19.328 6 18.5 6H12.5C11.672 6 11 6.672 11 7.5V18.5C11 17.672 11.672 17 12.5 17H18.5C19.328 17 20 17.672 20 18.5V7.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M13 8H18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M6 8H11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PracticeNodeIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.2" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="12" cy="12" r="4.6" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="12" cy="12" r="1.7" fill="currentColor" />
+    </svg>
+  );
+}
+
+function NodeTypeIcon({
+  nodeType,
+  className = "",
+}: {
+  nodeType: LessonNodeType;
+  className?: string;
+}) {
+  if (nodeType === "teaching") {
+    return <TeachingNodeIcon className={className} />;
+  }
+
+  return <PracticeNodeIcon className={className} />;
+}
+
 function getNodeShapePresentation(shape: ThemeNodeShape) {
   switch (shape) {
     case "circle":
@@ -241,8 +298,15 @@ function LearnInner() {
   const { enabled: ambientEffectsEnabled, setEnabled: setAmbientEffectsEnabled, hydrated: ambientHydrated } = useAmbientEffectsPreference();
   const searchParams = useSearchParams();
   const [completedLessons, setCompletedLessons] = useState<string[]>([]);
-  const [arcProgress, setArcProgress] = useState<Record<string, { completedLessonIndices?: number[]; status?: string }>>({});
+  const [arcProgress, setArcProgress] = useState<LessonArcProgressMap>({});
   const [activeSessionNodeId, setActiveSessionNodeId] = useState<string | null>(null);
+  const [activeSessionSummary, setActiveSessionSummary] = useState<{
+    nodeId: string;
+    lessonIndex: number;
+    questionIndex: number;
+    mode: "progress" | "review";
+    questionCount: number;
+  } | null>(null);
   const [xp, setXp] = useState(0);
   const [streak, setStreak] = useState(0);
   const [gems, setGems] = useState(0);
@@ -334,6 +398,7 @@ function LearnInner() {
     if (!user) {
       setViewerId(null);
       setActiveSessionNodeId(null);
+      setActiveSessionSummary(null);
       setLoading(false);
       return;
     }
@@ -347,27 +412,53 @@ function LearnInner() {
 
     const localProgress = getStoredLanguageProgress(user.id, activeLanguage);
     const merged = mergeProgressSources(activeLanguage, data, localProgress);
+    const cachedArcRecords = getStoredArcProgressMap(user.id, activeLanguage);
+    const remoteArcRecords = await fetchRemoteArcProgressMap(user.id, activeLanguage);
+    const compatArcRecords = Object.fromEntries(
+      Object.values(merged.arc_progress).map((entry) => [entry.nodeId, toArcProgressRecord(entry)]),
+    );
+    const mergedArcRecords = mergeArcProgressRecordMaps(remoteArcRecords ?? {}, cachedArcRecords, compatArcRecords);
+    const mergedWithArcTable = {
+      ...merged,
+      arc_progress: Object.keys(mergedArcRecords).length > 0
+        ? arcRecordMapToNodeProgressMap(mergedArcRecords, merged.arc_progress)
+        : merged.arc_progress,
+    };
     const storedRewardChests = mergeRewardChestsFromClaims(
       getStoredRewardChests(user.id, activeLanguage),
-      merged.claimed_chests,
+      mergedWithArcTable.claimed_chests,
     );
 
     setViewerId(user.id);
     setCurrentLanguage(activeLanguage);
-    setCompletedLessons(merged.completed_lessons);
-    setArcProgress(merged.arc_progress);
-    setActiveSessionNodeId(merged.active_lesson_session?.nodeId ?? null);
-    setXp(merged.xp);
-    setStreak(merged.streak);
-    setGems(merged.gems);
-    setTodayXp(merged.today_xp);
-    setTodayLessons(merged.today_lessons);
-    setTodayPerfect(merged.today_perfect);
-    setEarnedAchievements(merged.achievements);
-    setClaimedChests(merged.claimed_chests);
+    setCompletedLessons(mergedWithArcTable.completed_lessons);
+    setArcProgress(mergedWithArcTable.arc_progress);
+    setActiveSessionNodeId(mergedWithArcTable.active_lesson_session?.nodeId ?? null);
+    setActiveSessionSummary(
+      mergedWithArcTable.active_lesson_session
+        ? {
+            nodeId: mergedWithArcTable.active_lesson_session.nodeId,
+            lessonIndex: mergedWithArcTable.active_lesson_session.lessonIndex,
+            questionIndex: mergedWithArcTable.active_lesson_session.questionIndex,
+            mode: mergedWithArcTable.active_lesson_session.mode,
+            questionCount: mergedWithArcTable.active_lesson_session.questions?.length ?? 0,
+          }
+        : null,
+    );
+    setXp(mergedWithArcTable.xp);
+    setStreak(mergedWithArcTable.streak);
+    setGems(mergedWithArcTable.gems);
+    setTodayXp(mergedWithArcTable.today_xp);
+    setTodayLessons(mergedWithArcTable.today_lessons);
+    setTodayPerfect(mergedWithArcTable.today_perfect);
+    setEarnedAchievements(mergedWithArcTable.achievements);
+    setClaimedChests(mergedWithArcTable.claimed_chests);
     setRewardChests(storedRewardChests);
-    setStoredLanguageProgress(user.id, activeLanguage, merged);
+    setStoredLanguageProgress(user.id, activeLanguage, mergedWithArcTable);
     setStoredRewardChests(user.id, activeLanguage, storedRewardChests);
+    if (Object.keys(mergedArcRecords).length > 0) {
+      void upsertRemoteArcProgressRecords(user.id, activeLanguage, Object.values(mergedArcRecords));
+    }
     setLoading(false);
   }
 
@@ -449,16 +540,29 @@ function LearnInner() {
       ?? fallback;
   };
 
-  const getLastLessonId = useCallback((unitId: number) => {
-    const unit = sections.flatMap((section) => section.units).find((item) => item.id === unitId);
-    return unit?.lessons[unit.lessons.length - 1]?.id ?? 1;
-  }, [sections]);
+  const orderedPathNodes = useMemo<OrderedPathNode[]>(
+    () => sections.flatMap((section) => section.units.flatMap((unit) => unit.lessons.map((lesson) => ({
+      unit,
+      lesson,
+      key: `${unit.id}-${lesson.id}`,
+    })))),
+    [sections],
+  );
 
-  const isUnlocked = (unitId: number, lessonId: number) => {
-    if (unitId === 1 && lessonId === 1) return true;
-    const prevLesson = lessonId > 1 ? `${unitId}-${lessonId - 1}` : `${unitId - 1}-${getLastLessonId(unitId - 1)}`;
-    return completedLessons.includes(prevLesson);
-  };
+  const getNodeMeta = useCallback((unitId: number, lessonId: number) => {
+    return orderedPathNodes.find((node) => node.unit.id === unitId && node.lesson.id === lessonId) ?? null;
+  }, [orderedPathNodes]);
+
+  const isUnlocked = useCallback((unitId: number, lessonId: number) => {
+    const node = getNodeMeta(unitId, lessonId);
+    if (!node) return false;
+    const index = orderedPathNodes.findIndex((entry) => entry.key === node.key);
+    if (index <= 0) return true;
+    if (node.lesson.kind === "challenge") {
+      return isUnitChallengeUnlocked(node.unit, completedLessons);
+    }
+    return completedLessons.includes(orderedPathNodes[index - 1]?.key ?? "");
+  }, [completedLessons, getNodeMeta, orderedPathNodes]);
 
   const isSectionUnlocked = (sectionId: number) => {
     if (sectionId === 1) return true;
@@ -469,12 +573,9 @@ function LearnInner() {
   const allComplete = sections.every(s => s.units.every(u => u.lessons.every(l => completedLessons.includes(`${u.id}-${l.id}`))));
 
   const findCurrentLesson = () => {
-    for (const section of sections) {
-      for (const unit of section.units) {
-        for (const lesson of unit.lessons) {
-          const key = `${unit.id}-${lesson.id}`;
-          if (!completedLessons.includes(key) && isUnlocked(unit.id, lesson.id)) return key;
-        }
+    for (const node of orderedPathNodes) {
+      if (!completedLessons.includes(node.key) && isUnlocked(node.unit.id, node.lesson.id)) {
+        return node.key;
       }
     }
     return null;
@@ -482,8 +583,13 @@ function LearnInner() {
   const currentLessonKey = activeSessionNodeId && !completedLessons.includes(activeSessionNodeId)
     ? activeSessionNodeId
     : findCurrentLesson();
-  const startLessonHref = currentLessonKey
-    ? `/learn/${currentLessonKey.split("-")[0]}/${currentLessonKey.split("-")[1]}?lang=${currentLanguage}`
+  const currentNodeMeta = currentLessonKey
+    ? orderedPathNodes.find((node) => node.key === currentLessonKey) ?? null
+    : null;
+  const startLessonHref = currentNodeMeta
+    ? currentNodeMeta.lesson.kind === "challenge"
+      ? `/learn/${currentNodeMeta.unit.id}/challenge?lang=${currentLanguage}`
+      : `/learn/${currentNodeMeta.unit.id}/${currentNodeMeta.lesson.id}?lang=${currentLanguage}`
     : "/learn";
   const currentWeekToday = weeklyStreak.find((day) => day.isToday)?.dateKey ?? "today";
   const streakRiskSessionKey = streakRisk ? `${currentLanguage}:${currentWeekToday}` : null;
@@ -491,13 +597,14 @@ function LearnInner() {
   useEffect(() => {
     if (loading) return;
     const celebrateNode = searchParams.get("celebrateNode");
-    const openChestUnit = searchParams.get("openChest");
-    if (!celebrateNode && !openChestUnit) {
+    const openArcChestId = searchParams.get("openArcChest");
+    const openChallengeChestUnit = searchParams.get("openChallengeChest");
+    if (!celebrateNode && !openArcChestId && !openChallengeChestUnit) {
       pathCelebrationHandledRef.current = null;
       return;
     }
 
-    const signature = `${celebrateNode ?? ""}:${openChestUnit ?? ""}:${currentLanguage}:${viewerId ?? "guest"}`;
+    const signature = `${celebrateNode ?? ""}:${openArcChestId ?? ""}:${openChallengeChestUnit ?? ""}:${currentLanguage}:${viewerId ?? "guest"}`;
     if (pathCelebrationHandledRef.current === signature) return;
     pathCelebrationHandledRef.current = signature;
 
@@ -515,11 +622,20 @@ function LearnInner() {
         }
       }
 
-      if (openChestUnit) {
-        const unitId = Number(openChestUnit);
-        if (Number.isFinite(unitId) && unitId > 0) {
-          const chest = ensureChestReady(createUnitRewardChest(unitId));
+      if (openArcChestId) {
+        const completedNode = orderedPathNodes.find((entry) => entry.key === openArcChestId);
+        if (completedNode) {
+          const chest = ensureChestReady(
+            createArcRewardChest(completedNode.unit.id, completedNode.key, completedNode.lesson.title),
+          );
           setSelectedChest(chest);
+        }
+      }
+
+      if (openChallengeChestUnit) {
+        const unitId = Number(openChallengeChestUnit);
+        if (Number.isFinite(unitId) && unitId > 0) {
+          setSelectedChest(ensureChestReady(createChallengeRewardChest(unitId)));
         }
       }
     }, 0);
@@ -527,12 +643,13 @@ function LearnInner() {
     if (typeof window !== "undefined") {
       const nextParams = new URLSearchParams(searchParams.toString());
       nextParams.delete("celebrateNode");
-      nextParams.delete("openChest");
+      nextParams.delete("openArcChest");
+      nextParams.delete("openChallengeChest");
       const nextQuery = nextParams.toString();
       window.history.replaceState(null, "", nextQuery ? `/learn?${nextQuery}` : "/learn");
     }
     return () => window.clearTimeout(kickoffId);
-  }, [currentLanguage, ensureChestReady, loading, pathTheme.id, searchParams, viewerId]);
+  }, [currentLanguage, ensureChestReady, loading, orderedPathNodes, pathTheme.id, searchParams, viewerId]);
 
   useEffect(() => {
     if (loading) return;
@@ -542,19 +659,9 @@ function LearnInner() {
     );
     const currentCompleted = new Set(completedLessons.filter((lessonKey) => lessonKeys.includes(lessonKey)));
     const currentUnlocked = new Set(
-      sections.flatMap((section) =>
-        section.units.flatMap((unit) =>
-          unit.lessons
-            .filter((lesson) => {
-              if (unit.id === 1 && lesson.id === 1) return true;
-              const prevLesson = lesson.id > 1
-                ? `${unit.id}-${lesson.id - 1}`
-                : `${unit.id - 1}-${getLastLessonId(unit.id - 1)}`;
-              return completedLessons.includes(prevLesson);
-            })
-            .map((lesson) => `${unit.id}-${lesson.id}`),
-        ),
-      ),
+      orderedPathNodes
+        .filter((node) => isUnlocked(node.unit.id, node.lesson.id))
+        .map((node) => node.key),
     );
 
     if (!pathAnimationReadyRef.current) {
@@ -598,7 +705,7 @@ function LearnInner() {
 
     previousCompletedRef.current = currentCompleted;
     previousUnlockedRef.current = currentUnlocked;
-  }, [completedLessons, getLastLessonId, loading, pathTheme.id, sections]);
+  }, [completedLessons, isUnlocked, loading, orderedPathNodes, pathTheme.id, sections]);
 
   const totalLessons = sections.flatMap(s => s.units.flatMap(u => u.lessons)).length;
   const completedCount = completedLessons.filter((lessonKey) => /^\d+-\d+$/.test(lessonKey)).length;
@@ -918,31 +1025,7 @@ function LearnInner() {
 
                       {sectionUnlocked && section.units.map((unit) => {
                         const unitCompletedLessons = unit.lessons.filter((lesson) => completedLessons.includes(`${unit.id}-${lesson.id}`)).length;
-                        const baseUnitChest = createUnitRewardChest(unit.id);
-                        const chestInsertionProgress = getUnitChestInsertionProgress(unit.id, unit.lessons.length);
-                        const chestVisible =
-                          isUnitChestAvailable(unit.id, unit.lessons.length, unitCompletedLessons)
-                          || rewardChests.some((entry) => entry.id === baseUnitChest.id)
-                          || claimedChests.includes(baseUnitChest.id);
-                        const pathChest = chestVisible ? getDisplayChest(baseUnitChest.id, baseUnitChest) : null;
-                        const chestOpened = pathChest?.state === "opened" || claimedChests.includes(baseUnitChest.id);
-                        const pathNodes = unit.lessons.flatMap((lesson, lessonIndex) => {
-                          const nodes: Array<
-                            { kind: "lesson"; lesson: typeof lesson } | { kind: "chest" }
-                          > = [{ kind: "lesson", lesson }];
-                          if (pathChest && lessonIndex + 1 === chestInsertionProgress) {
-                            nodes.push({ kind: "chest" });
-                          }
-                          return nodes;
-                        });
-                        const displayPathNodes =
-                          pathTheme.id === "the_void"
-                            ? pathNodes.filter((node) =>
-                                node.kind === "chest"
-                                  ? Boolean(pathChest)
-                                  : completedLessons.includes(`${unit.id}-${node.lesson.id}`) || isUnlocked(unit.id, node.lesson.id),
-                              )
-                            : pathNodes;
+                        const displayPathNodes = unit.lessons;
 
                         return (
                         <div key={unit.id} className="mb-6">
@@ -1006,227 +1089,258 @@ function LearnInner() {
                           )}
 
                           <div className="flex flex-col gap-3 mb-4">
-                            {displayPathNodes.map((node, index) => {
-                              if (node.kind === "lesson") {
-                                const lesson = node.lesson;
-                                const unlocked = isUnlocked(unit.id, lesson.id);
-                                const completed = completedLessons.includes(`${unit.id}-${lesson.id}`);
-                                const key = `${unit.id}-${lesson.id}`;
-                                const nodeArcProgress = arcProgress[key];
-                                const completedArcLessons = completed
+                            {displayPathNodes.map((lesson, index) => {
+                              const key = `${unit.id}-${lesson.id}`;
+                              const unlocked = isUnlocked(unit.id, lesson.id);
+                              const completed = completedLessons.includes(key);
+                              const isChallenge = lesson.kind === "challenge";
+                              const nodeType: LessonNodeType = lesson.nodeType ?? "practice";
+                              const nodeTypeLabel = nodeType === "teaching" ? "LEARN" : "PRACTICE";
+                              const nodeArcProgress = arcProgress[key];
+                              const completedArcLessons = isChallenge
+                                ? 0
+                                : completed
                                   ? 5
                                   : Math.min(5, nodeArcProgress?.completedLessonIndices?.length ?? 0);
-                                const inProgressArc = !completed && completedArcLessons > 0;
-                                const isChallenge = lesson.title.toLowerCase().includes("challenge");
-                                const isCurrent = key === currentLessonKey;
-                                const hasNextNode = index < displayPathNodes.length - 1;
-                                const nextNode = displayPathNodes[index + 1];
-                                const nextLessonNode = nextNode?.kind === "lesson" ? nextNode.lesson : null;
-                                const shouldAnimateConnector = nextLessonNode
-                                  ? recentlyUnlockedKeys.includes(`${unit.id}-${nextLessonNode.id}`)
-                                  : Boolean(nextNode?.kind === "chest" && pathChest && recentlyUnlockedKeys.includes(pathChest.id));
-                                const nodeShape = getNodeShapePresentation(pathTheme.nodeShape);
-                                const availableBackground = isChallenge
-                                  ? "linear-gradient(135deg,#FACC15 0%,#F59E0B 100%)"
-                                  : pathTheme.nodeAvailableBackground;
-                                const availableBorder = isChallenge ? "#D97706" : pathTheme.nodeAvailableBorder;
-                                const nodeBackground = completed
-                                  ? pathTheme.nodeCompletedBackground
+                              const arcLessonIndex = nodeArcProgress?.lessonIndex ?? (completed ? 4 : 0);
+                              const inProgressArc = !isChallenge && !completed && completedArcLessons > 0;
+                              const isCurrent = key === currentLessonKey;
+                              const hasNextNode = index < displayPathNodes.length - 1;
+                              const nextLesson = displayPathNodes[index + 1];
+                              const shouldAnimateConnector = Boolean(nextLesson && recentlyUnlockedKeys.includes(`${unit.id}-${nextLesson.id}`));
+                              const nodeShape = getNodeShapePresentation(isChallenge ? "star" : pathTheme.nodeShape);
+                              const actionLabel = completed
+                                ? isChallenge
+                                  ? "Replay"
+                                  : "Review"
+                                : isChallenge
+                                  ? "Challenge"
+                                  : inProgressArc
+                                    ? "Continue"
+                                    : "Start";
+                              const tooltipLabel = isChallenge && !unlocked && !completed
+                                ? "LOCKED — complete all lessons first"
+                                : completed && !isChallenge
+                                  ? `${lesson.title} · Review`
+                                  : lesson.title;
+                              const href = (unlocked || completed)
+                                ? (isChallenge
+                                    ? `/learn/${unit.id}/challenge?lang=${currentLanguage}`
+                                    : completed
+                                      ? `/learn/${unit.id}/${lesson.id}?lang=${currentLanguage}&mode=review`
+                                      : `/learn/${unit.id}/${lesson.id}?lang=${currentLanguage}`)
+                                : "#";
+                              const logNodeActivation = () => {
+                                if (process.env.NODE_ENV === "production" || (!unlocked && !completed)) return;
+                                console.log("[learn-path] node activation", {
+                                  nodeId: key,
+                                  arcLessonIndex,
+                                  activeSession: activeSessionSummary,
+                                });
+                              };
+
+                              const regularCompletedBackground = pathTheme.nodeCompletedBackground;
+                              const regularCompletedBorder = pathTheme.nodeCompletedBorder;
+                              const challengeAvailableBackground = "linear-gradient(135deg,#FACC15 0%,#F59E0B 100%)";
+                              const challengeLockedBackground = "linear-gradient(135deg,rgba(68,64,60,0.92) 0%,rgba(41,37,36,0.94) 100%)";
+                              const challengeCompletedBackground = "linear-gradient(135deg,#FDE68A 0%,#F59E0B 100%)";
+                              const nodeBackground = isChallenge
+                                ? completed
+                                  ? challengeCompletedBackground
                                   : unlocked
-                                    ? availableBackground
+                                    ? challengeAvailableBackground
+                                    : challengeLockedBackground
+                                : completed
+                                  ? regularCompletedBackground
+                                  : unlocked
+                                    ? pathTheme.nodeAvailableBackground
                                     : pathTheme.nodeLockedBackground;
-                                const nodeBorder = completed
-                                  ? pathTheme.nodeCompletedBorder
+                              const nodeBorder = isChallenge
+                                ? completed
+                                  ? "#D97706"
                                   : unlocked
-                                    ? availableBorder
+                                    ? "#D97706"
+                                    : "#78716C"
+                                : completed
+                                  ? regularCompletedBorder
+                                  : unlocked
+                                    ? pathTheme.nodeAvailableBorder
                                     : pathTheme.nodeLockedBorder;
-                                const nodeTextColor = completed
+                              const nodeTextColor = isChallenge
+                                ? completed || unlocked ? "#FFFBEB" : "#D6D3D1"
+                                : completed
                                   ? pathTheme.nodeCompletedText
                                   : unlocked
                                     ? pathTheme.nodeAvailableText
                                     : LOCKED_NODE_ICON_COLOR;
 
-                                if (pathTheme.id === "the_void" && !completed && !unlocked) {
-                                  return null;
-                                }
-
-                                if (pathTheme.id === "celestial" || pathTheme.id === "the_void") {
-                                  return (
-                                    <div key={lesson.id} className={`flex ${PATH_POSITIONS[index % PATH_POSITIONS.length]}`}>
-                                      <div className="relative">
-                                        {tooltip === key && (
-                                          <div className="absolute -top-12 left-1/2 -translate-x-1/2 rounded-xl bg-gray-950 px-3 py-1.5 text-xs font-bold whitespace-nowrap text-white shadow-lg">
-                                            {lesson.title}
-                                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-950" />
-                                          </div>
-                                        )}
-                                        {isCurrent && (
-                                          <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap">
-                                            <span className="rounded-lg bg-gray-950 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-white">
-                                              {inProgressArc ? "Continue" : "Start"}
-                                            </span>
-                                          </div>
-                                        )}
-                                        <a
-                                          href={
-                                            (unlocked || completed)
-                                              ? (isChallenge
-                                                  ? `/learn/${unit.id}/challenge?lang=${currentLanguage}`
-                                                  : `/learn/${unit.id}/${lesson.id}?lang=${currentLanguage}`)
-                                              : "#"
-                                          }
-                                          onMouseEnter={() => setTooltip(key)}
-                                          onMouseLeave={() => setTooltip(null)}
-                                          className={`relative flex h-14 w-14 items-center justify-center transition-all duration-150 ${unlocked || completed ? "hover:-translate-y-0.5" : "cursor-not-allowed"} ${pathTheme.id === "the_void" && recentlyUnlockedKeys.includes(key) ? "delay-[80ms]" : ""}`}
-                                        >
-                                          {pathTheme.id === "celestial" ? (
-                                            <CelestialNode
-                                              completed={completed}
-                                              current={isCurrent}
-                                              available={unlocked}
-                                              animateBurst={recentlyCompletedKey === key}
-                                            />
-                                          ) : (
-                                            <VoidNode
-                                              completed={completed}
-                                              current={isCurrent}
-                                              available={unlocked}
-                                              emerging={recentlyUnlockedKeys.includes(key)}
-                                            />
-                                          )}
-                                        </a>
-                                        {inProgressArc ? (
-                                          <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap">
-                                            <span className="rounded-full bg-black/70 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white/92">
-                                              {completedArcLessons}/5
-                                            </span>
-                                          </div>
-                                        ) : null}
-                                        {hasNextNode ? (
-                                          pathTheme.id === "celestial" ? (
-                                            <CelestialConnector className="pointer-events-none absolute left-1/2 top-full -translate-x-1/2" active={completed || unlocked} animateDraw={shouldAnimateConnector} />
-                                          ) : (
-                                            <VoidConnector className="pointer-events-none absolute left-1/2 top-full -translate-x-1/2" active={completed || unlocked} />
-                                          )
-                                        ) : null}
-                                      </div>
-                                    </div>
-                                  );
-                                }
-
+                              if ((pathTheme.id === "celestial" || pathTheme.id === "the_void") && !isChallenge) {
                                 return (
                                   <div key={lesson.id} className={`flex ${PATH_POSITIONS[index % PATH_POSITIONS.length]}`}>
                                     <div className="relative">
-                                      {tooltip === key && (
-                                        <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs font-bold px-3 py-1.5 rounded-xl whitespace-nowrap z-20 shadow-lg">
-                                          {lesson.title}
-                                          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
-                                        </div>
-                                      )}
+                                        {tooltip === key && (
+                                          <div className="absolute -top-12 left-1/2 -translate-x-1/2 rounded-xl bg-gray-950 px-3 py-1.5 text-xs font-bold whitespace-nowrap text-white shadow-lg">
+                                          {tooltipLabel}
+                                          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-950" />
+                                          </div>
+                                        )}
                                       {isCurrent && (
                                         <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap">
-                                          <span className="bg-gray-900 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-lg uppercase tracking-wider">
-                                            {inProgressArc ? "Continue" : "Start"}
+                                          <span className="rounded-lg bg-gray-950 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-white">
+                                            {actionLabel}
                                           </span>
                                         </div>
                                       )}
                                       <a
-                                        href={
-                                          (unlocked || completed)
-                                            ? (isChallenge
-                                                ? `/learn/${unit.id}/challenge?lang=${currentLanguage}`
-                                                : `/learn/${unit.id}/${lesson.id}?lang=${currentLanguage}`)
-                                            : "#"
-                                        }
+                                        href={href}
+                                        onClick={logNodeActivation}
                                         onMouseEnter={() => setTooltip(key)}
                                         onMouseLeave={() => setTooltip(null)}
-                                        className={`relative flex h-14 w-14 items-center justify-center border-b-4 font-extrabold transition-all duration-150 active:translate-y-1 ${nodeShape.className} ${
-                                          isCurrent ? "node-pulse" : ""
-                                        } ${recentlyCompletedKey === key ? "node-complete-bounce" : ""} ${unlocked || completed ? "hover:brightness-110" : "cursor-not-allowed"}`}
-                                        style={{
-                                          background: nodeBackground,
-                                          borderColor: nodeBorder,
-                                          color: nodeTextColor,
-                                          ...nodeShape.style,
-                                          boxShadow: isCurrent
-                                            ? `0 0 0 6px ${pathTheme.nodeCurrentRing}, 0 18px 34px ${pathTheme.nodeGlow}`
-                                            : `0 14px 26px ${completed ? pathTheme.nodeCompletedGlow : pathTheme.nodeGlow}`,
-                                        }}
+                                        className={`relative flex h-14 w-14 items-center justify-center transition-all duration-150 ${unlocked || completed ? "hover:-translate-y-0.5" : "cursor-not-allowed"} ${pathTheme.id === "the_void" && recentlyUnlockedKeys.includes(key) ? "delay-[80ms]" : ""}`}
                                       >
-                                        {completed && (
-                                          <NodeEffectPreview color={nodeEffect.particleColor} motion={nodeEffect.motion} />
+                                        {pathTheme.id === "celestial" ? (
+                                          <CelestialNode
+                                            completed={completed}
+                                            current={isCurrent}
+                                            available={unlocked}
+                                            animateBurst={recentlyCompletedKey === key}
+                                          />
+                                        ) : (
+                                          <VoidNode
+                                            completed={completed}
+                                            current={isCurrent}
+                                            available={unlocked}
+                                            emerging={recentlyUnlockedKeys.includes(key)}
+                                          />
                                         )}
                                         {completed ? (
-                                          <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                                        ) : unlocked && isChallenge ? (
-                                          <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
-                                        ) : unlocked ? (
-                                          <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                          <span className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center text-white">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                            </svg>
+                                          </span>
                                         ) : (
-                                          <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                          <span
+                                            className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
+                                            style={{ color: unlocked ? withAlpha(pathTheme.surfaceText, 0.92) : withAlpha(pathTheme.surfaceText, 0.58) }}
+                                          >
+                                            <NodeTypeIcon nodeType={nodeType} className="h-5 w-5" />
+                                          </span>
                                         )}
                                       </a>
                                       {inProgressArc ? (
-                                        <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap">
-                                          <span className="rounded-full bg-slate-950/92 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white/92">
+                                        <div className="absolute -bottom-2 -right-8 z-30 whitespace-nowrap">
+                                          <span
+                                            className="rounded-full bg-black/72 px-2 py-0.5 text-[11px] font-black tracking-[0.04em]"
+                                            style={{ color: pathTheme.accentColor }}
+                                          >
                                             {completedArcLessons}/5
                                           </span>
                                         </div>
                                       ) : null}
-                                      {hasNextNode && (
-                                        <span
-                                          className="pointer-events-none absolute left-1/2 top-full h-6 w-[6px] -translate-x-1/2 rounded-full"
-                                          style={{
-                                            background: completed || unlocked ? pathTheme.trailGradient : LOCKED_CONNECTOR_GRADIENT,
-                                            boxShadow: completed || unlocked ? `0 0 18px ${pathTheme.trailGlow}` : LOCKED_CONNECTOR_SHADOW,
-                                          }}
-                                        />
-                                      )}
+                                      {!isChallenge && !completed ? (
+                                        <div className="pointer-events-none absolute left-[calc(100%+0.45rem)] top-1/2 z-20 -translate-y-1/2 whitespace-nowrap">
+                                          <span
+                                            className="text-[10px] font-black uppercase tracking-[0.16em]"
+                                            style={{ color: unlocked ? withAlpha(pathTheme.surfaceText, 0.76) : withAlpha(pathTheme.surfaceText, 0.44) }}
+                                          >
+                                            {nodeTypeLabel}
+                                          </span>
+                                        </div>
+                                      ) : null}
+                                      {hasNextNode ? (
+                                        pathTheme.id === "celestial" ? (
+                                          <CelestialConnector className="pointer-events-none absolute left-1/2 top-full z-0 -translate-x-1/2" active={completed || unlocked} animateDraw={shouldAnimateConnector} />
+                                        ) : (
+                                          <VoidConnector className="pointer-events-none absolute left-1/2 top-full z-0 -translate-x-1/2" active={completed || unlocked} />
+                                        )
+                                      ) : null}
                                     </div>
                                   </div>
                                 );
                               }
 
-                              if (!pathChest) return null;
-                              const hasNextNode = index < displayPathNodes.length - 1;
-
                               return (
-                                <div key={pathChest.id} className={`flex ${PATH_POSITIONS[index % PATH_POSITIONS.length]}`}>
+                                <div key={lesson.id} className={`flex ${PATH_POSITIONS[index % PATH_POSITIONS.length]}`}>
                                   <div className="relative">
-                                    {tooltip === pathChest.id && (
-                                      <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs font-bold px-3 py-1.5 rounded-xl whitespace-nowrap z-20 shadow-lg">
-                                        {chestOpened ? `${pathChest.title} claimed` : pathChest.title}
+                                    {tooltip === key && (
+                                      <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs font-bold px-3 py-1.5 rounded-xl whitespace-nowrap z-20 shadow-lg">
+                                        {tooltipLabel}
                                         <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
                                       </div>
                                     )}
-                                    <button
-                                      type="button"
-                                      onClick={() => setSelectedChest(pathChest.state === "sealed" ? ensureChestReady(pathChest) : pathChest)}
-                                      onMouseEnter={() => setTooltip(pathChest.id)}
+                                    {isCurrent && (
+                                      <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap">
+                                        <span className="bg-gray-900 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-lg uppercase tracking-wider">
+                                          {actionLabel}
+                                        </span>
+                                      </div>
+                                    )}
+                                    <a
+                                      href={href}
+                                      onClick={logNodeActivation}
+                                      onMouseEnter={() => setTooltip(key)}
                                       onMouseLeave={() => setTooltip(null)}
-                                      aria-label={chestOpened ? `${pathChest.title} claimed` : `Open ${pathChest.title}`}
-                                      className="group relative flex h-[4.6rem] w-[4.6rem] items-center justify-center transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white/80"
+                                      className={`relative flex h-14 w-14 items-center justify-center border-b-4 font-extrabold transition-all duration-150 active:translate-y-1 ${nodeShape.className} ${
+                                        isCurrent ? "node-pulse" : ""
+                                      } ${recentlyCompletedKey === key ? "node-complete-bounce" : ""} ${unlocked || completed ? "hover:brightness-110" : "cursor-not-allowed"}`}
+                                      style={{
+                                        background: nodeBackground,
+                                        borderColor: nodeBorder,
+                                        color: nodeTextColor,
+                                        ...nodeShape.style,
+                                        boxShadow: isCurrent
+                                          ? `0 0 0 6px ${pathTheme.nodeCurrentRing}, 0 18px 34px ${isChallenge ? "rgba(245,158,11,0.24)" : pathTheme.nodeGlow}`
+                                          : `0 14px 26px ${completed && !isChallenge ? pathTheme.nodeCompletedGlow : isChallenge ? "rgba(245,158,11,0.22)" : pathTheme.nodeGlow}`,
+                                      }}
                                     >
-                                      {chestOpened ? (
-                                        <OpenChestNode rarity={pathChest.currentRarity} className="w-[4.1rem]" />
+                                      {completed && !isChallenge ? (
+                                        <NodeEffectPreview color={nodeEffect.particleColor} motion={nodeEffect.motion} />
+                                      ) : null}
+                                      {completed && isChallenge ? (
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 24 24" fill="currentColor">
+                                          <path d="M17 3H7v4H3v3c0 2.8 2.2 5 5 5h.17A5.98 5.98 0 0 0 11 17.92V20H8v2h8v-2h-3v-2.08A5.98 5.98 0 0 0 15.83 15H16c2.8 0 5-2.2 5-5V7h-4V3Zm-8 9c-1.66 0-3-1.34-3-3V9h3v3Zm9-3c0 1.66-1.34 3-3 3V9h3v0Z" />
+                                        </svg>
+                                      ) : completed ? (
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                      ) : isChallenge && unlocked ? (
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 24 24" fill="currentColor">
+                                          <path d="M12 2.5l2.66 5.39 5.95.86-4.3 4.2 1.01 5.93L12 16.35 6.68 18.88l1.02-5.93-4.3-4.2 5.95-.86L12 2.5Z" />
+                                        </svg>
+                                      ) : isChallenge ? (
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
                                       ) : (
-                                        <ClosedChestNode rarity={pathChest.currentRarity} className="w-[4.45rem]" />
+                                        <NodeTypeIcon nodeType={nodeType} className="h-5 w-5" />
                                       )}
-                                    </button>
-                                    {hasNextNode && (
-                                      pathTheme.id === "celestial" ? (
-                                        <CelestialConnector className="pointer-events-none absolute left-1/2 top-full -translate-x-1/2" />
-                                      ) : pathTheme.id === "the_void" ? (
-                                        <VoidConnector className="pointer-events-none absolute left-1/2 top-full -translate-x-1/2" />
-                                      ) : (
+                                    </a>
+                                    {inProgressArc ? (
+                                      <div className="absolute -bottom-2 -right-8 z-30 whitespace-nowrap">
                                         <span
-                                          className="pointer-events-none absolute left-1/2 top-full h-6 w-[6px] -translate-x-1/2 rounded-full"
-                                          style={{
-                                            background: pathTheme.trailGradient,
-                                            boxShadow: `0 0 18px ${pathTheme.trailGlow}`,
-                                          }}
-                                        />
-                                      )
+                                          className="rounded-full bg-slate-950/92 px-2 py-0.5 text-[11px] font-black tracking-[0.04em]"
+                                          style={{ color: unlocked ? pathTheme.accentColor : LOCKED_NODE_ICON_COLOR }}
+                                        >
+                                          {completedArcLessons}/5
+                                        </span>
+                                      </div>
+                                    ) : null}
+                                    {!isChallenge && !completed ? (
+                                      <div className="pointer-events-none absolute left-[calc(100%+0.45rem)] top-1/2 z-20 -translate-y-1/2 whitespace-nowrap">
+                                        <span
+                                          className="text-[10px] font-black uppercase tracking-[0.16em]"
+                                          style={{ color: unlocked ? withAlpha(pathTheme.surfaceText, 0.74) : withAlpha(pathTheme.surfaceText, 0.44) }}
+                                        >
+                                          {nodeTypeLabel}
+                                        </span>
+                                      </div>
+                                    ) : null}
+                                    {hasNextNode && (
+                                      <span
+                                        className="pointer-events-none absolute left-1/2 top-full z-0 h-6 w-[6px] -translate-x-1/2 rounded-full"
+                                        style={{
+                                          background: completed || unlocked ? pathTheme.trailGradient : LOCKED_CONNECTOR_GRADIENT,
+                                          boxShadow: completed || unlocked ? `0 0 18px ${pathTheme.trailGlow}` : LOCKED_CONNECTOR_SHADOW,
+                                        }}
+                                      />
                                     )}
                                   </div>
                                 </div>

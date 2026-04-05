@@ -7,7 +7,7 @@ import {
   resolveNodeDescriptor,
 } from "@/lib/lessonArc/catalog";
 import { getLegacyFallbackQuestions } from "@/lib/lessonArc/legacyFallback";
-import type { LessonArcLessonIndex, LessonArcPayload, LessonArcQuestion } from "@/lib/lessonArc/types";
+import { getLessonTypePlan, type LessonArcLessonIndex, type LessonArcPayload, type LessonArcQuestion } from "@/lib/lessonArc/types";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -80,14 +80,25 @@ function mapRemoteRows(rows: RemoteQuestionRow[]): LessonArcQuestion[] {
   }));
 }
 
-async function readRemoteQuestionBank(language: string, conceptSlug: string, lessonIndex: LessonArcLessonIndex) {
+function logQuestionFetch(source: string, concept: string, language: string, resultsCount: number) {
+  console.log("[lesson-arc] question fetch", { source, concept, language, resultsCount });
+}
+
+async function readRemoteQuestionBank(
+  language: string,
+  conceptSlug: string,
+  nodeType: "teaching" | "practice",
+  lessonIndex: LessonArcLessonIndex,
+) {
   if (!supabase) return null;
+  const lessonPlan = getLessonTypePlan(nodeType, lessonIndex);
+  const difficulty = lessonPlan.difficulty;
 
   console.log("[lesson-arc] querying remote question bank", {
     source: "supabase",
     language,
     concept: conceptSlug,
-    difficulty: lessonIndex + 1,
+    difficulty,
   });
 
   const { data, error } = await supabase
@@ -101,41 +112,45 @@ async function readRemoteQuestionBank(language: string, conceptSlug: string, les
       source: "supabase",
       language,
       concept: conceptSlug,
-      difficulty: lessonIndex + 1,
+      difficulty,
       error: error.message,
     });
     return null;
   }
 
   const mapped = mapRemoteRows((data ?? []) as RemoteQuestionRow[]);
+  logQuestionFetch("supabase", conceptSlug, language, mapped.length);
   console.log("[lesson-arc] remote question query result", {
     source: "supabase",
     language,
     concept: conceptSlug,
-    difficulty: lessonIndex + 1,
+    difficulty,
     resultCount: mapped.length,
     results: mapped,
   });
   if (mapped.length === 0) return null;
 
   try {
-    return pickQuestionsForLesson(mapped, lessonIndex, `${conceptSlug}:${lessonIndex}:remote`);
+    return pickQuestionsForLesson(mapped, nodeType, lessonIndex, `${conceptSlug}:${lessonIndex}:remote`);
   } catch {
     return null;
   }
 }
 
 function readLocalArcQuestionBank(node: ReturnType<typeof resolveNodeDescriptor>, lessonIndex: LessonArcLessonIndex) {
-  const localFallback = getLocalFallbackQuestionBank(node.concept);
+  const lessonPlan = getLessonTypePlan(node.nodeType, lessonIndex);
+  const difficulty = lessonPlan.difficulty;
+  const localFallback = getLocalFallbackQuestionBank(node.concept, node.language);
   const seeded = getSeededLessonQuestions(node, lessonIndex);
   const bank = [...localFallback, ...(seeded ?? [])].filter(
     (question, index, questions) => questions.findIndex((entry) => entry.id === question.id) === index,
   );
 
+  logQuestionFetch("local-arc-bank", node.concept, node.language, bank.length);
   console.log("[lesson-arc] local arc question query result", {
     source: "local-arc-bank",
     concept: node.concept,
-    difficulty: lessonIndex + 1,
+    difficulty,
     resultCount: bank.length,
     results: bank,
   });
@@ -143,7 +158,7 @@ function readLocalArcQuestionBank(node: ReturnType<typeof resolveNodeDescriptor>
   if (bank.length === 0) return null;
 
   try {
-    return pickQuestionsForLesson(bank, lessonIndex, `${node.concept}:${lessonIndex}:local-arc-bank`);
+    return pickQuestionsForLesson(bank, node.nodeType, lessonIndex, `${node.concept}:${lessonIndex}:local-arc-bank`);
   } catch {
     return null;
   }
@@ -174,7 +189,7 @@ export async function POST(req: Request) {
   const node = resolveNodeDescriptor(body?.language, unitId, lessonId);
   const lessonIndex = clampLessonIndex(body?.lessonIndex ?? 0);
 
-  const remote = await readRemoteQuestionBank(node.language, node.conceptSlug, lessonIndex);
+  const remote = await readRemoteQuestionBank(node.language, node.conceptSlug, node.nodeType, lessonIndex);
   if (remote) {
     return Response.json(buildPayload({ node, lessonIndex, questions: remote, source: "supabase" }));
   }
@@ -184,7 +199,7 @@ export async function POST(req: Request) {
     console.warn("[lesson-arc] using local arc question bank", {
       source: "local-arc-bank",
       concept: node.concept,
-      difficulty: lessonIndex + 1,
+      difficulty: getLessonTypePlan(node.nodeType, lessonIndex).difficulty,
     });
     return Response.json(buildPayload({ node, lessonIndex, questions: localFallback, source: "local-arc-bank" }));
   }
@@ -194,7 +209,7 @@ export async function POST(req: Request) {
     console.warn("[lesson-arc] using legacy lesson fallback", {
       source: "legacy-fallback",
       concept: node.concept,
-      difficulty: lessonIndex + 1,
+      difficulty: getLessonTypePlan(node.nodeType, lessonIndex).difficulty,
     });
     return Response.json(buildPayload({ node, lessonIndex, questions: legacyFallback, source: "legacy-fallback" }));
   }
@@ -202,7 +217,7 @@ export async function POST(req: Request) {
   console.error("[lesson-arc] no questions available after remote and local fallback checks", {
     concept: node.concept,
     conceptSlug: node.conceptSlug,
-    difficulty: lessonIndex + 1,
+    difficulty: getLessonTypePlan(node.nodeType, lessonIndex).difficulty,
     unitId,
     lessonId,
   });

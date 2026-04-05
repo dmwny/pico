@@ -12,6 +12,14 @@ import {
 import { supabase } from "@/lib/supabase";
 import type { LearningLanguage } from "@/lib/courseContent";
 import {
+  arcRecordMapToNodeProgressMap,
+  fetchRemoteArcProgressMap,
+  getStoredArcProgressMap,
+  mergeArcProgressRecordMaps,
+  toArcProgressRecord,
+  upsertRemoteArcProgressRecords,
+} from "@/lib/lessonArc/arcProgress";
+import {
   DevCheatState,
   getDefaultDevCheatState,
   getDevCheatsStorageKey,
@@ -335,8 +343,24 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
 
     const localProgress = getStoredLanguageProgress(userId, language);
     const merged = mergeProgressSources(language, data, localProgress);
-    setStoredLanguageProgress(userId, language, merged);
-    setProgress(merged);
+    const cachedArcRecords = getStoredArcProgressMap(userId, language);
+    const remoteArcRecords = await fetchRemoteArcProgressMap(userId, language);
+    const compatArcRecords = Object.fromEntries(
+      Object.values(merged.arc_progress).map((entry) => [entry.nodeId, toArcProgressRecord(entry)]),
+    );
+    const mergedArcRecords = mergeArcProgressRecordMaps(
+      remoteArcRecords ?? {},
+      cachedArcRecords,
+      compatArcRecords,
+    );
+    const mergedWithArcTable = {
+      ...merged,
+      arc_progress: Object.keys(mergedArcRecords).length > 0
+        ? arcRecordMapToNodeProgressMap(mergedArcRecords, merged.arc_progress)
+        : merged.arc_progress,
+    };
+    setStoredLanguageProgress(userId, language, mergedWithArcTable);
+    setProgress(mergedWithArcTable);
 
     const remoteCompletedLessons = parseRemoteStringArray(data?.completed_lessons);
     const remoteClaimedChests = parseRemoteStringArray(data?.claimed_chests);
@@ -344,35 +368,35 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
     const remoteNeedsBackfill =
       !data
       || !includesAllEntries(remoteCompletedLessons, merged.completed_lessons)
-      || JSON.stringify(merged.arc_progress) !== JSON.stringify(parseRemoteJson(data?.arc_progress, {}))
-      || JSON.stringify(merged.active_lesson_session) !== JSON.stringify(parseRemoteJson(data?.active_lesson_session, null))
-      || !includesAllEntries(remoteClaimedChests, merged.claimed_chests)
-      || !includesAllEntries(remoteAchievements, merged.achievements)
-      || merged.xp > Number(data?.xp || 0)
-      || merged.streak > Number(data?.streak || 0)
-      || merged.gems > Number(data?.gems || 0)
-      || merged.best_streak > Number(data?.best_streak || 0)
-      || merged.today_xp > Number(data?.today_xp || 0)
-      || merged.today_lessons > Number(data?.today_lessons || 0)
-      || merged.today_perfect > Number(data?.today_perfect || 0)
-      || (merged.last_played && merged.last_played !== data?.last_played)
-      || (merged.streak_last_activity_date && merged.streak_last_activity_date !== data?.streak_last_activity_date)
-      || (merged.streak_timezone && merged.streak_timezone !== data?.streak_timezone)
-      || merged.streak_activity_dates.length > parseRemoteStringArray(data?.streak_activity_dates).length
-      || merged.streak_protected_dates.length > parseRemoteStringArray(data?.streak_protected_dates).length
-      || merged.streak_freeze_reserved_for_date !== (typeof data?.streak_freeze_reserved_for_date === "string" ? data.streak_freeze_reserved_for_date : null)
-      || merged.streak_freeze_last_consumed_date !== (typeof data?.streak_freeze_last_consumed_date === "string" ? data.streak_freeze_last_consumed_date : null)
-      || merged.streak_protected_pending !== Boolean(data?.streak_protected_pending)
-      || merged.streak_protected_streak_value > Number(data?.streak_protected_streak_value || 0)
-      || merged.streak_protected_pending_date !== (typeof data?.streak_protected_pending_date === "string" ? data.streak_protected_pending_date : null)
-      || merged.streak_protected_pending_count > Number(data?.streak_protected_pending_count || 0)
-      || merged.streak_pending_milestone !== (data?.streak_pending_milestone ?? null)
-      || merged.streak_pending_daily_celebration !== Boolean(data?.streak_pending_daily_celebration)
-      || merged.streak_pending_daily_celebration_date !== (typeof data?.streak_pending_daily_celebration_date === "string" ? data.streak_pending_daily_celebration_date : null)
-      || merged.streak_pending_daily_streak_value > Number(data?.streak_pending_daily_streak_value || 0)
-      || merged.streak_seen_milestones.length > parseRemoteStringArray(data?.streak_seen_milestones).length
-      || merged.streak_lost_pending !== Boolean(data?.streak_lost_pending)
-      || merged.streak_lost_value > Number(data?.streak_lost_value || 0);
+      || JSON.stringify(mergedWithArcTable.arc_progress) !== JSON.stringify(parseRemoteJson(data?.arc_progress, {}))
+      || JSON.stringify(mergedWithArcTable.active_lesson_session) !== JSON.stringify(parseRemoteJson(data?.active_lesson_session, null))
+      || !includesAllEntries(remoteClaimedChests, mergedWithArcTable.claimed_chests)
+      || !includesAllEntries(remoteAchievements, mergedWithArcTable.achievements)
+      || mergedWithArcTable.xp > Number(data?.xp || 0)
+      || mergedWithArcTable.streak > Number(data?.streak || 0)
+      || mergedWithArcTable.gems > Number(data?.gems || 0)
+      || mergedWithArcTable.best_streak > Number(data?.best_streak || 0)
+      || mergedWithArcTable.today_xp > Number(data?.today_xp || 0)
+      || mergedWithArcTable.today_lessons > Number(data?.today_lessons || 0)
+      || mergedWithArcTable.today_perfect > Number(data?.today_perfect || 0)
+      || (mergedWithArcTable.last_played && mergedWithArcTable.last_played !== data?.last_played)
+      || (mergedWithArcTable.streak_last_activity_date && mergedWithArcTable.streak_last_activity_date !== data?.streak_last_activity_date)
+      || (mergedWithArcTable.streak_timezone && mergedWithArcTable.streak_timezone !== data?.streak_timezone)
+      || mergedWithArcTable.streak_activity_dates.length > parseRemoteStringArray(data?.streak_activity_dates).length
+      || mergedWithArcTable.streak_protected_dates.length > parseRemoteStringArray(data?.streak_protected_dates).length
+      || mergedWithArcTable.streak_freeze_reserved_for_date !== (typeof data?.streak_freeze_reserved_for_date === "string" ? data.streak_freeze_reserved_for_date : null)
+      || mergedWithArcTable.streak_freeze_last_consumed_date !== (typeof data?.streak_freeze_last_consumed_date === "string" ? data.streak_freeze_last_consumed_date : null)
+      || mergedWithArcTable.streak_protected_pending !== Boolean(data?.streak_protected_pending)
+      || mergedWithArcTable.streak_protected_streak_value > Number(data?.streak_protected_streak_value || 0)
+      || mergedWithArcTable.streak_protected_pending_date !== (typeof data?.streak_protected_pending_date === "string" ? data.streak_protected_pending_date : null)
+      || mergedWithArcTable.streak_protected_pending_count > Number(data?.streak_protected_pending_count || 0)
+      || mergedWithArcTable.streak_pending_milestone !== (data?.streak_pending_milestone ?? null)
+      || mergedWithArcTable.streak_pending_daily_celebration !== Boolean(data?.streak_pending_daily_celebration)
+      || mergedWithArcTable.streak_pending_daily_celebration_date !== (typeof data?.streak_pending_daily_celebration_date === "string" ? data.streak_pending_daily_celebration_date : null)
+      || mergedWithArcTable.streak_pending_daily_streak_value > Number(data?.streak_pending_daily_streak_value || 0)
+      || mergedWithArcTable.streak_seen_milestones.length > parseRemoteStringArray(data?.streak_seen_milestones).length
+      || mergedWithArcTable.streak_lost_pending !== Boolean(data?.streak_lost_pending)
+      || mergedWithArcTable.streak_lost_value > Number(data?.streak_lost_value || 0);
 
     if (remoteNeedsBackfill) {
       await fetch("/api/progress", {
@@ -380,13 +404,16 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({
           userId,
           language,
-          values: serializeProgressForRemote(merged),
+          values: serializeProgressForRemote(mergedWithArcTable),
         }),
       }).catch(() => {
         console.warn("Merged progress backfill failed. Local cache remains ahead of remote.");
       });
     }
-    return merged;
+    if (Object.keys(mergedArcRecords).length > 0) {
+      await upsertRemoteArcProgressRecords(userId, language, Object.values(mergedArcRecords));
+    }
+    return mergedWithArcTable;
   }, []);
 
   const warnRemoteCosmeticsFallback = useCallback((error: unknown) => {

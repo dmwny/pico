@@ -34,23 +34,49 @@ function StatRing({ ratio, label }: { ratio: number; label: string }) {
   );
 }
 
+function ArcSegmentStrip({ completedCount }: { completedCount: number }) {
+  return (
+    <div className="mt-6 flex items-center justify-center gap-2">
+      {Array.from({ length: 5 }, (_, index) => {
+        const filled = index < completedCount;
+        return (
+          <span
+            key={index}
+            className={`h-3.5 w-12 rounded-full transition-all duration-300 ${
+              filled ? "bg-[#58CC02] shadow-[0_0_18px_rgba(88,204,2,0.32)]" : "bg-white/10"
+            }`}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 export function LessonCompleteScreen({
   lessonLabel,
+  lessonNumber,
+  completedLessonCount,
   xpEarned,
   correctCount,
   totalQuestions,
   perfect,
   streakExtended,
+  reviewMode,
   onContinue,
 }: {
   lessonLabel: string;
+  lessonNumber: number;
+  completedLessonCount: number;
   xpEarned: number;
   correctCount: number;
   totalQuestions: number;
   perfect: boolean;
   streakExtended: boolean;
+  reviewMode: boolean;
   onContinue: () => void;
 }) {
+  const remainingLessons = Math.max(0, 5 - completedLessonCount);
+
   return (
     <div className="fixed inset-0 z-40 overflow-y-auto bg-slate-950/96 px-5 py-10 text-white">
       <div className="mx-auto flex min-h-full max-w-3xl flex-col items-center justify-center text-center">
@@ -60,10 +86,22 @@ export function LessonCompleteScreen({
           </svg>
         </div>
         <p className="text-sm font-black uppercase tracking-[0.28em] text-white/45">{lessonLabel}</p>
-        <h1 className="mt-3 text-5xl font-black tracking-tight">Lesson complete!</h1>
+        <h1 className="mt-3 text-5xl font-black tracking-tight">
+          {reviewMode ? "Review complete!" : `Lesson ${lessonNumber} of 5 complete!`}
+        </h1>
         <p className="mt-3 max-w-xl text-lg text-white/70">
-          {perfect ? "Perfect run. Clean execution all the way through." : "Progress locked in. The next lesson in the arc is ready."}
+          {reviewMode
+            ? "Review XP is reduced, but the practice still counts."
+            : perfect
+              ? "Perfect run. Clean execution all the way through."
+              : "Progress locked in. The next lesson in the arc is ready."}
         </p>
+        {!reviewMode ? <ArcSegmentStrip completedCount={completedLessonCount} /> : null}
+        {!reviewMode ? (
+          <p className="mt-4 text-sm font-semibold text-white/58">
+            {remainingLessons > 0 ? `Keep going — ${remainingLessons} more lesson${remainingLessons === 1 ? "" : "s"} to unlock the chest.` : "The chest is ready."}
+          </p>
+        ) : null}
 
         <div className="mt-10 grid w-full gap-5 md:grid-cols-[1.15fr_0.85fr]">
           <div className="rounded-[2rem] border border-white/10 bg-white/6 p-6 text-left">
@@ -111,11 +149,13 @@ export function ArcCompleteScreen({
   nodeTitle,
   totalArcXp,
   streakExtended,
+  arcBonusXp,
   onContinue,
 }: {
   nodeTitle: string;
   totalArcXp: number;
   streakExtended: boolean;
+  arcBonusXp: number;
   onContinue: () => void;
 }) {
   return (
@@ -147,12 +187,17 @@ export function ArcCompleteScreen({
         <p className="text-sm font-black uppercase tracking-[0.28em] text-white/40">Arc complete</p>
         <h1 className="mt-3 text-5xl font-black tracking-tight">{nodeTitle}</h1>
         <p className="mt-3 max-w-xl text-lg text-white/72">Five lessons down. The node is complete, the chest is unlocked, and the path can advance.</p>
+        <ArcSegmentStrip completedCount={5} />
 
         <div className="mt-10 w-full rounded-[2rem] border border-white/10 bg-white/6 p-7">
           <div className="flex flex-wrap items-center justify-center gap-6 text-center">
             <div>
               <p className="text-[0.72rem] font-black uppercase tracking-[0.28em] text-white/45">Arc XP</p>
               <p className="mt-2 text-5xl font-black text-[#58CC02]">+{totalArcXp}</p>
+            </div>
+            <div className="rounded-[1.2rem] border border-emerald-300/20 bg-emerald-400/10 px-5 py-4">
+              <p className="text-[0.72rem] font-black uppercase tracking-[0.22em] text-emerald-100/80">Arc bonus</p>
+              <p className="mt-2 text-xl font-black text-emerald-100">+{arcBonusXp} XP</p>
             </div>
             {streakExtended ? (
               <div className="rounded-[1.2rem] border border-orange-300/20 bg-orange-400/10 px-5 py-4">

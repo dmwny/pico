@@ -47,10 +47,16 @@ const LANGUAGE_HAS_PLACEMENT: Record<LearningLanguage, boolean> = {
   lua: false,
 };
 
+export type LessonKind = "arc" | "challenge";
+export type LessonNodeType = "teaching" | "practice";
+
 export interface LessonMeta {
   id: number;
   title: string;
   concept: string;
+  kind: LessonKind;
+  nodeType?: LessonNodeType;
+  language: LearningLanguage;
 }
 
 export interface UnitMeta {
@@ -157,19 +163,29 @@ function inferLessonConcept(unitTitle: string, lessonTitle: string) {
   return slugifyConcept(lessonTitle);
 }
 
-function buildUnit(id: number, title: string, description: string, lessons: UnitLessonBlueprint): UnitMeta {
+function buildUnit(
+  id: number,
+  title: string,
+  description: string,
+  lessons: UnitLessonBlueprint,
+  language: LearningLanguage,
+): UnitMeta {
+  const regularLessons: LessonMeta[] = lessons.map((lessonTitle, index) => ({
+    id: index + 1,
+    title: lessonTitle,
+    concept: inferLessonConcept(title, lessonTitle),
+    kind: "arc",
+    nodeType: index < 2 ? "teaching" : "practice",
+    language,
+  }));
+
   return {
     id,
     title,
     description,
     lessons: [
-      { id: 1, title: lessons[0], concept: inferLessonConcept(title, lessons[0]) },
-      { id: 2, title: lessons[1], concept: inferLessonConcept(title, lessons[1]) },
-      { id: 3, title: lessons[2], concept: inferLessonConcept(title, lessons[2]) },
-      { id: 4, title: lessons[3], concept: inferLessonConcept(title, lessons[3]) },
-      { id: 5, title: lessons[4], concept: inferLessonConcept(title, lessons[4]) },
-      { id: 6, title: lessons[5], concept: inferLessonConcept(title, lessons[5]) },
-      { id: 7, title: "Unit challenge", concept: `${slugifyConcept(title)}-challenge` },
+      ...regularLessons,
+      { id: 7, title: "Unit challenge", concept: `${slugifyConcept(title)}-challenge`, kind: "challenge" },
     ],
   };
 }
@@ -214,28 +230,28 @@ const PYTHON_SECTIONS: SectionMeta[] = [
   {
     ...BASE_SECTION_META[0],
     units: [
-      buildUnit(1, "Hello World", "Your first lines of code", ["Your first print()", "Printing numbers", "Printing multiple things", "Comments", "Reading output", "Quick print checks"]),
-      buildUnit(2, "Variables", "Store and use information", ["Creating a variable", "Variable names", "Changing a variable", "Printing variables", "Using variables together", "Simple variable patterns"]),
-      buildUnit(3, "User Input", "Let users interact with your code", ["The input() function", "Storing input", "Input with numbers", "Using input in print", "Input and variables", "Checking input results"]),
-      buildUnit(4, "Strings", "Work with text in Python", ["Joining strings", "String length", "Upper and lower case", "f-strings", "String variables", "String practice"]),
+      buildUnit(1, "Hello World", "Your first lines of code", ["Your first print()", "Printing numbers", "Printing multiple things", "Comments", "Reading output", "Quick print checks"], "python"),
+      buildUnit(2, "Variables", "Store and use information", ["Creating a variable", "Variable names", "Changing a variable", "Printing variables", "Using variables together", "Simple variable patterns"], "python"),
+      buildUnit(3, "User Input", "Let users interact with your code", ["The input() function", "Storing input", "Input with numbers", "Using input in print", "Input and variables", "Checking input results"], "python"),
+      buildUnit(4, "Strings", "Work with text in Python", ["Joining strings", "String length", "Upper and lower case", "f-strings", "String variables", "String practice"], "python"),
     ],
   },
   {
     ...BASE_SECTION_META[1],
     units: [
-      buildUnit(5, "Conditions", "Make decisions in your code", ["if statements", "else statements", "elif statements", "Combining conditions", "Comparing values", "Condition practice"]),
-      buildUnit(6, "Loops", "Repeat code automatically", ["while loops", "for loops", "range()", "break and continue", "Loop counters", "Loop practice"]),
-      buildUnit(7, "Functions", "Write reusable blocks of code", ["Defining a function", "Calling a function", "Parameters", "Return values", "Using functions twice", "Function practice"]),
-      buildUnit(8, "Lists", "Store multiple values together", ["Creating a list", "Accessing items", "Adding and removing", "Looping through lists", "List variables", "List practice"]),
+      buildUnit(5, "Conditions", "Make decisions in your code", ["if statements", "else statements", "elif statements", "Combining conditions", "Comparing values", "Condition practice"], "python"),
+      buildUnit(6, "Loops", "Repeat code automatically", ["while loops", "for loops", "range()", "break and continue", "Loop counters", "Loop practice"], "python"),
+      buildUnit(7, "Functions", "Write reusable blocks of code", ["Defining a function", "Calling a function", "Parameters", "Return values", "Using functions twice", "Function practice"], "python"),
+      buildUnit(8, "Lists", "Store multiple values together", ["Creating a list", "Accessing items", "Adding and removing", "Looping through lists", "List variables", "List practice"], "python"),
     ],
   },
   {
     ...BASE_SECTION_META[2],
     units: [
-      buildUnit(9, "Dictionaries", "Store data with keys and values", ["Creating a dictionary", "Accessing values", "Adding and updating", "Looping through dicts", "Dictionary keys and values", "Dictionary practice"]),
-      buildUnit(10, "File Handling", "Read and write files", ["Opening files", "Reading files", "Writing files", "Closing files", "Read vs write mode", "File practice"]),
-      buildUnit(11, "Classes", "Build your own data types", ["Defining a class", "The __init__ method", "Attributes", "Methods", "Making an object", "Class practice"]),
-      buildUnit(12, "Final Project", "Build a real Python program", ["Planning your project", "Building the structure", "Adding features", "Testing and fixing", "Refining the project", "Final checks"]),
+      buildUnit(9, "Dictionaries", "Store data with keys and values", ["Creating a dictionary", "Accessing values", "Adding and updating", "Looping through dicts", "Dictionary keys and values", "Dictionary practice"], "python"),
+      buildUnit(10, "File Handling", "Read and write files", ["Opening files", "Reading files", "Writing files", "Closing files", "Read vs write mode", "File practice"], "python"),
+      buildUnit(11, "Classes", "Build your own data types", ["Defining a class", "The __init__ method", "Attributes", "Methods", "Making an object", "Class practice"], "python"),
+      buildUnit(12, "Final Project", "Build a real Python program", ["Planning your project", "Building the structure", "Adding features", "Testing and fixing", "Refining the project", "Final checks"], "python"),
     ],
   },
 ];
@@ -244,28 +260,28 @@ const JAVASCRIPT_SECTIONS: SectionMeta[] = [
   {
     ...BASE_SECTION_META[0],
     units: [
-      buildUnit(1, "Hello Console", "Your first JavaScript lines", ["Your first console.log()", "Logging numbers", "Logging multiple values", "Comments", "Reading output", "Quick console checks"]),
-      buildUnit(2, "Variables", "Store and update values", ["Creating a variable", "let vs const", "Changing a variable", "Logging variables", "Using variables together", "Simple variable patterns"]),
-      buildUnit(3, "User Input", "Let users interact with your code", ["The prompt() function", "Storing input", "Turning text into numbers", "Using input in console.log", "Input and variables", "Checking input results"]),
-      buildUnit(4, "Strings", "Work with text in JavaScript", ["Joining strings", "String length", "Uppercase and lowercase", "Template literals", "String variables", "String practice"]),
+      buildUnit(1, "Hello Console", "Your first JavaScript lines", ["Your first console.log()", "Logging numbers", "Logging multiple values", "Comments", "Reading output", "Quick console checks"], "javascript"),
+      buildUnit(2, "Variables", "Store and update values", ["Creating a variable", "let vs const", "Changing a variable", "Logging variables", "Using variables together", "Simple variable patterns"], "javascript"),
+      buildUnit(3, "User Input", "Let users interact with your code", ["The prompt() function", "Storing input", "Turning text into numbers", "Using input in console.log", "Input and variables", "Checking input results"], "javascript"),
+      buildUnit(4, "Strings", "Work with text in JavaScript", ["Joining strings", "String length", "Uppercase and lowercase", "Template literals", "String variables", "String practice"], "javascript"),
     ],
   },
   {
     ...BASE_SECTION_META[1],
     units: [
-      buildUnit(5, "Conditions", "Make decisions in your code", ["if statements", "else statements", "else if statements", "Combining conditions", "Comparing values", "Condition practice"]),
-      buildUnit(6, "Loops", "Repeat code automatically", ["while loops", "for loops", "Loop counters", "break and continue", "Counting patterns", "Loop practice"]),
-      buildUnit(7, "Functions", "Write reusable blocks of code", ["Defining a function", "Calling a function", "Parameters", "Return values", "Using functions twice", "Function practice"]),
-      buildUnit(8, "Arrays", "Store multiple values together", ["Creating an array", "Accessing items", "Adding and removing", "Looping through arrays", "Array variables", "Array practice"]),
+      buildUnit(5, "Conditions", "Make decisions in your code", ["if statements", "else statements", "else if statements", "Combining conditions", "Comparing values", "Condition practice"], "javascript"),
+      buildUnit(6, "Loops", "Repeat code automatically", ["while loops", "for loops", "Loop counters", "break and continue", "Counting patterns", "Loop practice"], "javascript"),
+      buildUnit(7, "Functions", "Write reusable blocks of code", ["Defining a function", "Calling a function", "Parameters", "Return values", "Using functions twice", "Function practice"], "javascript"),
+      buildUnit(8, "Arrays", "Store multiple values together", ["Creating an array", "Accessing items", "Adding and removing", "Looping through arrays", "Array variables", "Array practice"], "javascript"),
     ],
   },
   {
     ...BASE_SECTION_META[2],
     units: [
-      buildUnit(9, "Objects", "Store data with keys and values", ["Creating an object", "Accessing values", "Adding and updating", "Looping through objects", "Object keys and values", "Object practice"]),
-      buildUnit(10, "The DOM", "Read and update a web page", ["Finding elements", "Changing text", "Changing styles", "Button clicks", "Reading form values", "DOM practice"]),
-      buildUnit(11, "Classes", "Build your own blueprints", ["Defining a class", "The constructor", "Properties", "Methods", "Making an object", "Class practice"]),
-      buildUnit(12, "Final Project", "Build a real JavaScript app", ["Planning your project", "Building the structure", "Adding features", "Testing and fixing", "Refining the project", "Final checks"]),
+      buildUnit(9, "Objects", "Store data with keys and values", ["Creating an object", "Accessing values", "Adding and updating", "Looping through objects", "Object keys and values", "Object practice"], "javascript"),
+      buildUnit(10, "The DOM", "Read and update a web page", ["Finding elements", "Changing text", "Changing styles", "Button clicks", "Reading form values", "DOM practice"], "javascript"),
+      buildUnit(11, "Classes", "Build your own blueprints", ["Defining a class", "The constructor", "Properties", "Methods", "Making an object", "Class practice"], "javascript"),
+      buildUnit(12, "Final Project", "Build a real JavaScript app", ["Planning your project", "Building the structure", "Adding features", "Testing and fixing", "Refining the project", "Final checks"], "javascript"),
     ],
   },
 ];
@@ -277,25 +293,19 @@ type GeneratedUnitBlueprint = {
   lessons: UnitLessonBlueprint;
 };
 
-function buildGeneratedSections(units: GeneratedUnitBlueprint[]): SectionMeta[] {
+function buildGeneratedSections(units: GeneratedUnitBlueprint[], language: LearningLanguage): SectionMeta[] {
   return [
     {
       ...BASE_SECTION_META[0],
-      units: units.slice(0, 4).map((unit) => ({
-        ...buildUnit(unit.id, unit.title, unit.description, unit.lessons),
-      })),
+      units: units.slice(0, 4).map((unit) => buildUnit(unit.id, unit.title, unit.description, unit.lessons, language)),
     },
     {
       ...BASE_SECTION_META[1],
-      units: units.slice(4, 8).map((unit) => ({
-        ...buildUnit(unit.id, unit.title, unit.description, unit.lessons),
-      })),
+      units: units.slice(4, 8).map((unit) => buildUnit(unit.id, unit.title, unit.description, unit.lessons, language)),
     },
     {
       ...BASE_SECTION_META[2],
-      units: units.slice(8, 12).map((unit) => ({
-        ...buildUnit(unit.id, unit.title, unit.description, unit.lessons),
-      })),
+      units: units.slice(8, 12).map((unit) => buildUnit(unit.id, unit.title, unit.description, unit.lessons, language)),
     },
   ];
 }
@@ -313,7 +323,7 @@ const TYPESCRIPT_SECTIONS = buildGeneratedSections([
   { id: 10, title: "DOM Types", description: "Work with typed page elements", lessons: ["Query elements", "Narrow element types", "Set text", "Handle clicks", "Read input values", "DOM practice"] },
   { id: 11, title: "Interfaces", description: "Describe object shapes", lessons: ["Declare interfaces", "Use typed objects", "Optional fields", "Typed methods", "Read one field", "Interface practice"] },
   { id: 12, title: "Project Build", description: "Assemble a TypeScript app", lessons: ["Plan features", "Build structure", "Add types", "Test and fix", "Refine the app", "Final checks"] },
-]);
+], "typescript");
 
 const JAVA_SECTIONS = buildGeneratedSections([
   { id: 1, title: "Hello Output", description: "Print your first Java lines", lessons: ["Use System.out.println", "Print numbers", "Print strings", "Add comments", "Read output", "Quick output checks"] },
@@ -328,7 +338,7 @@ const JAVA_SECTIONS = buildGeneratedSections([
   { id: 10, title: "Files", description: "Read and write files", lessons: ["Open files", "Read files", "Write files", "Handle errors", "Read vs write mode", "File practice"] },
   { id: 11, title: "Classes", description: "Build objects in Java", lessons: ["Declare classes", "Use constructors", "Set fields", "Call methods", "Make an object", "Class practice"] },
   { id: 12, title: "Project Build", description: "Assemble a Java app", lessons: ["Plan features", "Build structure", "Add classes", "Test and fix", "Refine the app", "Final checks"] },
-]);
+], "java");
 
 const CSHARP_SECTIONS = buildGeneratedSections([
   { id: 1, title: "Hello Console", description: "Print your first C# lines", lessons: ["Use Console.WriteLine", "Print numbers", "Print strings", "Add comments", "Read output", "Quick console checks"] },
@@ -343,7 +353,7 @@ const CSHARP_SECTIONS = buildGeneratedSections([
   { id: 10, title: "Files", description: "Read and write files", lessons: ["Read text", "Write text", "Append text", "Check paths", "Read vs write mode", "File practice"] },
   { id: 11, title: "Classes", description: "Build objects in C#", lessons: ["Declare classes", "Use constructors", "Set properties", "Call methods", "Make an object", "Class practice"] },
   { id: 12, title: "Project Build", description: "Assemble a C# app", lessons: ["Plan features", "Build structure", "Add classes", "Test and fix", "Refine the app", "Final checks"] },
-]);
+], "csharp");
 
 const RUST_SECTIONS = buildGeneratedSections([
   { id: 1, title: "Hello Cargo", description: "Print your first Rust lines", lessons: ["Use println!", "Print numbers", "Print strings", "Add comments", "Read output", "Quick output checks"] },
@@ -358,7 +368,7 @@ const RUST_SECTIONS = buildGeneratedSections([
   { id: 10, title: "Files", description: "Read and write files", lessons: ["Open files", "Read text", "Write text", "Handle Result", "Read vs write mode", "File practice"] },
   { id: 11, title: "Enums", description: "Represent typed states", lessons: ["Declare enums", "Use variants", "Match values", "Use Option", "Read one variant", "Enum practice"] },
   { id: 12, title: "Project Build", description: "Assemble a Rust app", lessons: ["Plan features", "Build modules", "Handle errors", "Test and fix", "Refine the app", "Final checks"] },
-]);
+], "rust");
 
 const LUA_SECTIONS = buildGeneratedSections([
   { id: 1, title: "Hello Print", description: "Print your first Lua lines", lessons: ["Use print", "Print numbers", "Print strings", "Add comments", "Read output", "Quick output checks"] },
@@ -373,7 +383,7 @@ const LUA_SECTIONS = buildGeneratedSections([
   { id: 10, title: "Files", description: "Read and write files", lessons: ["Open files", "Read text", "Write text", "Close files", "Read vs write mode", "File practice"] },
   { id: 11, title: "Metatables", description: "Customize table behavior", lessons: ["Create metatables", "Use __index", "Use __add", "Build objects", "Read one field", "Metatable practice"] },
   { id: 12, title: "Project Build", description: "Assemble a Lua app", lessons: ["Plan features", "Build modules", "Add tables", "Test and fix", "Refine the app", "Final checks"] },
-]);
+], "lua");
 
 const MINI_COURSES: Record<LearningLanguage, MiniCourseMeta[]> = {
   python: [

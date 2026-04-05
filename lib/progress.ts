@@ -1,4 +1,9 @@
 import { LearningLanguage, normalizeLanguage } from "@/lib/courseContent";
+import {
+  arcRecordMapToNodeProgressMap,
+  getStoredArcProgressMap,
+  setStoredArcProgressMap,
+} from "@/lib/lessonArc/arcProgress";
 import { DEFAULT_HEARTS, type LessonArcNodeProgress, type LessonArcProgressMap, type LessonArcQuestion, type LessonArcSession } from "@/lib/lessonArc/types";
 import { supabase } from "@/lib/supabase";
 
@@ -221,6 +226,7 @@ function sanitizeArcProgressEntry(nodeId: string, value: unknown): LessonArcNode
     nodeId,
     unitId,
     lessonId,
+    concept: typeof raw.concept === "string" && raw.concept.trim().length > 0 ? raw.concept : nodeId,
     lessonIndex: clampLessonIndex(raw.lessonIndex),
     questionIndex: Math.max(0, safeNumber(raw.questionIndex)),
     hearts: Math.max(0, safeNumber(raw.hearts ?? DEFAULT_HEARTS)),
@@ -252,6 +258,7 @@ function sanitizeArcProgress(value: unknown, completedLessons: string[]) {
       nodeId,
       unitId,
       lessonId,
+      concept: existing?.concept ?? nodeId,
       lessonIndex: 4,
       questionIndex: 0,
       hearts: DEFAULT_HEARTS,
@@ -285,6 +292,7 @@ function sanitizeArcSession(value: unknown): LessonArcSession | null {
     lessonId: safeNumber(raw.lessonId),
     language: normalizeLanguage(raw.language),
     concept: typeof raw.concept === "string" ? raw.concept : raw.nodeId,
+    mode: raw.mode === "review" ? "review" : "progress",
     lessonIndex: clampLessonIndex(raw.lessonIndex),
     questionIndex: Math.max(0, safeNumber(raw.questionIndex)),
     hearts: Math.max(0, safeNumber(raw.hearts ?? DEFAULT_HEARTS)),
@@ -504,8 +512,20 @@ export function getStoredLanguageProgress(userId: string, language: string): Sto
 
   try {
     const raw = window.localStorage.getItem(getLanguageProgressStorageKey(userId, language));
-    if (!raw) return null;
-    return normalizeProgressShape(language, JSON.parse(raw));
+    const base = raw ? normalizeProgressShape(language, JSON.parse(raw)) : null;
+    const arcCache = getStoredArcProgressMap(userId, language);
+    if (!base && Object.keys(arcCache).length === 0) return null;
+    if (Object.keys(arcCache).length === 0) return base;
+
+    const cachedArcProgress = arcRecordMapToNodeProgressMap(arcCache, base?.arc_progress ?? {});
+    return normalizeProgressShape(language, {
+      ...(base ?? normalizeProgressShape(language, null)),
+      arc_progress: mergeArcProgressMaps(
+        cachedArcProgress,
+        base?.arc_progress ?? {},
+        base?.completed_lessons ?? [],
+      ),
+    });
   } catch {
     return null;
   }
@@ -535,6 +555,7 @@ export function setStoredLanguageProgress(userId: string, language: string, prog
   });
 
   window.localStorage.setItem(getLanguageProgressStorageKey(userId, language), JSON.stringify(next));
+  setStoredArcProgressMap(userId, next.language, next.arc_progress);
   window.dispatchEvent(
     new CustomEvent<LanguageProgressChangeDetail>(PICO_LANGUAGE_PROGRESS_EVENT, {
       detail: {

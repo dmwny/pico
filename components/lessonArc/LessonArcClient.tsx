@@ -6,6 +6,14 @@ import { useCosmetics } from "@/contexts/CosmeticsContext";
 import { useThemeContext } from "@/contexts/ThemeContext";
 import { checkAchievements } from "@/lib/achievements";
 import {
+  fetchRemoteArcProgressRecord,
+  getStoredArcProgress,
+  mergeArcProgressRecordMaps,
+  toArcProgressRecord,
+  toLessonArcNodeProgress,
+  upsertRemoteArcProgress,
+} from "@/lib/lessonArc/arcProgress";
+import {
   applyQuestionEvaluation,
   consumeLessonHint,
   createEmptyNodeProgress,
@@ -61,6 +69,7 @@ function buildNodeProgressFromSession(session: LessonArcSession, current: Lesson
       lessonTitle: "",
       concept: session.concept,
       conceptSlug: session.nodeId,
+      nodeType: "practice",
     })),
     lessonIndex: session.lessonIndex,
     questionIndex,
@@ -76,10 +85,12 @@ export default function LessonArcClient({
   unitId,
   lessonId,
   requestedLanguage,
+  reviewMode = false,
 }: {
   unitId: string;
   lessonId: string;
   requestedLanguage: string | null;
+  reviewMode?: boolean;
 }) {
   const router = useRouter();
   const { pathTheme } = useThemeContext();
@@ -125,6 +136,9 @@ export default function LessonArcClient({
     perfect: boolean;
     streakExtended: boolean;
     arcComplete: boolean;
+    reviewMode: boolean;
+    lessonIndex: number;
+    completedLessonCount: number;
   } | null>(null);
   const bootstrapRef = useRef<string | null>(null);
 
@@ -136,9 +150,9 @@ export default function LessonArcClient({
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const persistArcState = useCallback(async (nextSession: LessonArcSession | null, nextNodeProgress: LessonArcNodeProgress, extra: Partial<typeof progress> = {}) => {
-    if (!progress) return null;
+    if (!progress || !viewerId || reviewMode) return null;
     const nextArcProgress = upsertNodeProgress(progress.arc_progress, nextNodeProgress);
-    return updateProgress(
+    const persisted = await updateProgress(
       {
         arc_progress: nextArcProgress,
         active_lesson_session: nextSession,
@@ -146,21 +160,59 @@ export default function LessonArcClient({
       },
       { syncRemote: true, language: node.language },
     );
-  }, [node.language, progress, updateProgress]);
+    await upsertRemoteArcProgress(viewerId, node.language, nextNodeProgress);
+    return persisted;
+  }, [node.language, progress, reviewMode, updateProgress, viewerId]);
 
   const bootstrapLesson = useCallback(async () => {
     if (!viewerId || !progress) return;
     setLoadError(null);
-    if (progress.completed_lessons.includes(node.nodeId) && !matchingSession) {
+    const localArcRecord = getStoredArcProgress(viewerId, node.language, node.nodeId);
+    const remoteArcRecord = await fetchRemoteArcProgressRecord(viewerId, node.language, node.nodeId);
+    const mergedArcRecord = mergeArcProgressRecordMaps(
+      localArcRecord ? { [node.nodeId]: localArcRecord } : {},
+      remoteArcRecord ? { [node.nodeId]: remoteArcRecord } : {},
+      nodeProgressFromStore ? { [node.nodeId]: toArcProgressRecord(nodeProgressFromStore) } : {},
+    )[node.nodeId];
+    const resolvedNodeProgress = mergedArcRecord
+      ? toLessonArcNodeProgress(mergedArcRecord, nodeProgressFromStore)
+      : nodeProgressFromStore;
+
+    if (progress.completed_lessons.includes(node.nodeId) && !matchingSession && !reviewMode) {
       console.warn("[lesson-arc] node is already marked completed; starting review session instead of redirecting", {
         nodeId: node.nodeId,
         concept: node.concept,
-        difficulty: (nodeProgressFromStore?.lessonIndex ?? 0) + 1,
+        difficulty: (resolvedNodeProgress?.lessonIndex ?? 0) + 1,
         completedLessons: progress.completed_lessons,
       });
     }
 
-    if (matchingSession?.questions?.length) {
+    const lessonIndex = reviewMode
+      ? 0
+      : resolvedNodeProgress?.status === "in_progress"
+        ? resolvedNodeProgress.lessonIndex
+        : 0;
+
+    const shouldResumeSession = matchingSession?.questions?.length
+      && matchingSession.mode === (reviewMode ? "review" : "progress")
+      && matchingSession.lessonIndex === lessonIndex
+      && matchingSession.questionIndex < matchingSession.questions.length;
+
+    if (matchingSession && !shouldResumeSession && !reviewMode) {
+      console.warn("[lesson-arc] discarding stale active session", {
+        nodeId: node.nodeId,
+        activeSessionLessonIndex: matchingSession.lessonIndex,
+        expectedLessonIndex: lessonIndex,
+        activeSessionQuestionIndex: matchingSession.questionIndex,
+        activeSessionQuestionCount: matchingSession.questions.length,
+      });
+      await updateProgress(
+        { active_lesson_session: null },
+        { syncRemote: true, language: node.language },
+      );
+    }
+
+    if (shouldResumeSession) {
       const titlePayload: LessonArcPayload = {
         node,
         lessonIndex: matchingSession.lessonIndex,
@@ -170,12 +222,10 @@ export default function LessonArcClient({
       };
       setPayload(titlePayload);
       setSession(matchingSession);
-      setNodeProgress(nodeProgressFromStore ?? buildNodeProgressFromSession(matchingSession, nodeProgressFromStore));
+      setNodeProgress(resolvedNodeProgress ?? buildNodeProgressFromSession(matchingSession, resolvedNodeProgress));
       setScreen("lesson");
       return;
     }
-
-    const lessonIndex = nodeProgressFromStore?.status === "in_progress" ? nodeProgressFromStore.lessonIndex : 0;
     console.log("[lesson-arc] requesting lesson payload", {
       concept: node.concept,
       conceptSlug: node.conceptSlug,
@@ -222,9 +272,10 @@ export default function LessonArcClient({
       node,
       lessonIndex: nextPayload.lessonIndex,
       questions: nextPayload.questions,
+      mode: reviewMode ? "review" : "progress",
     });
     const nextNodeProgress = {
-      ...(nodeProgressFromStore ?? createEmptyNodeProgress(node)),
+      ...(resolvedNodeProgress ?? createEmptyNodeProgress(node)),
       lessonIndex: nextPayload.lessonIndex,
       questionIndex: 0,
       hearts: nextSession.hearts,
@@ -236,16 +287,18 @@ export default function LessonArcClient({
     setSession(nextSession);
     setNodeProgress(nextNodeProgress);
     setScreen("lesson");
-    await persistArcState(nextSession, nextNodeProgress);
-  }, [lessonId, matchingSession, node, nodeProgressFromStore, persistArcState, progress, unitId, viewerId]);
+    if (!reviewMode) {
+      await persistArcState(nextSession, nextNodeProgress);
+    }
+  }, [lessonId, matchingSession, node, nodeProgressFromStore, persistArcState, progress, reviewMode, unitId, updateProgress, viewerId]);
 
   useEffect(() => {
     if (loading || isHydrating || !viewerId || !progress) return;
-    const bootKey = `${node.nodeId}:${matchingSession?.updatedAt ?? nodeProgressFromStore?.updatedAt ?? "fresh"}`;
+    const bootKey = `${node.nodeId}:${reviewMode ? "review" : "progress"}:${matchingSession?.updatedAt ?? nodeProgressFromStore?.updatedAt ?? "fresh"}`;
     if (bootstrapRef.current === bootKey) return;
     bootstrapRef.current = bootKey;
     void bootstrapLesson();
-  }, [bootstrapLesson, isHydrating, loading, matchingSession?.updatedAt, node.nodeId, nodeProgressFromStore?.updatedAt, progress, viewerId]);
+  }, [bootstrapLesson, isHydrating, loading, matchingSession?.updatedAt, node.nodeId, nodeProgressFromStore?.updatedAt, progress, reviewMode, viewerId]);
 
   useEffect(() => {
     setAnswer({});
@@ -254,14 +307,32 @@ export default function LessonArcClient({
   }, [session?.questionIndex]);
 
   const applyCompletionRewards = useCallback(async (advance: Extract<LessonAdvanceResult, { kind: "lesson_complete" }>) => {
-    if (!progress) return { streakExtended: false };
-    const lessonXp = advance.session.xpEarned + advance.perfectBonusXp;
-    const completedLessons = advance.lessonPassed
+    if (!progress) {
+      return {
+        streakExtended: false,
+        arcBonusXp: 0,
+        rewardedNodeProgress: advance.nodeProgress,
+      };
+    }
+    const reviewSession = advance.session.mode === "review";
+    const arcBonusXp = !reviewSession && advance.lessonPassed ? 50 : 0;
+    const lessonXp = advance.session.xpEarned + advance.perfectBonusXp + arcBonusXp;
+    const rewardedNodeProgress = reviewSession
+      ? advance.nodeProgress
+      : {
+          ...advance.nodeProgress,
+          xpEarned: advance.nodeProgress.totalArcXpEarned + advance.perfectBonusXp + arcBonusXp,
+          totalArcXpEarned: advance.nodeProgress.totalArcXpEarned + advance.perfectBonusXp + arcBonusXp,
+          updatedAt: new Date().toISOString(),
+        };
+    const completedLessons = !reviewSession && advance.lessonPassed
       ? [...new Set([...progress.completed_lessons, node.nodeId])]
       : progress.completed_lessons;
     const todayDate = getLocalDateKey(timezone);
     const baseSnapshot = applyProgressPatch(progress, node.language, {
-      arc_progress: upsertNodeProgress(progress.arc_progress, advance.nodeProgress),
+      arc_progress: reviewSession
+        ? progress.arc_progress
+        : upsertNodeProgress(progress.arc_progress, rewardedNodeProgress),
       active_lesson_session: null,
       completed_lessons: completedLessons,
       xp: progress.xp + lessonXp,
@@ -277,6 +348,10 @@ export default function LessonArcClient({
       baseProgress: baseSnapshot,
     });
     const persistedProgress = streakResult?.progress ?? await saveProgressSnapshot(baseSnapshot, { language: node.language, syncRemote: true });
+
+    if (!reviewSession && viewerId) {
+      await upsertRemoteArcProgress(viewerId, node.language, rewardedNodeProgress);
+    }
 
     if (persistedProgress) {
       const earnedNow = checkAchievements(
@@ -299,8 +374,10 @@ export default function LessonArcClient({
 
     return {
       streakExtended: (streakResult?.progress?.streak ?? streakBefore) > streakBefore,
+      arcBonusXp,
+      rewardedNodeProgress,
     };
-  }, [applyQualifiedStreakActivity, node.language, node.nodeId, progress, saveProgressSnapshot, timezone, updateProgress]);
+  }, [applyQualifiedStreakActivity, node.language, node.nodeId, progress, saveProgressSnapshot, timezone, updateProgress, viewerId]);
 
   const handleCheck = useCallback(async () => {
     if (!displayedQuestion || !session || !nodeProgress) return;
@@ -330,13 +407,21 @@ export default function LessonArcClient({
     }
 
     const rawEvaluation = evaluateQuestionAttempt(displayedQuestion, answer, elapsedMs, node.language, nextRunResult);
-    const evaluation = xpBoostActive && rawEvaluation.correct
+    let evaluation = xpBoostActive && rawEvaluation.correct
       ? {
           ...rawEvaluation,
           xpAwarded: rawEvaluation.xpAwarded * 2,
           speedBonusAwarded: rawEvaluation.speedBonusAwarded * 2,
         }
       : rawEvaluation;
+
+    if (session.mode === "review" && evaluation.correct) {
+      evaluation = {
+        ...evaluation,
+        xpAwarded: Math.max(1, Math.round(evaluation.xpAwarded * 0.5)),
+        speedBonusAwarded: Math.round(evaluation.speedBonusAwarded * 0.5),
+      };
+    }
     const advance = applyQuestionEvaluation({
       session,
       progress: nodeProgress,
@@ -362,18 +447,27 @@ export default function LessonArcClient({
 
     if (advance.kind === "lesson_complete") {
       const rewards = await applyCompletionRewards(advance);
+      setNodeProgress(rewards.rewardedNodeProgress);
+      const completedLessonCount = advance.lessonPassed
+        ? 5
+        : Math.min(5, rewards.rewardedNodeProgress.completedLessonIndices.length);
       setLessonSummary({
-        xpEarned: advance.session.xpEarned + advance.perfectBonusXp,
+        xpEarned: advance.session.xpEarned + advance.perfectBonusXp + rewards.arcBonusXp,
         correctCount: advance.session.correctCount,
         totalQuestions: advance.session.questions.length,
         perfect: advance.perfectBonusXp > 0,
         streakExtended: rewards.streakExtended,
         arcComplete: advance.lessonPassed,
+        reviewMode: advance.session.mode === "review",
+        lessonIndex: advance.session.lessonIndex + 1,
+        completedLessonCount,
       });
       return;
     }
 
-    await persistArcState(advance.session, advance.nodeProgress);
+    if (advance.session.mode !== "review") {
+      await persistArcState(advance.session, advance.nodeProgress);
+    }
   }, [answer, applyCompletionRewards, displayedQuestion, lastPraise, lessonUnlimitedHearts, node, nodeProgress, persistArcState, runResult, session, xpBoostActive]);
 
   const handleFeedbackAdvance = useCallback(async () => {
@@ -405,7 +499,9 @@ export default function LessonArcClient({
     setAnswer({});
     setRunResult(null);
     setScreen("lesson");
-    await persistArcState(nextSession, nextProgress);
+    if (nextSession.mode !== "review") {
+      await persistArcState(nextSession, nextProgress);
+    }
   }, [nodeProgress, persistArcState, session]);
 
   const handleUseHeartRefill = useCallback(async () => {
@@ -419,7 +515,9 @@ export default function LessonArcClient({
     setSession(nextSession);
     setNodeProgress(nextProgress);
     setScreen("lesson");
-    await persistArcState(nextSession, nextProgress);
+    if (nextSession.mode !== "review") {
+      await persistArcState(nextSession, nextProgress);
+    }
   }, [consumeHeartRefillCharge, nodeProgress, persistArcState, session]);
 
   const handleRevealHint = useCallback(async () => {
@@ -446,7 +544,9 @@ export default function LessonArcClient({
     setSession(result.session);
     setNodeProgress(nextProgress);
     setHintVisible(true);
-    await persistArcState(result.session, nextProgress);
+    if (result.session.mode !== "review") {
+      await persistArcState(result.session, nextProgress);
+    }
 
     if (result.failedLesson) {
       setScreen("failed");
@@ -454,13 +554,15 @@ export default function LessonArcClient({
   }, [consumeHintTokenCharge, displayedQuestion, hintTokenCount, hintVisible, lessonUnlimitedHearts, nodeProgress, persistArcState, session]);
 
   const returnToLearnPath = useCallback(() => {
-    const params = new URLSearchParams({
-      lang: node.language,
-      celebrateNode: node.nodeId,
-      openChest: String(node.unitId),
-    });
+    const params = new URLSearchParams({ lang: node.language });
+    if (!reviewMode) {
+      params.set("celebrateNode", node.nodeId);
+    }
+    if (!reviewMode && lessonSummary?.arcComplete) {
+      params.set("openArcChest", node.nodeId);
+    }
     router.push(`/learn?${params.toString()}`);
-  }, [node.language, node.nodeId, node.unitId, router]);
+  }, [lessonSummary?.arcComplete, node.language, node.nodeId, reviewMode, router]);
 
   useEffect(() => {
     if (!displayedQuestion || screen !== "lesson") return;
@@ -552,6 +654,8 @@ export default function LessonArcClient({
       <div className="relative flex min-h-screen flex-col bg-[#101826]">
         <LessonTopBar
           accentColor={pathTheme.accentColor}
+          lessonIndex={session.lessonIndex + 1}
+          totalLessons={5}
           currentQuestion={currentQuestionNumber}
           totalQuestions={session.questions.length}
           hearts={session.hearts}
@@ -617,20 +721,24 @@ export default function LessonArcClient({
       {screen === "lesson-complete" && lessonSummary ? (
         <LessonCompleteScreen
           lessonLabel={payload.subtitle}
+          lessonNumber={lessonSummary.lessonIndex}
+          completedLessonCount={lessonSummary.completedLessonCount}
           xpEarned={lessonSummary.xpEarned}
           correctCount={lessonSummary.correctCount}
           totalQuestions={lessonSummary.totalQuestions}
           perfect={lessonSummary.perfect}
           streakExtended={lessonSummary.streakExtended}
-          onContinue={() => router.push(`/learn?lang=${node.language}`)}
+          reviewMode={lessonSummary.reviewMode}
+          onContinue={returnToLearnPath}
         />
       ) : null}
 
       {screen === "arc-complete" && lessonSummary ? (
         <ArcCompleteScreen
           nodeTitle={node.lessonTitle}
-          totalArcXp={(progress?.arc_progress?.[node.nodeId]?.totalArcXpEarned ?? nodeProgress.totalArcXpEarned) + (lessonSummary.perfect ? 25 : 0)}
+          totalArcXp={nodeProgress.totalArcXpEarned}
           streakExtended={lessonSummary.streakExtended}
+          arcBonusXp={50}
           onContinue={returnToLearnPath}
         />
       ) : null}

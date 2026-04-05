@@ -12,6 +12,7 @@ export default function LessonPage() {
       unitId={String(params.unit ?? "")}
       lessonId={String(params.lesson ?? "")}
       requestedLanguage={searchParams.get("lang")}
+      reviewMode={searchParams.get("mode") === "review"}
     />
   );
 }

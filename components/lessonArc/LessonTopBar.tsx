@@ -24,6 +24,8 @@ function HeartIcon({
 
 export default function LessonTopBar({
   accentColor,
+  lessonIndex,
+  totalLessons,
   currentQuestion,
   totalQuestions,
   hearts,
@@ -32,6 +34,8 @@ export default function LessonTopBar({
   lossFlashKey,
 }: {
   accentColor: string;
+  lessonIndex: number;
+  totalLessons: number;
   currentQuestion: number;
   totalQuestions: number;
   hearts: number;
@@ -78,6 +82,9 @@ export default function LessonTopBar({
               {Math.min(totalQuestions, currentQuestion)} / {totalQuestions}
             </p>
           </div>
+          <p className="text-[0.68rem] font-black uppercase tracking-[0.16em] text-white/58">
+            Lesson {lessonIndex} of {totalLessons} · Question {Math.min(totalQuestions, currentQuestion)} / {totalQuestions}
+          </p>
         </div>
 
         <div className="flex items-center gap-2">

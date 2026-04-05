@@ -1,4 +1,4 @@
-import type { LearningLanguage } from "@/lib/courseContent";
+import type { LearningLanguage, LessonNodeType } from "@/lib/courseContent";
 
 export type LessonArcQuestionType =
   | "mc_concept"
@@ -46,6 +46,7 @@ export type LessonArcNodeDescriptor = {
   unitId: number;
   lessonId: number;
   language: LearningLanguage;
+  nodeType: LessonNodeType;
   unitTitle: string;
   lessonTitle: string;
   concept: string;
@@ -56,6 +57,7 @@ export type LessonArcNodeProgress = {
   nodeId: string;
   unitId: number;
   lessonId: number;
+  concept: string;
   lessonIndex: LessonArcLessonIndex;
   questionIndex: number;
   hearts: number;
@@ -74,6 +76,7 @@ export type LessonArcSession = {
   lessonId: number;
   language: LearningLanguage;
   concept: string;
+  mode: "progress" | "review";
   lessonIndex: LessonArcLessonIndex;
   questionIndex: number;
   hearts: number;
@@ -176,17 +179,32 @@ export type LessonHintResult = {
 };
 
 export type QuestionTypePlan = {
+  difficulty: LessonArcDifficulty;
   count: number;
   allowedTypes: LessonArcQuestionType[];
 };
 
-export const LESSON_TYPE_PLAN: Record<LessonArcLessonIndex, QuestionTypePlan> = {
-  0: { count: 6, allowedTypes: ["mc_concept", "fill_select", "true_false"] },
-  1: { count: 7, allowedTypes: ["mc_output", "match_pairs", "true_false"] },
-  2: { count: 8, allowedTypes: ["word_bank", "arrange", "fill_select"] },
-  3: { count: 8, allowedTypes: ["fill_type", "spot_bug", "predict_type"] },
-  4: { count: 10, allowedTypes: ["complete_fn", "debug", "predict_type", "spot_bug"] },
+export const TEACHING_LESSON_PLAN: Record<LessonArcLessonIndex, QuestionTypePlan> = {
+  0: { difficulty: 1, count: 15, allowedTypes: ["mc_concept", "true_false"] },
+  1: { difficulty: 1, count: 15, allowedTypes: ["mc_output", "fill_select", "true_false"] },
+  2: { difficulty: 2, count: 15, allowedTypes: ["word_bank", "arrange", "fill_select"] },
+  3: { difficulty: 2, count: 12, allowedTypes: ["fill_type", "predict_type"] },
+  4: { difficulty: 3, count: 10, allowedTypes: ["fill_type", "mc_output", "true_false", "spot_bug"] },
 };
+
+export const PRACTICE_LESSON_PLAN: Record<LessonArcLessonIndex, QuestionTypePlan> = {
+  0: { difficulty: 2, count: 10, allowedTypes: ["spot_bug", "fill_type"] },
+  1: { difficulty: 2, count: 10, allowedTypes: ["predict_type", "word_bank"] },
+  2: { difficulty: 3, count: 10, allowedTypes: ["fill_type", "spot_bug"] },
+  3: { difficulty: 3, count: 10, allowedTypes: ["mc_output", "arrange"] },
+  4: { difficulty: 3, count: 10, allowedTypes: ["fill_type", "spot_bug", "predict_type", "mc_output"] },
+};
+
+export function getLessonTypePlan(nodeType: LessonNodeType, lessonIndex: LessonArcLessonIndex): QuestionTypePlan {
+  return nodeType === "teaching"
+    ? TEACHING_LESSON_PLAN[lessonIndex]
+    : PRACTICE_LESSON_PLAN[lessonIndex];
+}
 
 export const BASE_QUESTION_XP = 10;
 export const PERFECT_LESSON_BONUS_XP = 25;

@@ -278,6 +278,7 @@ export function createEmptyNodeProgress(node: LessonArcNodeDescriptor): LessonAr
     nodeId: node.nodeId,
     unitId: node.unitId,
     lessonId: node.lessonId,
+    concept: node.concept,
     lessonIndex: 0,
     questionIndex: 0,
     hearts: DEFAULT_HEARTS,
@@ -305,9 +306,11 @@ export function createLessonSession(params: {
   lessonIndex: LessonArcLessonIndex;
   questions: LessonArcQuestion[];
   previousSession?: LessonArcSession | null;
+  mode?: "progress" | "review";
 }) {
-  const { node, lessonIndex, questions, previousSession } = params;
-  const baseHearts = previousSession?.lessonIndex === lessonIndex ? previousSession.hearts : DEFAULT_HEARTS;
+  const { node, lessonIndex, questions, previousSession, mode = "progress" } = params;
+  const reusePrevious = previousSession?.lessonIndex === lessonIndex && previousSession.mode === mode;
+  const baseHearts = reusePrevious ? previousSession.hearts : DEFAULT_HEARTS;
 
   return {
     nodeId: node.nodeId,
@@ -315,19 +318,20 @@ export function createLessonSession(params: {
     lessonId: node.lessonId,
     language: node.language,
     concept: node.concept,
+    mode,
     lessonIndex,
-    questionIndex: previousSession?.lessonIndex === lessonIndex ? previousSession.questionIndex : 0,
+    questionIndex: reusePrevious ? previousSession.questionIndex : 0,
     hearts: baseHearts,
-    xpEarned: previousSession?.lessonIndex === lessonIndex ? previousSession.xpEarned : 0,
-    correctCount: previousSession?.lessonIndex === lessonIndex ? previousSession.correctCount : 0,
-    wrongCount: previousSession?.lessonIndex === lessonIndex ? previousSession.wrongCount : 0,
-    perfectLesson: previousSession?.lessonIndex === lessonIndex ? previousSession.perfectLesson : true,
+    xpEarned: reusePrevious ? previousSession.xpEarned : 0,
+    correctCount: reusePrevious ? previousSession.correctCount : 0,
+    wrongCount: reusePrevious ? previousSession.wrongCount : 0,
+    perfectLesson: reusePrevious ? previousSession.perfectLesson : true,
     questions,
     questionOrder: questions.map((question) => question.id),
-    completedQuestionIds: previousSession?.lessonIndex === lessonIndex ? previousSession.completedQuestionIds : [],
-    usedHintQuestionIds: previousSession?.lessonIndex === lessonIndex ? previousSession.usedHintQuestionIds : [],
-    freeHintUsed: previousSession?.lessonIndex === lessonIndex ? previousSession.freeHintUsed : false,
-    startedAt: previousSession?.lessonIndex === lessonIndex ? previousSession.startedAt : nowIso(),
+    completedQuestionIds: reusePrevious ? previousSession.completedQuestionIds : [],
+    usedHintQuestionIds: reusePrevious ? previousSession.usedHintQuestionIds : [],
+    freeHintUsed: reusePrevious ? previousSession.freeHintUsed : false,
+    startedAt: reusePrevious ? previousSession.startedAt : nowIso(),
     questionStartedAt: nowIso(),
     updatedAt: nowIso(),
   } satisfies LessonArcSession;
@@ -453,7 +457,9 @@ export function applyQuestionEvaluation(params: {
     updatedAt: nowIso(),
   } satisfies LessonArcSession;
 
-  const runningArcXp = baseProgress.totalArcXpEarned + evaluation.xpAwarded;
+  const runningArcXp = session.mode === "review"
+    ? baseProgress.totalArcXpEarned
+    : baseProgress.totalArcXpEarned + evaluation.xpAwarded;
   const intermediateProgress = {
     ...baseProgress,
     lessonIndex: nextSession.lessonIndex,
@@ -474,10 +480,12 @@ export function applyQuestionEvaluation(params: {
     };
   }
 
-  const completedLessonIndices = uniqueLessonIndices([
-    ...baseProgress.completedLessonIndices,
-    session.lessonIndex,
-  ]);
+  const completedLessonIndices = session.mode === "review"
+    ? baseProgress.completedLessonIndices
+    : uniqueLessonIndices([
+        ...baseProgress.completedLessonIndices,
+        session.lessonIndex,
+      ]);
   const lessonPassed = session.lessonIndex === 4;
   const completionProgress: LessonArcNodeProgress = lessonPassed
     ? {
@@ -489,13 +497,13 @@ export function applyQuestionEvaluation(params: {
         status: "completed",
         updatedAt: nowIso(),
       }
-    : {
+      : {
         ...intermediateProgress,
-        lessonIndex: clampLessonIndex(session.lessonIndex + 1),
+        lessonIndex: session.mode === "review" ? baseProgress.lessonIndex : clampLessonIndex(session.lessonIndex + 1),
         questionIndex: 0,
         hearts: DEFAULT_HEARTS,
         completedLessonIndices,
-        status: "in_progress",
+        status: session.mode === "review" ? baseProgress.status : "in_progress",
         updatedAt: nowIso(),
       };
 

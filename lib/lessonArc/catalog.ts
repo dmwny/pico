@@ -1,7 +1,7 @@
 import { getCourseSections, normalizeLanguage, type LearningLanguage } from "@/lib/courseContent";
 import { PYTHON_FOR_LOOPS_SEED } from "@/lib/lessonArc/seeds/pythonForLoops";
 import {
-  LESSON_TYPE_PLAN,
+  getLessonTypePlan,
   type LessonArcLessonIndex,
   type LessonArcNodeDescriptor,
   type LessonArcQuestion,
@@ -93,6 +93,7 @@ export function resolveNodeDescriptor(
     unitId: numericUnitId,
     lessonId: numericLessonId,
     language: normalizedLanguage,
+    nodeType: lesson?.nodeType ?? "practice",
     unitTitle,
     lessonTitle,
     concept,
@@ -143,11 +144,12 @@ function ensureMinimumTypeVariety(
 
 export function pickQuestionsForLesson(
   bank: LessonArcQuestion[],
+  nodeType: LessonArcNodeDescriptor["nodeType"],
   lessonIndex: LessonArcLessonIndex,
   seed: string,
 ): LessonArcQuestion[] {
-  const { count, allowedTypes } = LESSON_TYPE_PLAN[lessonIndex];
-  const targetDifficulty = lessonIndex + 1;
+  const { count, allowedTypes, difficulty } = getLessonTypePlan(nodeType, lessonIndex);
+  const targetDifficulty = difficulty;
   const exact = bank.filter(
     (question) => question.difficulty === targetDifficulty && allowedTypes.includes(question.type),
   );
@@ -171,7 +173,7 @@ export function getSeededLessonQuestions(
 ): LessonArcQuestion[] | null {
   const bank = resolveSeedBank(node);
   if (!bank) return null;
-  return pickQuestionsForLesson(bank, lessonIndex, `${node.nodeId}:${lessonIndex}`);
+  return pickQuestionsForLesson(bank, node.nodeType, lessonIndex, `${node.nodeId}:${lessonIndex}`);
 }
 
 export function getLessonArcTitle(node: LessonArcNodeDescriptor, lessonIndex: LessonArcLessonIndex) {
@@ -195,8 +197,7 @@ export type AiLessonGenerationRequest = {
 };
 
 export function buildAiLessonGenerationPrompt({ node, lessonIndex }: AiLessonGenerationRequest) {
-  const plan = LESSON_TYPE_PLAN[lessonIndex];
-  const lessonNumber = lessonIndex + 1;
+  const plan = getLessonTypePlan(node.nodeType, lessonIndex);
   const allowedTypeList = plan.allowedTypes.join(", ");
 
   return `You are generating a Duolingo-style coding lesson for ${node.language}.
@@ -210,7 +211,7 @@ Return ONLY valid JSON with this shape:
       "id": "string",
       "type": "mc_concept | mc_output | word_bank | arrange | fill_type | fill_select | spot_bug | predict_type | match_pairs | true_false | complete_fn | debug",
       "concept": "string",
-      "difficulty": ${lessonNumber},
+      "difficulty": ${plan.difficulty},
       "prompt": "string",
       "code": "optional string",
       "options": ["optional"],
@@ -236,7 +237,7 @@ Rules:
 - Use at least 3 distinct question types.
 - All code must be runnable in isolation.
 - For complete_fn and debug, keep solutions within 1-3 lines of student-authored code.
-- Difficulty level ${lessonNumber} must match this lesson phase.
+- Difficulty level ${plan.difficulty} must match this lesson phase.
 - No duplicate questions.
 - Keep the concept tightly focused on ${node.lessonTitle} in ${node.language}.`;
 }
