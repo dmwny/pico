@@ -12,6 +12,7 @@ import {
 } from "@/lib/courseContent";
 import { getApiMiniCourseKey, getApiMiniCourseLessons } from "@/lib/apiMiniCourses";
 import { buildUpdatedUserMetadata, enableInfiniteGems, getDefaultDevCheatState } from "@/lib/devCheats";
+import { getAllRobloxCourseLessons, getRobloxCourseKey } from "@/lib/robloxCourse";
 import { getTurtleLessonKey, getTurtleLessons } from "@/lib/turtleCourse";
 import { setStoredActiveLanguage, setStoredLanguageProgress } from "@/lib/progress";
 
@@ -39,11 +40,21 @@ function getMainCourseKeys(language: LearningLanguage) {
 function getMiniCourseKeys(language: LearningLanguage) {
   const liveCourses = getMiniCourses(language).filter((course) => course.status === "live");
 
-  return liveCourses.flatMap((course) =>
+  const apiMiniCourseKeys = liveCourses
+    .filter((course) => !(language === "lua" && course.id === "roblox-studio"))
+    .flatMap((course) =>
     getApiMiniCourseLessons(language, course.id).map((lesson) =>
       getApiMiniCourseKey(language, course.id, lesson.unitId, lesson.lessonId)
     )
   );
+
+  if (language !== "lua") return apiMiniCourseKeys;
+
+  const robloxKeys = getAllRobloxCourseLessons().map((lesson) =>
+    getRobloxCourseKey(lesson.unitNumber, lesson.lessonNumber)
+  );
+
+  return unique([...apiMiniCourseKeys, ...robloxKeys]);
 }
 
 function getLanguageCompletionKeys(language: LearningLanguage) {

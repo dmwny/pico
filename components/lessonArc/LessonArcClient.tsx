@@ -148,6 +148,11 @@ export default function LessonArcClient({
   const timezone = progress?.streak_timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const lessonUnlimitedHearts = unlimitedHeartsActive || xpBoostActive;
   const [loadError, setLoadError] = useState<string | null>(null);
+  const completionLocked =
+    pendingAdvance?.kind === "lesson_complete"
+    || screen === "lesson-complete"
+    || screen === "arc-complete"
+    || Boolean(lessonSummary);
 
   const persistArcState = useCallback(async (nextSession: LessonArcSession | null, nextNodeProgress: LessonArcNodeProgress, extra: Partial<typeof progress> = {}) => {
     if (!progress || !viewerId || reviewMode) return null;
@@ -293,12 +298,12 @@ export default function LessonArcClient({
   }, [lessonId, matchingSession, node, nodeProgressFromStore, persistArcState, progress, reviewMode, unitId, updateProgress, viewerId]);
 
   useEffect(() => {
-    if (loading || isHydrating || !viewerId || !progress) return;
+    if (loading || isHydrating || !viewerId || !progress || completionLocked) return;
     const bootKey = `${node.nodeId}:${reviewMode ? "review" : "progress"}:${matchingSession?.updatedAt ?? nodeProgressFromStore?.updatedAt ?? "fresh"}`;
     if (bootstrapRef.current === bootKey) return;
     bootstrapRef.current = bootKey;
     void bootstrapLesson();
-  }, [bootstrapLesson, isHydrating, loading, matchingSession?.updatedAt, node.nodeId, nodeProgressFromStore?.updatedAt, progress, reviewMode, viewerId]);
+  }, [bootstrapLesson, completionLocked, isHydrating, loading, matchingSession?.updatedAt, node.nodeId, nodeProgressFromStore?.updatedAt, progress, reviewMode, viewerId]);
 
   useEffect(() => {
     setAnswer({});
@@ -347,28 +352,29 @@ export default function LessonArcClient({
       language: node.language,
       baseProgress: baseSnapshot,
     });
-    const persistedProgress = streakResult?.progress ?? await saveProgressSnapshot(baseSnapshot, { language: node.language, syncRemote: true });
+    let persistedProgress = streakResult?.progress ?? await saveProgressSnapshot(baseSnapshot, { language: node.language, syncRemote: true });
 
     if (!reviewSession && viewerId) {
       await upsertRemoteArcProgress(viewerId, node.language, rewardedNodeProgress);
     }
 
     if (persistedProgress) {
+      const currentProgress = persistedProgress;
       const earnedNow = checkAchievements(
-        persistedProgress.completed_lessons,
-        persistedProgress.xp,
-        persistedProgress.streak,
+        currentProgress.completed_lessons,
+        currentProgress.xp,
+        currentProgress.streak,
         advance.perfectBonusXp > 0,
         Math.max(1, Math.round((Date.now() - Date.parse(advance.session.startedAt)) / 1000)),
         advance.session.correctCount,
-        persistedProgress.today_perfect,
+        currentProgress.today_perfect,
       );
-      const newAchievements = earnedNow.filter((id) => !persistedProgress.achievements.includes(id));
+      const newAchievements = earnedNow.filter((id) => !currentProgress.achievements.includes(id));
       if (newAchievements.length > 0) {
-        await updateProgress(
-          { achievements: [...persistedProgress.achievements, ...newAchievements] },
-          { language: node.language, syncRemote: true },
-        );
+        persistedProgress = applyProgressPatch(currentProgress, node.language, {
+          achievements: [...currentProgress.achievements, ...newAchievements],
+        });
+        await saveProgressSnapshot(persistedProgress, { language: node.language, syncRemote: true });
       }
     }
 
@@ -377,7 +383,7 @@ export default function LessonArcClient({
       arcBonusXp,
       rewardedNodeProgress,
     };
-  }, [applyQualifiedStreakActivity, node.language, node.nodeId, progress, saveProgressSnapshot, timezone, updateProgress, viewerId]);
+  }, [applyQualifiedStreakActivity, node.language, node.nodeId, progress, saveProgressSnapshot, timezone, viewerId]);
 
   const handleCheck = useCallback(async () => {
     if (!displayedQuestion || !session || !nodeProgress) return;

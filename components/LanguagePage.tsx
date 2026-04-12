@@ -6,8 +6,12 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import Pico from "@/components/Pico";
 import MobileDock from "@/components/MobileDock";
+import AmbientEffectsLayer from "@/components/theme/AmbientEffectsLayer";
+import MythicThemeLayer from "@/components/theme/MythicThemeLayer";
+import { useThemeContext } from "@/contexts/ThemeContext";
 import { resolveActiveLanguage, setStoredActiveLanguage } from "@/lib/progress";
 import { getLanguageLabel, getMiniCourses, languageHasPlacement, type LearningLanguage } from "@/lib/courseContent";
+import { withAlpha } from "@/lib/themes";
 
 type LanguageCard = {
   id: string;
@@ -161,7 +165,11 @@ function LibraryMenu({
   open: boolean;
   onToggle: () => void;
 }) {
+  const { pathTheme } = useThemeContext();
   const courses = getMiniCourses(languageId);
+  const panelBorder = withAlpha(pathTheme.accentColor, 0.18);
+  const mutedText = withAlpha(pathTheme.surfaceText, 0.62);
+  const hoverSurface = withAlpha(pathTheme.accentColor, 0.08);
 
   return (
     <div className="relative">
@@ -171,7 +179,13 @@ function LibraryMenu({
           event.stopPropagation();
           onToggle();
         }}
-        className="flex h-9 w-9 items-center justify-center border border-[rgba(44,62,80,0.16)] bg-[#F8F5F0] text-[#2C3E50]"
+        className="flex h-9 w-9 items-center justify-center border transition"
+        style={{
+          borderColor: panelBorder,
+          background: withAlpha(pathTheme.surfaceCard, 0.92),
+          color: pathTheme.surfaceText,
+          boxShadow: `0 12px 24px ${withAlpha(pathTheme.accentColor, 0.08)}`,
+        }}
         aria-label={`Open ${languageId} libraries`}
       >
         <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
@@ -183,10 +197,16 @@ function LibraryMenu({
 
       {open && (
         <div
-          className="absolute right-0 top-11 z-30 w-60 surface-sheet bg-[#F8F5F0] p-2"
+          className="absolute right-0 top-11 z-30 w-60 p-2"
+          style={{
+            border: `1px solid ${panelBorder}`,
+            background: withAlpha(pathTheme.surfaceCard, 0.97),
+            boxShadow: `0 24px 50px ${withAlpha(pathTheme.accentColor, 0.16)}`,
+            backdropFilter: "blur(12px)",
+          }}
           onClick={(event) => event.stopPropagation()}
         >
-          <p className="px-3 py-2 text-[0.68rem] font-bold uppercase tracking-[0.24em] text-[#556675]">
+          <p className="px-3 py-2 text-[0.68rem] font-bold uppercase tracking-[0.24em]" style={{ color: mutedText }}>
             Libraries
           </p>
           <div className="space-y-1">
@@ -195,25 +215,38 @@ function LibraryMenu({
                 <Link
                   key={course.id}
                   href={course.href}
-                  className="block border border-transparent px-3 py-2 transition hover:border-[rgba(44,62,80,0.12)] hover:bg-white"
+                  className="block border border-transparent px-3 py-2 transition"
+                  style={{ color: pathTheme.surfaceText }}
+                  onMouseEnter={(event) => {
+                    event.currentTarget.style.borderColor = panelBorder;
+                    event.currentTarget.style.background = hoverSurface;
+                  }}
+                  onMouseLeave={(event) => {
+                    event.currentTarget.style.borderColor = "transparent";
+                    event.currentTarget.style.background = "transparent";
+                  }}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <p className="text-sm font-bold text-[#2C3E50]">{course.title}</p>
-                    <span className="text-[0.6rem] font-bold uppercase tracking-[0.22em] text-[#21623A]">
+                    <p className="text-sm font-bold" style={{ color: pathTheme.surfaceText }}>{course.title}</p>
+                    <span className="text-[0.6rem] font-bold uppercase tracking-[0.22em]" style={{ color: pathTheme.accentColor }}>
                       Open
                     </span>
                   </div>
-                  <p className="mt-1 text-xs font-semibold text-[#687A89]">{course.subtitle}</p>
+                  <p className="mt-1 text-xs font-semibold" style={{ color: mutedText }}>{course.subtitle}</p>
                 </Link>
               ) : (
-                <div key={course.id} className="border border-transparent px-3 py-2 hover:border-[rgba(44,62,80,0.12)] hover:bg-white">
+                <div
+                  key={course.id}
+                  className="border border-transparent px-3 py-2"
+                  style={{ background: withAlpha(pathTheme.surfaceBackground, 0.2) }}
+                >
                   <div className="flex items-start justify-between gap-3">
-                    <p className="text-sm font-bold text-[#2C3E50]">{course.title}</p>
-                    <span className="text-[0.6rem] font-bold uppercase tracking-[0.22em] text-[#E67E22]">
+                    <p className="text-sm font-bold" style={{ color: pathTheme.surfaceText }}>{course.title}</p>
+                    <span className="text-[0.6rem] font-bold uppercase tracking-[0.22em]" style={{ color: withAlpha(pathTheme.accentColor, 0.8) }}>
                       {course.status === "coming_soon" ? "Soon" : "Planned"}
                     </span>
                   </div>
-                  <p className="mt-1 text-xs font-semibold text-[#687A89]">{course.subtitle}</p>
+                  <p className="mt-1 text-xs font-semibold" style={{ color: mutedText }}>{course.subtitle}</p>
                 </div>
               )
             ))}
@@ -225,16 +258,19 @@ function LibraryMenu({
 }
 
 function ReserveOverlay() {
+  const { pathTheme } = useThemeContext();
+
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      <div className="absolute left-[-8%] top-[46%] h-[2px] w-[116%] -rotate-[8deg] bg-[#8E99A3]" />
-      <div className="absolute left-[55%] top-[-8%] h-[120%] w-[2px] rotate-[12deg] bg-[#8E99A3]" />
+      <div className="absolute left-[-8%] top-[46%] h-[2px] w-[116%] -rotate-[8deg]" style={{ background: withAlpha(pathTheme.surfaceText, 0.22) }} />
+      <div className="absolute left-[55%] top-[-8%] h-[120%] w-[2px] rotate-[12deg]" style={{ background: withAlpha(pathTheme.surfaceText, 0.22) }} />
     </div>
   );
 }
 
 export default function LanguagePage() {
   const router = useRouter();
+  const { pathTheme } = useThemeContext();
   const [selected, setSelected] = useState<string | null>(null);
   const [currentLanguage, setCurrentLanguage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -319,45 +355,60 @@ export default function LanguagePage() {
 
   const activeCard = LANGUAGE_CARDS.find((card) => card.id === (selected ?? currentLanguage ?? "python")) ?? LANGUAGE_CARDS[0];
   const reserveCards = LANGUAGE_CARDS.filter((card) => card.status === "reserve").length;
+  const totalCourses = LANGUAGE_CARDS.length;
+  const isMythicTheme = pathTheme.id === "celestial" || pathTheme.id === "the_void";
+  const mythicThemeId = isMythicTheme ? pathTheme.id as "celestial" | "the_void" : null;
+  const surfaceBorder = withAlpha(pathTheme.accentColor, 0.18);
+  const softBorder = withAlpha(pathTheme.accentColor, 0.12);
+  const mutedText = withAlpha(pathTheme.surfaceText, 0.68);
+  const quietText = withAlpha(pathTheme.surfaceText, 0.54);
+  const raisedSurface = withAlpha(pathTheme.surfaceCard, 0.94);
+  const mutedSurface = withAlpha(pathTheme.surfaceBackground, 0.34);
+  const activeSurface = withAlpha(pathTheme.accentColor, 0.12);
 
   return (
-    <div className="min-h-screen mobile-dock-pad px-4 py-8">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6">
+    <div className="relative min-h-screen overflow-hidden mobile-dock-pad px-4 py-8" style={{ background: pathTheme.surfaceBackground }}>
+      {mythicThemeId ? <MythicThemeLayer themeId={mythicThemeId} className="opacity-80" /> : null}
+      <AmbientEffectsLayer effects={pathTheme.ambientEffects} enabled className="opacity-40" />
+      <div className="pointer-events-none absolute inset-0" style={{ background: pathTheme.pageOverlay, opacity: 0.9 }} />
+      <div className="pointer-events-none absolute inset-0 opacity-70" style={{ background: `radial-gradient(circle at 14% 18%, ${withAlpha(pathTheme.accentColor, 0.14)}, transparent 28%), radial-gradient(circle at 84% 14%, ${withAlpha(pathTheme.previewHighlight, 0.16)}, transparent 24%)` }} />
+
+      <div className="relative z-10 mx-auto flex max-w-6xl flex-col gap-6">
         <section className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
-          <article className="surface-sheet relative overflow-hidden px-6 py-8 sm:px-8">
-            <div className="absolute right-0 top-0 h-24 w-24 border-l border-b border-[rgba(44,62,80,0.08)] bg-[rgba(230,126,34,0.08)]" />
-            <p className="editorial-kicker">Courses</p>
-            <h1 className="mt-4 max-w-2xl text-5xl font-black leading-[0.98] text-[#2C3E50] sm:text-6xl">
+          <article className="relative overflow-hidden px-6 py-8 sm:px-8" style={{ border: `1px solid ${surfaceBorder}`, background: raisedSurface, boxShadow: `0 24px 60px ${withAlpha(pathTheme.accentColor, 0.12)}` }}>
+            <div className="absolute right-0 top-0 h-24 w-24 border-l border-b" style={{ borderColor: softBorder, background: withAlpha(pathTheme.accentColor, 0.08) }} />
+            <p className="editorial-kicker" style={{ color: withAlpha(pathTheme.accentColor, 0.88) }}>Courses</p>
+            <h1 className="mt-4 max-w-2xl text-5xl font-black leading-[0.98] sm:text-6xl" style={{ color: pathTheme.surfaceText }}>
               Select a course.
             </h1>
-            <p className="mt-5 max-w-xl text-lg font-semibold leading-8 text-[#5A6A79]">
-              Select Python or JavaScript. Open libraries from each card.
+            <p className="mt-5 max-w-xl text-lg font-semibold leading-8" style={{ color: mutedText }}>
+              Choose any live language, then open its library menu for supported tracks and mini-courses.
             </p>
 
             <div className="mt-8 grid gap-4 sm:grid-cols-[1fr_0.9fr]">
-              <div className="border border-[rgba(44,62,80,0.12)] bg-[#F1ECE5] p-4">
-                <p className="text-[0.68rem] font-bold uppercase tracking-[0.24em] text-[#556675]">Current course</p>
-                <p className="mt-3 text-3xl font-black text-[#2C3E50]">{getLanguageLabel(currentLanguage ?? "python")}</p>
+              <div className="p-4" style={{ border: `1px solid ${softBorder}`, background: mutedSurface }}>
+                <p className="text-[0.68rem] font-bold uppercase tracking-[0.24em]" style={{ color: quietText }}>Current course</p>
+                <p className="mt-3 text-3xl font-black" style={{ color: pathTheme.surfaceText }}>{getLanguageLabel(currentLanguage ?? "python")}</p>
               </div>
-              <div className="border border-[rgba(44,62,80,0.12)] bg-[#2C3E50] p-4 text-[#ECF0F1] sm:translate-y-6">
-                <p className="text-[0.68rem] font-bold uppercase tracking-[0.24em] text-[#F4C28A]">Course count</p>
-                <p className="mt-3 text-3xl font-black">{reserveCards + 2}</p>
+              <div className="p-4 text-white sm:translate-y-6" style={{ border: `1px solid ${withAlpha(pathTheme.accentColor, 0.24)}`, background: pathTheme.surfaceDark, boxShadow: `0 18px 32px ${withAlpha(pathTheme.accentColor, 0.16)}` }}>
+                <p className="text-[0.68rem] font-bold uppercase tracking-[0.24em]" style={{ color: withAlpha(pathTheme.accentColor, 0.82) }}>Course count</p>
+                <p className="mt-3 text-3xl font-black">{totalCourses - reserveCards}</p>
               </div>
             </div>
           </article>
 
-          <aside className="surface-sheet grid gap-5 px-6 py-8 sm:px-8">
+          <aside className="grid gap-5 px-6 py-8 sm:px-8" style={{ border: `1px solid ${surfaceBorder}`, background: raisedSurface, boxShadow: `0 24px 60px ${withAlpha(pathTheme.accentColor, 0.1)}` }}>
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="editorial-kicker">Selection</p>
-                <h2 className="mt-3 text-4xl font-black text-[#2C3E50]">Review {activeCard.label}</h2>
+                <p className="editorial-kicker" style={{ color: withAlpha(pathTheme.accentColor, 0.88) }}>Selection</p>
+                <h2 className="mt-3 text-4xl font-black" style={{ color: pathTheme.surfaceText }}>Review {activeCard.label}</h2>
               </div>
               <Pico size={84} mood="happy" />
             </div>
-            <p className="text-base font-semibold leading-7 text-[#5A6A79]">{activeCard.description}</p>
-            <div className="border border-[rgba(44,62,80,0.12)] bg-[#F1ECE5] p-4">
-              <p className="text-[0.68rem] font-bold uppercase tracking-[0.24em] text-[#556675]">Library menu</p>
-              <p className="mt-3 text-sm font-semibold leading-6 text-[#4E6070]">
+            <p className="text-base font-semibold leading-7" style={{ color: mutedText }}>{activeCard.description}</p>
+            <div className="p-4" style={{ border: `1px solid ${softBorder}`, background: mutedSurface }}>
+              <p className="text-[0.68rem] font-bold uppercase tracking-[0.24em]" style={{ color: quietText }}>Library menu</p>
+              <p className="mt-3 text-sm font-semibold leading-6" style={{ color: mutedText }}>
                 Open the top menu to view supported libraries.
               </p>
             </div>
@@ -365,6 +416,12 @@ export default function LanguagePage() {
               onClick={handleConfirm}
               disabled={!selected || loading}
               className="ink-button px-5 py-4 text-sm font-bold uppercase tracking-[0.2em] disabled:border-[#B7C0C7] disabled:bg-[#DDE2E6] disabled:text-[#738392]"
+              style={{
+                background: pathTheme.accentColor,
+                borderColor: pathTheme.accentColor,
+                color: pathTheme.accentContrast,
+                boxShadow: `0 16px 28px ${withAlpha(pathTheme.accentColor, 0.22)}`,
+              }}
             >
               {loading ? "Open course..." : selected === currentLanguage ? "Open course" : "Select course"}
             </button>
@@ -396,13 +453,12 @@ export default function LanguagePage() {
                 tabIndex={isLive ? 0 : undefined}
                 aria-disabled={isLive ? loading : undefined}
                 aria-label={isLive ? `Open ${language.label} course` : undefined}
-                className={`surface-sheet relative overflow-hidden px-5 py-5 transition ${language.footprint} ${
-                  isLive
-                    ? isSelected
-                      ? "cursor-pointer touch-manipulation border-[#2C3E50] bg-[#FBF8F4] shadow-[0_18px_40px_rgba(44,62,80,0.1)]"
-                      : "cursor-pointer touch-manipulation hover:-translate-y-0.5"
-                    : "bg-[#E7E3DC]"
-                }`}
+                className={`relative overflow-hidden px-5 py-5 transition ${language.footprint} ${isLive ? "cursor-pointer touch-manipulation hover:-translate-y-0.5" : ""}`}
+                style={{
+                  border: `1px solid ${isSelected ? withAlpha(pathTheme.accentColor, 0.4) : surfaceBorder}`,
+                  background: isLive ? (isSelected ? activeSurface : raisedSurface) : withAlpha(pathTheme.surfaceDark, 0.08),
+                  boxShadow: isLive && isSelected ? `0 18px 40px ${withAlpha(pathTheme.accentColor, 0.2)}` : `0 16px 36px ${withAlpha(pathTheme.accentColor, 0.08)}`,
+                }}
               >
                 {!isLive && <ReserveOverlay />}
 
@@ -419,47 +475,59 @@ export default function LanguagePage() {
                           open={openLibraryMenu === language.id}
                           onToggle={() => setOpenLibraryMenu((current) => current === language.id ? null : language.id)}
                         />
-                        <div className={`flex h-8 w-8 items-center justify-center border-2 ${
-                          isSelected ? "border-[#2C3E50] bg-[#2C3E50] text-white" : "border-[#B7C0C7] bg-[#F8F5F0] text-transparent"
-                        }`}>
+                        <div
+                          className="flex h-8 w-8 items-center justify-center border-2"
+                          style={{
+                            borderColor: isSelected ? pathTheme.accentColor : withAlpha(pathTheme.surfaceText, 0.24),
+                            background: isSelected ? pathTheme.accentColor : withAlpha(pathTheme.surfaceCard, 0.9),
+                            color: isSelected ? pathTheme.accentContrast : "transparent",
+                          }}
+                        >
                           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                           </svg>
                         </div>
                       </div>
                     ) : (
-                      <span className="border border-[rgba(44,62,80,0.16)] bg-[#F8F5F0] px-3 py-2 text-[0.68rem] font-bold uppercase tracking-[0.2em] text-[#697A88]">
+                      <span
+                        className="px-3 py-2 text-[0.68rem] font-bold uppercase tracking-[0.2em]"
+                        style={{
+                          border: `1px solid ${softBorder}`,
+                          background: withAlpha(pathTheme.surfaceCard, 0.8),
+                          color: quietText,
+                        }}
+                      >
                         Not available
                       </span>
                     )}
                   </div>
 
                   <div className="mt-6">
-                    <h3 className="text-4xl font-black text-[#2C3E50]">
+                    <h3 className="text-4xl font-black" style={{ color: pathTheme.surfaceText }}>
                       {isLive ? `Select ${language.label}` : `View ${language.label}`}
                     </h3>
-                    <p className="mt-3 max-w-md text-base font-semibold leading-7 text-[#5A6A79]">
+                    <p className="mt-3 max-w-md text-base font-semibold leading-7" style={{ color: mutedText }}>
                       {language.description}
                     </p>
                   </div>
 
                   <div className="mt-auto pt-6">
                     {isLive ? (
-                      <div className="flex items-center justify-between border border-[rgba(44,62,80,0.12)] bg-[#F1ECE5] px-4 py-4">
+                      <div className="flex items-center justify-between px-4 py-4" style={{ border: `1px solid ${softBorder}`, background: mutedSurface }}>
                         <div>
-                          <p className="text-[0.68rem] font-bold uppercase tracking-[0.24em] text-[#556675]">
+                          <p className="text-[0.68rem] font-bold uppercase tracking-[0.24em]" style={{ color: quietText }}>
                             {isCurrent ? "Current course" : "Available course"}
                           </p>
-                          <p className="mt-2 text-sm font-bold text-[#2C3E50]">
+                          <p className="mt-2 text-sm font-bold" style={{ color: pathTheme.surfaceText }}>
                             {isCurrent ? "Open course" : "Select course"}
                           </p>
                         </div>
-                        <span className="text-sm font-black text-[#E67E22]">{isSelected ? "Selected" : "Ready"}</span>
+                        <span className="text-sm font-black" style={{ color: pathTheme.accentColor }}>{isSelected ? "Selected" : "Ready"}</span>
                       </div>
                     ) : (
-                      <div className="border border-[rgba(44,62,80,0.12)] bg-[#F8F5F0] px-4 py-4">
-                        <p className="text-[0.68rem] font-bold uppercase tracking-[0.24em] text-[#556675]">Availability</p>
-                        <p className="mt-2 text-sm font-semibold leading-6 text-[#566776]">
+                      <div className="px-4 py-4" style={{ border: `1px solid ${softBorder}`, background: withAlpha(pathTheme.surfaceCard, 0.78) }}>
+                        <p className="text-[0.68rem] font-bold uppercase tracking-[0.24em]" style={{ color: quietText }}>Availability</p>
+                        <p className="mt-2 text-sm font-semibold leading-6" style={{ color: mutedText }}>
                           This course is not available yet.
                         </p>
                       </div>

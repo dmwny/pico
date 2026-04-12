@@ -314,7 +314,6 @@ export default function UnitChallengeClient({
     loading,
     isHydrating,
     progress,
-    updateProgress,
     saveProgressSnapshot,
     applyQualifiedStreakActivity,
     xpBoostActive,
@@ -356,6 +355,7 @@ export default function UnitChallengeClient({
   const activeQuestion = session ? session.questions[session.questionIndex] ?? null : null;
   const displayedQuestion = feedback && frozenQuestion ? frozenQuestion : activeQuestion;
   const answerReady = displayedQuestion ? isQuestionAnswerReady(displayedQuestion, answer, runResult) : false;
+  const completionLocked = pendingAdvance?.kind === "complete" || screen === "complete" || Boolean(summary);
 
   const startSession = useCallback(() => {
     if (!unit) {
@@ -395,12 +395,12 @@ export default function UnitChallengeClient({
   }, [challengeCompleted, challengeQuestions, challengeUnlocked, unit]);
 
   useEffect(() => {
-    if (loading || isHydrating) return;
+    if (loading || isHydrating || completionLocked) return;
     const bootKey = `${language}:${unitId}:${challengeCompleted ? "replay" : "first-clear"}:${progress?.completed_lessons.length ?? 0}:${challengeQuestions.length}`;
     if (bootRef.current === bootKey) return;
     bootRef.current = bootKey;
     startSession();
-  }, [challengeCompleted, challengeQuestions.length, isHydrating, language, loading, progress?.completed_lessons.length, startSession, unitId]);
+  }, [challengeCompleted, challengeQuestions.length, completionLocked, isHydrating, language, loading, progress?.completed_lessons.length, startSession, unitId]);
 
   useEffect(() => {
     setAnswer({});
@@ -436,27 +436,31 @@ export default function UnitChallengeClient({
       language: baseSnapshot.language,
       baseProgress: baseSnapshot,
     });
-    const persistedProgress = streakResult?.progress ?? await saveProgressSnapshot(baseSnapshot, {
+    let persistedProgress = streakResult?.progress ?? await saveProgressSnapshot(baseSnapshot, {
       language: baseSnapshot.language,
       syncRemote: true,
     });
 
     if (persistedProgress) {
+      const currentProgress = persistedProgress;
       const earnedNow = checkAchievements(
-        persistedProgress.completed_lessons,
-        persistedProgress.xp,
-        persistedProgress.streak,
+        currentProgress.completed_lessons,
+        currentProgress.xp,
+        currentProgress.streak,
         nextSession.perfectRun,
         Math.max(1, Math.round((Date.now() - Date.parse(nextSession.startedAt)) / 1000)),
         nextSession.correctCount,
-        persistedProgress.today_perfect,
+        currentProgress.today_perfect,
       );
-      const newAchievements = earnedNow.filter((id) => !persistedProgress.achievements.includes(id));
+      const newAchievements = earnedNow.filter((id) => !currentProgress.achievements.includes(id));
       if (newAchievements.length > 0) {
-        await updateProgress(
-          { achievements: [...persistedProgress.achievements, ...newAchievements] },
-          { language: baseSnapshot.language, syncRemote: true },
-        );
+        persistedProgress = applyProgressPatch(currentProgress, baseSnapshot.language, {
+          achievements: [...currentProgress.achievements, ...newAchievements],
+        });
+        await saveProgressSnapshot(persistedProgress, {
+          language: baseSnapshot.language,
+          syncRemote: true,
+        });
       }
     }
 
@@ -465,7 +469,7 @@ export default function UnitChallengeClient({
       xpEarned,
       completionBonusXp,
     };
-  }, [applyQualifiedStreakActivity, challengeBonusXp, challengeKey, progress, replayMode, saveProgressSnapshot, timezone, unit, updateProgress]);
+  }, [applyQualifiedStreakActivity, challengeBonusXp, challengeKey, progress, replayMode, saveProgressSnapshot, timezone, unit]);
 
   const handleCheck = useCallback(async () => {
     if (!displayedQuestion || !session) return;

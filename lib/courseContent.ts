@@ -490,6 +490,15 @@ const MINI_COURSES: Record<LearningLanguage, MiniCourseMeta[]> = {
   ],
   lua: [
     {
+      id: "roblox-studio",
+      title: "Roblox Studio",
+      subtitle: "Studio tools, services, and game scripting",
+      description: "Build Roblox games with Studio workflows, services, events, remotes, UI, physics, and persistence.",
+      status: "live",
+      badge: "RB",
+      href: "/labs/lua/roblox-studio",
+    },
+    {
       id: "tables",
       title: "Tables",
       subtitle: "Fields, helpers, and table tools",
