@@ -22,6 +22,34 @@ function toTitleCase(value: string) {
   return value.replace(/[-_]/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function trimTrailingPunctuation(value: string) {
+  return value.trim().replace(/[.?!:;]+$/g, "");
+}
+
+function quotePromptValue(value: string) {
+  return JSON.stringify(value);
+}
+
+function buildLegacyTrueFalseVariant(params: {
+  buildPrompt: (statement: string) => string;
+  options?: string[];
+  correctAnswer: string;
+  seed: string;
+}) {
+  const distractors = seededSort(
+    (params.options ?? []).filter((option) => option !== params.correctAnswer),
+    `${params.seed}:distractors`,
+  );
+  const useFalseStatement = distractors.length > 0 && hashSeed(`${params.seed}:truthiness`) % 2 === 1;
+  const statement = useFalseStatement ? distractors[0] : params.correctAnswer;
+
+  return {
+    prompt: params.buildPrompt(statement),
+    correctIndex: useFalseStatement ? 1 : 0,
+    correctAnswer: useFalseStatement ? "false" : "true",
+  } as const;
+}
+
 function transformLegacyQuestion(
   question: LegacyQuestion,
   node: LessonArcNodeDescriptor,
@@ -50,15 +78,23 @@ function transformLegacyQuestion(
     });
 
     if (typeof question.answer === "string") {
+      const trueFalseVariant = buildLegacyTrueFalseVariant({
+        buildPrompt: (statement) => (
+          `True or False: For the question ${quotePromptValue(trimTrailingPunctuation(question.instruction))}, the correct answer is ${quotePromptValue(statement)}.`
+        ),
+        options: question.options,
+        correctAnswer: question.answer,
+        seed: `${baseId}:mc:true-false`,
+      });
       transformed.push({
         id: `${baseId}:tf`,
         type: "true_false",
         concept: node.concept,
         difficulty,
-        prompt: `True or False: ${question.answer}`,
+        prompt: trueFalseVariant.prompt,
         options: ["True", "False"],
-        correctIndex: 0,
-        correctAnswer: "true",
+        correctIndex: trueFalseVariant.correctIndex,
+        correctAnswer: trueFalseVariant.correctAnswer,
         explanation: question.explanation,
       });
     }
@@ -77,16 +113,22 @@ function transformLegacyQuestion(
     });
 
     if (typeof question.answer === "string") {
+      const trueFalseVariant = buildLegacyTrueFalseVariant({
+        buildPrompt: (statement) => `True or False: This code prints ${quotePromptValue(statement)}.`,
+        options: question.options,
+        correctAnswer: question.answer,
+        seed: `${baseId}:output:true-false`,
+      });
       transformed.push({
         id: `${baseId}:tf`,
         type: "true_false",
         concept: node.concept,
         difficulty,
-        prompt: `True or False: This code prints ${question.answer}.`,
+        prompt: trueFalseVariant.prompt,
         code,
         options: ["True", "False"],
-        correctIndex: 0,
-        correctAnswer: "true",
+        correctIndex: trueFalseVariant.correctIndex,
+        correctAnswer: trueFalseVariant.correctAnswer,
         explanation: question.explanation,
       });
     }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { splitSpotBugVersions } from "@/lib/lessonArc/engine";
+import { isTrueFalseOptionTrue } from "@/lib/lessonArc/questionShuffle";
 import type {
   LessonArcQuestion,
   LessonCodeRunResult,
@@ -690,7 +691,7 @@ export default function QuestionRenderer({
               active={answer.optionIndex === index}
               correct={Boolean(feedback && question.correctIndex === index)}
               wrong={Boolean(feedback && !feedback.correct && answer.optionIndex === index)}
-              onClick={() => onChange({ optionIndex: index, optionValue: option, booleanValue: index === 0 })}
+              onClick={() => onChange({ optionIndex: index, optionValue: option, booleanValue: isTrueFalseOptionTrue(option) })}
             />
           ))}
         </div>

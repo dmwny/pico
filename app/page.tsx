@@ -2663,6 +2663,7 @@ function HomePage() {
       for (const [cardIndex, card] of horizontalTrack.cards.entries()) {
         const node = worldNodeRefs.current[card.id];
         if (!node || !(node instanceof HTMLElement)) continue;
+        const entranceMeta = cardEntranceMetaRef.current[card.id];
         const baseBorderColor = card.tone === "light" ? COLORS.border : "transparent";
         const rect = { x: card.x, y: card.y, w: card.w, h: card.h };
         if (!intersects(rect, cullRect)) {
@@ -2684,6 +2685,8 @@ function HomePage() {
         const focusState = computeFocusState(distance, vw, vh);
         const isHero = heroCardId === card.id;
         const isFocusedCard = focusedCardId === card.id;
+        const presence = 1;
+        const finalOpacity = isFocusedCard ? 1 : eased;
         const effectiveFocus = isFocusedCard ? 1 : Math.max(eased, focusState.focus * 0.42);
         const depth = 0.94 + ((card.zIndex ?? 3) - 3) * 0.08 + (isFocusedCard ? 0.03 : 0);
         const depthTransform = applyDepthTransform({
@@ -2740,8 +2743,37 @@ function HomePage() {
           ? "0 34px 90px rgba(26,35,50,0.22), 0 0 0 1px rgba(245,240,232,0.24)"
           : `0 18px 48px rgba(26,35,50,${(0.08 + effectiveFocus * 0.08).toFixed(3)})`;
 
+        if (!seenCardsRef.current.has(card.id)) {
+          seenCardsRef.current.add(card.id);
+          const entranceDelay = entranceMeta ? entranceMeta.indexWithinScene * 90 : 0;
+          const enterFromLeft = scrollDirectionRef.current === "backward";
+
+          node.style.transition = "none";
+          node.style.opacity = "0";
+          node.style.filter = `blur(6px) brightness(0.92)`;
+          node.style.transform = `translate3d(${enterFromLeft ? -36 : 36}px, 22px, 0) rotate(${card.rotation.toFixed(2)}deg) scale(0.93)`;
+
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              node.style.transition = [
+                `opacity 480ms cubic-bezier(0.22,1,0.36,1) ${entranceDelay}ms`,
+                `filter 520ms cubic-bezier(0.22,1,0.36,1) ${entranceDelay}ms`,
+                `transform 520ms cubic-bezier(0.22,1,0.36,1) ${entranceDelay}ms`,
+              ].join(", ");
+              node.style.opacity = `${(finalOpacity * presence).toFixed(3)}`;
+              node.style.filter = targetFilter;
+              node.style.transform = targetTransform;
+            });
+          });
+
+          window.setTimeout(() => {
+            if (node.isConnected) node.style.transition = "";
+          }, 540 + entranceDelay + 60);
+          continue;
+        }
+
         node.style.pointerEvents = isFocusedCard || eased > 0.58 ? "auto" : "none";
-        node.style.opacity = isFocusedCard ? "1" : eased.toFixed(3);
+        node.style.opacity = `${(finalOpacity * presence).toFixed(3)}`;
         node.style.filter = targetFilter;
         node.style.transform = targetTransform;
       }
@@ -2771,6 +2803,99 @@ function HomePage() {
 
         node.style.opacity = `${(proximity * 0.65).toFixed(3)}`;
         node.style.transform = `translate3d(${(element.worldX + floatX + parallaxX).toFixed(1)}px, ${(element.worldY + floatY + parallaxY).toFixed(1)}px, 0) rotate(${element.rotation.toFixed(2)}deg)`;
+      }
+    };
+
+    const updateFloaters = () => {
+      const cameraX = cameraRef.current.x;
+      const cameraY = cameraRef.current.y;
+      const vw = viewportRef.current.width;
+      const vh = viewportRef.current.height;
+      const cameraCenterX = cameraX + vw / 2;
+      const cameraCenterY = cameraY + vh / 2;
+
+      const allFloaters: FloaterSpec[] = [
+        ...CODE_SNIPPETS,
+        ...LANGUAGE_ICONS,
+        ...STATS,
+        ...STICKY_NOTES,
+        ...BRACKETS,
+        STREAK_FLAME,
+      ];
+
+      for (const el of allFloaters) {
+        const node = worldNodeRefs.current[el.id];
+        if (!(node instanceof HTMLElement)) continue;
+
+        const screenX = el.x - cameraX;
+        const screenY = el.y - cameraY;
+        if (
+          screenX < -500 || screenX > vw + 500 ||
+          screenY < -500 || screenY > vh + 500
+        ) {
+          node.style.opacity = "0";
+          continue;
+        }
+
+        const drift = applyFloatingAnimation({
+          time,
+          phase: el.phase,
+          speed: el.speed,
+          amplitude: el.amplitude,
+          rotateAmplitude: el.rotateAmplitude ?? 0.45,
+        });
+
+        const dx = el.x + el.w / 2 - cameraCenterX;
+        const dy = el.y + el.h / 2 - cameraCenterY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const proximity = clamp(1 - dist / 1100, 0, 1);
+        const eased = proximity * proximity;
+        node.style.opacity = (eased * 0.68).toFixed(3);
+
+        let staticRotate = 0;
+        if (el.baseTransform) {
+          const m = el.baseTransform.match(/rotate\((-?[\d.]+)deg\)/);
+          if (m) staticRotate = parseFloat(m[1]);
+        }
+
+        const totalRotate = staticRotate + (el.rotateAmplitude ? drift.rotate : 0);
+        node.style.transform = `translate3d(${(el.x + drift.driftX).toFixed(1)}px, ${(el.y + drift.driftY).toFixed(1)}px, 0) rotate(${totalRotate.toFixed(2)}deg)`;
+      }
+
+      const badgeNode = worldNodeRefs.current[NEW_BADGE.id];
+      if (badgeNode instanceof HTMLElement) {
+        const badgeDrift = applyFloatingAnimation({
+          time,
+          phase: NEW_BADGE.phase,
+          speed: NEW_BADGE.speed,
+          amplitude: NEW_BADGE.amplitude,
+          rotateAmplitude: NEW_BADGE.rotateAmplitude ?? 1.5,
+        });
+        badgeNode.style.transform = `translate3d(${(NEW_BADGE.x + badgeDrift.driftX).toFixed(1)}px, ${(NEW_BADGE.y + badgeDrift.driftY).toFixed(1)}px, 0) rotate(${badgeDrift.rotate.toFixed(2)}deg)`;
+      }
+
+      const flameNode = worldNodeRefs.current[STREAK_FLAME.id];
+      if (flameNode instanceof HTMLElement) {
+        const flameDrift = applyFloatingAnimation({
+          time,
+          phase: STREAK_FLAME.phase,
+          speed: STREAK_FLAME.speed,
+          amplitude: STREAK_FLAME.amplitude,
+        });
+        const flameScreenX = STREAK_FLAME.x - cameraRef.current.x;
+        const flameScreenY = STREAK_FLAME.y - cameraRef.current.y;
+        const flameVisible =
+          flameScreenX > -200 && flameScreenX < viewportRef.current.width + 200 &&
+          flameScreenY > -200 && flameScreenY < viewportRef.current.height + 200;
+        const flameDx = STREAK_FLAME.x - cameraCenterX;
+        const flameDy = STREAK_FLAME.y - cameraCenterY;
+        const flameDist = Math.sqrt(flameDx * flameDx + flameDy * flameDy);
+        const flameProximity = clamp(1 - flameDist / 900, 0, 1);
+        const flamePulse = 0.5 + Math.sin(time * 0.003) * 0.3;
+        flameNode.style.opacity = flameVisible
+          ? (flameProximity * flamePulse).toFixed(3)
+          : "0";
+        flameNode.style.transform = `translate3d(${(STREAK_FLAME.x + flameDrift.driftX).toFixed(1)}px, ${(STREAK_FLAME.y + flameDrift.driftY).toFixed(1)}px, 0)`;
       }
     };
 
@@ -2889,6 +3014,7 @@ function HomePage() {
       updateCards();
       updateSeparators();
       updateSceneLabels();
+      updateFloaters();
 
       frame = requestAnimationFrame(tick);
     };
@@ -3093,17 +3219,6 @@ function HomePage() {
           filter: "blur(72px)",
         }}
       />
-      <div
-        style={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 4,
-          pointerEvents: "none",
-          background:
-            "radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.08) 70%, rgba(0,0,0,0.18) 100%)",
-        }}
-      />
-
       <nav
         style={{
           position: "fixed",
@@ -3267,6 +3382,18 @@ function HomePage() {
             background: "transparent",
           }}
       >
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 25,
+              pointerEvents: "none",
+              background: `radial-gradient(ellipse at center,
+                transparent 35%,
+                rgba(245,240,232,0.05) 58%,
+                rgba(245,240,232,0.20) 100%)`,
+            }}
+          />
           <div
             ref={sceneMoodRef}
             style={{
@@ -3508,9 +3635,45 @@ function HomePage() {
                     ? element.lines?.map((line, index) => <div key={`${element.id}-${index}`}>{line}</div>)
                     : element.kind === "dot"
                       ? null
-                      : element.content}
+                    : element.content}
                 </div>
               ))}
+
+              <svg
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  width: "100%",
+                  height: "100%",
+                  overflow: "visible",
+                  pointerEvents: "none",
+                  zIndex: 2,
+                }}
+              >
+                {CONNECTORS.map((connector) => {
+                  const geo = getConnectorGeometry(connector);
+                  return (
+                    <g key={connector.id}>
+                      <path
+                        d={geo.path}
+                        fill="none"
+                        stroke="rgba(26,35,50,0.06)"
+                        strokeWidth="1.5"
+                        transform={`translate(${geo.left}, ${geo.top})`}
+                      />
+                      <path
+                        d={geo.path}
+                        fill="none"
+                        stroke="rgba(232,130,12,0.28)"
+                        strokeWidth="1"
+                        strokeDasharray="4 10"
+                        transform={`translate(${geo.left}, ${geo.top})`}
+                        className="connector-line"
+                      />
+                    </g>
+                  );
+                })}
+              </svg>
 
               {horizontalTrack.cards.map((card) => (
                 <article
@@ -3538,6 +3701,209 @@ function HomePage() {
                   {renderCardContent(card, pushRoute, learnerCount)}
                 </article>
               ))}
+
+              {CODE_SNIPPETS.map((element) => (
+                <div
+                  key={element.id}
+                  ref={(node) => registerNode(element.id, node)}
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    pointerEvents: "none",
+                    opacity: 0,
+                    willChange: "transform opacity",
+                    transform: `translate3d(${element.x}px, ${element.y}px, 0)`,
+                    background: "rgba(253,252,249,0.88)",
+                    border: "1px solid rgba(26,35,50,0.10)",
+                    borderRadius: 4,
+                    padding: "8px 10px",
+                    fontFamily: MONO_FONT,
+                    fontSize: 11,
+                    lineHeight: 1.6,
+                    color: "rgba(26,35,50,0.65)",
+                    whiteSpace: "pre",
+                    width: element.w,
+                    zIndex: element.zIndex,
+                  }}
+                >
+                  {element.code.split("\n").map((line, index) => (
+                    <div key={`${element.id}-${index}`}>{line}</div>
+                  ))}
+                </div>
+              ))}
+
+              {LANGUAGE_ICONS.map((element) => (
+                <div
+                  key={element.id}
+                  ref={(node) => registerNode(element.id, node)}
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    pointerEvents: "none",
+                    opacity: 0,
+                    willChange: "transform opacity",
+                    transform: `translate3d(${element.x}px, ${element.y}px, 0)`,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 6,
+                    zIndex: element.zIndex,
+                  }}
+                >
+                  {renderIcon(element.kind)}
+                  <span
+                    style={{
+                      fontFamily: SANS_FONT,
+                      fontSize: 9,
+                      fontWeight: 700,
+                      letterSpacing: "0.10em",
+                      textTransform: "uppercase",
+                      color: "rgba(26,35,50,0.45)",
+                    }}
+                  >
+                    {element.label}
+                  </span>
+                </div>
+              ))}
+
+              {STATS.map((element) => (
+                <div
+                  key={element.id}
+                  ref={(node) => registerNode(element.id, node)}
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    pointerEvents: "none",
+                    opacity: 0,
+                    willChange: "transform opacity",
+                    transform: `translate3d(${element.x}px, ${element.y}px, 0)`,
+                    background: "rgba(253,252,249,0.92)",
+                    border: "1px solid rgba(26,35,50,0.10)",
+                    borderRadius: 3,
+                    padding: "14px 16px",
+                    zIndex: element.zIndex,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontFamily: DISPLAY_FONT,
+                      fontSize: 32,
+                      fontWeight: 900,
+                      color: COLORS.navy,
+                    }}
+                  >
+                    {element.fallbackValue}
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: SANS_FONT,
+                      fontSize: 9,
+                      letterSpacing: "0.12em",
+                      textTransform: "uppercase",
+                      color: COLORS.mutedLabel,
+                      marginTop: 4,
+                    }}
+                  >
+                    {element.label}
+                  </div>
+                </div>
+              ))}
+
+              {STICKY_NOTES.map((element) => (
+                <div
+                  key={element.id}
+                  ref={(node) => registerNode(element.id, node)}
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    pointerEvents: "none",
+                    opacity: 0,
+                    willChange: "transform opacity",
+                    transform: `translate3d(${element.x}px, ${element.y}px, 0)`,
+                    width: element.w,
+                    padding: 14,
+                    borderRadius: 2,
+                    zIndex: element.zIndex,
+                    background:
+                      element.tone === "light"
+                        ? "rgba(253,252,249,0.96)"
+                        : element.tone === "dark"
+                          ? COLORS.navy
+                          : "rgba(232,130,12,0.12)",
+                    boxShadow: "0 8px 24px rgba(26,35,50,0.10)",
+                  }}
+                >
+                  <div style={labelStyle(element.tone === "dark")}>{element.label}</div>
+                  <div style={{ ...bodyStyle(element.tone === "dark"), marginTop: 8 }}>{element.body}</div>
+                </div>
+              ))}
+
+              {BRACKETS.map((element) => (
+                <div
+                  key={element.id}
+                  ref={(node) => registerNode(element.id, node)}
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    pointerEvents: "none",
+                    opacity: 0,
+                    willChange: "transform opacity",
+                    transform: `translate3d(${element.x}px, ${element.y}px, 0)`,
+                    fontFamily: MONO_FONT,
+                    fontSize: 72,
+                    fontWeight: 200,
+                    lineHeight: 1,
+                    color: "rgba(26,35,50,0.07)",
+                  }}
+                >
+                  {element.value}
+                </div>
+              ))}
+
+              <div
+                ref={(node) => registerNode(NEW_BADGE.id, node)}
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  pointerEvents: "none",
+                  willChange: "transform opacity",
+                  transform: `translate3d(${NEW_BADGE.x}px, ${NEW_BADGE.y}px, 0)`,
+                  background: COLORS.orange,
+                  color: COLORS.navy,
+                  borderRadius: 2,
+                  padding: "4px 10px",
+                  fontFamily: SANS_FONT,
+                  fontSize: 9,
+                  fontWeight: 800,
+                  letterSpacing: "0.14em",
+                  textTransform: "uppercase",
+                  zIndex: NEW_BADGE.zIndex,
+                }}
+              >
+                NEW
+              </div>
+
+              <div
+                ref={(node) => registerNode(STREAK_FLAME.id, node)}
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  pointerEvents: "none",
+                  opacity: 0,
+                  willChange: "transform opacity",
+                  transform: `translate3d(${STREAK_FLAME.x}px, ${STREAK_FLAME.y}px, 0)`,
+                  zIndex: STREAK_FLAME.zIndex,
+                }}
+              >
+                <FlameIcon size={STREAK_FLAME.w} />
+              </div>
             </div>
           </div>
 

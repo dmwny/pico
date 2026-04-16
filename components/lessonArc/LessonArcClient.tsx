@@ -25,6 +25,8 @@ import {
   upsertNodeProgress,
 } from "@/lib/lessonArc/engine";
 import { resolveNodeDescriptor } from "@/lib/lessonArc/catalog";
+import { sanitizeLessonArcQuestions } from "@/lib/lessonArc/promptSanitizer";
+import { isTrueFalseOptionTrue, shuffleQuestionsForDelivery } from "@/lib/lessonArc/questionShuffle";
 import { runPythonAgainstTests } from "@/lib/lessonArc/pythonRuntime";
 import type {
   LessonAdvanceResult,
@@ -141,6 +143,7 @@ export default function LessonArcClient({
     completedLessonCount: number;
   } | null>(null);
   const bootstrapRef = useRef<string | null>(null);
+  const completionNavigationTimeoutRef = useRef<number | null>(null);
 
   const activeQuestion = getActiveQuestion(session);
   const displayedQuestion = feedback && frozenQuestion ? frozenQuestion : activeQuestion;
@@ -218,16 +221,22 @@ export default function LessonArcClient({
     }
 
     if (shouldResumeSession) {
+      const resumedQuestions = shuffleQuestionsForDelivery(sanitizeLessonArcQuestions(matchingSession.questions));
+      const resumedSession = {
+        ...matchingSession,
+        questions: resumedQuestions,
+        questionOrder: resumedQuestions.map((question) => question.id),
+      } satisfies LessonArcSession;
       const titlePayload: LessonArcPayload = {
         node,
-        lessonIndex: matchingSession.lessonIndex,
+        lessonIndex: resumedSession.lessonIndex,
         title: node.lessonTitle,
-        subtitle: `Lesson ${matchingSession.lessonIndex + 1}`,
-        questions: matchingSession.questions,
+        subtitle: `Lesson ${resumedSession.lessonIndex + 1}`,
+        questions: resumedSession.questions,
       };
       setPayload(titlePayload);
-      setSession(matchingSession);
-      setNodeProgress(resolvedNodeProgress ?? buildNodeProgressFromSession(matchingSession, resolvedNodeProgress));
+      setSession(resumedSession);
+      setNodeProgress(resolvedNodeProgress ?? buildNodeProgressFromSession(resumedSession, resolvedNodeProgress));
       setScreen("lesson");
       return;
     }
@@ -567,8 +576,37 @@ export default function LessonArcClient({
     if (!reviewMode && lessonSummary?.arcComplete) {
       params.set("openArcChest", node.nodeId);
     }
-    router.push(`/learn?${params.toString()}`);
+    const href = `/learn?${params.toString()}`;
+
+    if (typeof window !== "undefined") {
+      if (completionNavigationTimeoutRef.current !== null) {
+        window.clearTimeout(completionNavigationTimeoutRef.current);
+      }
+      completionNavigationTimeoutRef.current = window.setTimeout(() => {
+        router.push(href);
+      }, 3000);
+    }
+
+    void (async () => {
+      try {
+        await Promise.resolve();
+        router.push(href);
+      } catch (error) {
+        console.error("[lesson-arc] failed to navigate back to learn", error);
+        if (typeof window !== "undefined") {
+          window.location.assign(href);
+        }
+      }
+    })();
   }, [lessonSummary?.arcComplete, node.language, node.nodeId, reviewMode, router]);
+
+  useEffect(() => {
+    return () => {
+      if (completionNavigationTimeoutRef.current !== null) {
+        window.clearTimeout(completionNavigationTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!displayedQuestion || screen !== "lesson") return;
@@ -590,7 +628,7 @@ export default function LessonArcClient({
         const index = Number(event.key) - 1;
         const option = displayedQuestion.options?.[index];
         if (option) {
-          setAnswer({ optionIndex: index, optionValue: option, booleanValue: index === 0 });
+          setAnswer({ optionIndex: index, optionValue: option, booleanValue: isTrueFalseOptionTrue(option) });
         }
       }
 
@@ -633,6 +671,35 @@ export default function LessonArcClient({
           </div>
         </div>
       </div>
+    );
+  }
+
+  if (screen === "lesson-complete" && lessonSummary) {
+    return (
+      <LessonCompleteScreen
+        lessonLabel={payload?.subtitle ?? node.lessonTitle}
+        lessonNumber={lessonSummary.lessonIndex}
+        completedLessonCount={lessonSummary.completedLessonCount}
+        xpEarned={lessonSummary.xpEarned}
+        correctCount={lessonSummary.correctCount}
+        totalQuestions={lessonSummary.totalQuestions}
+        perfect={lessonSummary.perfect}
+        streakExtended={lessonSummary.streakExtended}
+        reviewMode={lessonSummary.reviewMode}
+        onContinue={returnToLearnPath}
+      />
+    );
+  }
+
+  if (screen === "arc-complete" && lessonSummary) {
+    return (
+      <ArcCompleteScreen
+        nodeTitle={node.lessonTitle}
+        totalArcXp={nodeProgress?.totalArcXpEarned ?? 0}
+        streakExtended={lessonSummary.streakExtended}
+        arcBonusXp={50}
+        onContinue={returnToLearnPath}
+      />
     );
   }
 
@@ -723,31 +790,6 @@ export default function LessonArcClient({
           }}
         />
       </div>
-
-      {screen === "lesson-complete" && lessonSummary ? (
-        <LessonCompleteScreen
-          lessonLabel={payload.subtitle}
-          lessonNumber={lessonSummary.lessonIndex}
-          completedLessonCount={lessonSummary.completedLessonCount}
-          xpEarned={lessonSummary.xpEarned}
-          correctCount={lessonSummary.correctCount}
-          totalQuestions={lessonSummary.totalQuestions}
-          perfect={lessonSummary.perfect}
-          streakExtended={lessonSummary.streakExtended}
-          reviewMode={lessonSummary.reviewMode}
-          onContinue={returnToLearnPath}
-        />
-      ) : null}
-
-      {screen === "arc-complete" && lessonSummary ? (
-        <ArcCompleteScreen
-          nodeTitle={node.lessonTitle}
-          totalArcXp={nodeProgress.totalArcXpEarned}
-          streakExtended={lessonSummary.streakExtended}
-          arcBonusXp={50}
-          onContinue={returnToLearnPath}
-        />
-      ) : null}
 
       {screen === "failed" ? (
         <LessonFailedScreen

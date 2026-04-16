@@ -12,6 +12,7 @@ const NAV_LINKS = [
   { href: "/learn", label: "Learn" },
   { href: "/shop", label: "Shop" },
   { href: "/daily", label: "Daily" },
+  { href: "/leagues", label: "Leagues" },
   { href: "/achievements", label: "Achievements" },
   { href: "/profile", label: "Profile" },
 ];

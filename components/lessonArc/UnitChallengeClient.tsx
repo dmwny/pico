@@ -7,6 +7,7 @@ import { useCosmetics } from "@/contexts/CosmeticsContext";
 import { useThemeContext } from "@/contexts/ThemeContext";
 import { checkAchievements } from "@/lib/achievements";
 import { evaluateQuestionAttempt } from "@/lib/lessonArc/engine";
+import { isTrueFalseOptionTrue } from "@/lib/lessonArc/questionShuffle";
 import { runPythonAgainstTests } from "@/lib/lessonArc/pythonRuntime";
 import { getUnitMetaForChallenge, getUnitChallengeQuestions, getUnitChallengeXpReward, isUnitChallengeUnlocked } from "@/lib/lessonArc/unitChallenge";
 import type {
@@ -636,7 +637,7 @@ export default function UnitChallengeClient({
         const index = Number(event.key) - 1;
         const option = displayedQuestion.options?.[index];
         if (option) {
-          setAnswer({ optionIndex: index, optionValue: option, booleanValue: index === 0 });
+          setAnswer({ optionIndex: index, optionValue: option, booleanValue: isTrueFalseOptionTrue(option) });
         }
       }
 

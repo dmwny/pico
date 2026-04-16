@@ -2,6 +2,7 @@ import { getCourseSections, normalizeLanguage, type LearningLanguage, type Lesso
 import { getLocalFallbackQuestionBank } from "@/lib/data/questionBank";
 import { getSeededLessonQuestions, resolveNodeDescriptor } from "@/lib/lessonArc/catalog";
 import { getLegacyFallbackQuestions } from "@/lib/lessonArc/legacyFallback";
+import { shuffleQuestionsForDelivery } from "@/lib/lessonArc/questionShuffle";
 const UNIT_CHALLENGE_COUNT = 12;
 
 function hashSeed(value: string) {
@@ -57,10 +58,10 @@ export function getUnitChallengeQuestions(language: string | null | undefined, u
   if (!unit) return [];
 
   const pool = getRegularArcLessons(unit).flatMap((lesson) => getNodeQuestionPool(normalizedLanguage, unit.id, lesson));
-  return seededSort(
+  return shuffleQuestionsForDelivery(seededSort(
     pool.filter((question, index, questions) => questions.findIndex((entry) => entry.id === question.id) === index),
     `${normalizedLanguage}:${unit.id}:challenge`,
-  ).slice(0, UNIT_CHALLENGE_COUNT);
+  ).slice(0, UNIT_CHALLENGE_COUNT));
 }
 
 export function getUnitChallengeXpReward(unitId: number) {

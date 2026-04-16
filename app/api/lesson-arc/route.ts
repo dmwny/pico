@@ -7,6 +7,8 @@ import {
   resolveNodeDescriptor,
 } from "@/lib/lessonArc/catalog";
 import { getLegacyFallbackQuestions } from "@/lib/lessonArc/legacyFallback";
+import { sanitizeLessonArcQuestions } from "@/lib/lessonArc/promptSanitizer";
+import { shuffleQuestionsForDelivery } from "@/lib/lessonArc/questionShuffle";
 import { getLessonTypePlan, type LessonArcLessonIndex, type LessonArcPayload, type LessonArcQuestion } from "@/lib/lessonArc/types";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -177,7 +179,7 @@ function buildPayload(params: {
     lessonIndex,
     title: title.title,
     subtitle: title.subtitle,
-    questions,
+    questions: shuffleQuestionsForDelivery(sanitizeLessonArcQuestions(questions)),
     source,
   };
 }
