@@ -45,6 +45,10 @@ function normalizeTextAnswer(value: string) {
   return normalizeLineEndings(value).trim();
 }
 
+function normalizeTokenAnswer(value: string) {
+  return normalizeTextAnswer(value.replace(/__\d+$/, ""));
+}
+
 function arraysEqual(left: string[], right: string[]) {
   return left.length === right.length && left.every((entry, index) => entry === right[index]);
 }
@@ -82,6 +86,18 @@ function getFillSelectExpectedBlanks(question: LessonArcQuestion) {
 }
 
 function buildDisplayCorrectAnswer(question: LessonArcQuestion) {
+  if (question.type === "trace_steps" && question.traceSteps?.length) {
+    return question.traceSteps.map((step) => step.expected).join(" / ");
+  }
+  if (question.type === "slider_predict" && typeof question.numericTarget === "number") {
+    return String(question.numericTarget);
+  }
+  if (question.type === "find_token" && typeof question.wrongTokenIndex === "number") {
+    return `Token ${question.wrongTokenIndex + 1}`;
+  }
+  if (question.type === "code_diff" && question.correctAnswer) {
+    return question.correctAnswer;
+  }
   if (question.type === "fill_select") {
     const blanks = getFillSelectExpectedBlanks(question);
     if (question.code && blanks.length > 0) {
@@ -175,15 +191,6 @@ export function evaluateQuestionAttempt(
     case "fill_select": {
       const expectedBlanks = getFillSelectExpectedBlanks(question).map((value) => normalizeTextAnswer(value));
       const selectedBlanks = (answer.fillSelectValues ?? []).map((value) => normalizeTextAnswer(value));
-      if (process.env.NODE_ENV !== "production") {
-        console.log("[lesson-arc] fill_select evaluation", {
-          questionId: question.id,
-          prompt: question.prompt,
-          selectedBlanks,
-          expectedBlanks,
-          code: question.code,
-        });
-      }
       normalizedAnswer = selectedBlanks.join(" ");
       correct = arraysEqual(selectedBlanks, expectedBlanks);
       if (!correct) {
@@ -197,7 +204,7 @@ export function evaluateQuestionAttempt(
       break;
     }
     case "word_bank": {
-      const tokens = answer.tokens ?? [];
+      const tokens = (answer.tokens ?? []).map(normalizeTokenAnswer);
       normalizedAnswer = tokens.join(" ");
       const expectedTokens = question.correctTokens ?? [];
       correct = arraysEqual(tokens, expectedTokens);
@@ -207,10 +214,12 @@ export function evaluateQuestionAttempt(
       }
       break;
     }
-    case "arrange": {
+    case "arrange":
+    case "code_order":
+    case "flowchart": {
       const arrangedLines = answer.arrangedLines ?? [];
       normalizedAnswer = arrangedLines.join("\n");
-      const expectedLines = question.lines ?? [];
+      const expectedLines = question.lines ?? question.flowBlocks ?? [];
       correct = arraysEqual(arrangedLines, expectedLines);
       if (!correct) {
         wrongHighlights = arrangedLines
@@ -229,10 +238,21 @@ export function evaluateQuestionAttempt(
       break;
     }
     case "spot_bug": {
+      if (typeof answer.optionIndex === "number") {
+        normalizedAnswer = String(answer.optionIndex);
+        correct = answer.optionIndex === question.bugLine;
+      } else {
+        selectedVersion = answer.chosenVersion;
+        normalizedAnswer = selectedVersion ?? "";
+        const expectedVersion = question.correctIndex === 0 ? "A" : "B";
+        correct = selectedVersion === expectedVersion;
+      }
+      break;
+    }
+    case "code_diff": {
       selectedVersion = answer.chosenVersion;
       normalizedAnswer = selectedVersion ?? "";
-      const expectedVersion = question.correctIndex === 0 ? "A" : "B";
-      correct = selectedVersion === expectedVersion;
+      correct = selectedVersion === question.correctAnswer;
       break;
     }
     case "match_pairs": {
@@ -240,6 +260,43 @@ export function evaluateQuestionAttempt(
       correct = evaluatedPairs.correct;
       normalizedAnswer = evaluatedPairs.normalizedAnswer;
       pairResults = evaluatedPairs.pairResults;
+      break;
+    }
+    case "trace_steps": {
+      const typedValues = (answer.tokens ?? []).map((value) => normalizeTextAnswer(value));
+      const expectedValues = (question.traceSteps ?? []).map((step) => normalizeTextAnswer(step.expected));
+      normalizedAnswer = typedValues.join(" / ");
+      correct = arraysEqual(typedValues, expectedValues);
+      if (!correct) {
+        wrongHighlights = typedValues
+          .map((value, index) => (expectedValues[index] === value ? null : String(index)))
+          .filter((value): value is string => value !== null);
+        correctHighlights = typedValues
+          .map((value, index) => (expectedValues[index] === value ? String(index) : null))
+          .filter((value): value is string => value !== null);
+      }
+      break;
+    }
+    case "build_regex":
+    case "build_query": {
+      const tokens = (answer.tokens ?? []).map(normalizeTokenAnswer);
+      normalizedAnswer = tokens.join(" ");
+      const expectedTokens = (question.correctTokens ?? []).map(normalizeTextAnswer);
+      correct = arraysEqual(tokens, expectedTokens);
+      break;
+    }
+    case "find_token": {
+      normalizedAnswer = typeof answer.tokenIndex === "number" ? String(answer.tokenIndex) : "";
+      correct = answer.tokenIndex === question.wrongTokenIndex;
+      break;
+    }
+    case "slider_predict": {
+      const numericAnswer =
+        typeof answer.numericValue === "number"
+          ? answer.numericValue
+          : Number.parseFloat(answer.textValue ?? "");
+      normalizedAnswer = Number.isFinite(numericAnswer) ? String(numericAnswer) : "";
+      correct = typeof question.numericTarget === "number" && numericAnswer === question.numericTarget;
       break;
     }
     case "complete_fn":

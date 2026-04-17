@@ -1,422 +1,103 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { splitSpotBugVersions } from "@/lib/lessonArc/engine";
-import { isTrueFalseOptionTrue } from "@/lib/lessonArc/questionShuffle";
 import type {
   LessonArcQuestion,
+  LessonArcQuestionType,
   LessonCodeRunResult,
   QuestionAttemptAnswer,
-  QuestionEvaluation,
 } from "@/lib/lessonArc/types";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { useMemo, useState } from "react";
 
-function seededOrder<T>(items: T[], seed: string) {
-  const chars = Array.from(seed).reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  return [...items].sort((left, right) => {
-    const leftScore = JSON.stringify(left).length * 17 + chars;
-    const rightScore = JSON.stringify(right).length * 17 + chars * 2;
-    return leftScore - rightScore;
-  });
-}
-
-function splitCodeBlank(code: string | undefined) {
-  return code ? code.split(/_{3,}/) : [];
-}
-
-function countCodeBlanks(code: string | undefined) {
-  return code?.match(/_{3,}/g)?.length ?? 0;
-}
-
-function getFillSelectExpectedBlanks(question: LessonArcQuestion) {
-  if (question.correctBlanks?.length) {
-    return question.correctBlanks;
-  }
-  if (typeof question.correctAnswer === "string") {
-    return [question.correctAnswer];
-  }
-  if (typeof question.correctIndex === "number" && question.options?.[question.correctIndex]) {
-    return [question.options[question.correctIndex]];
-  }
-  return [];
-}
-
-function CodeCard({
-  code,
-  highlightLine,
-}: {
-  code: string;
-  highlightLine?: number;
-}) {
-  const lines = code.split("\n");
-  return (
-    <div className="overflow-hidden rounded-[1.6rem] border border-white/10 bg-[#07101d]">
-      <div className="flex items-center justify-between border-b border-white/8 px-4 py-3">
-        <p className="text-[0.7rem] font-black uppercase tracking-[0.22em] text-white/38">Code</p>
-        <div className="flex gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-rose-400/75" />
-          <span className="h-2.5 w-2.5 rounded-full bg-amber-300/75" />
-          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/75" />
-        </div>
-      </div>
-      <div className="space-y-1 px-4 py-4 font-mono text-[0.95rem] text-slate-100">
-        {lines.map((line, index) => (
-          <div
-            key={`${index}-${line}`}
-            className={`grid grid-cols-[2rem_1fr] gap-3 rounded-lg px-2 py-1 ${highlightLine === index + 1 ? "bg-rose-500/12 ring-1 ring-rose-300/30" : ""}`}
-          >
-            <span className="text-right text-[0.72rem] font-bold text-white/28">{index + 1}</span>
-            <code className="whitespace-pre-wrap break-words">{line}</code>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ChoiceCard({
-  label,
-  active,
-  correct,
-  wrong,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  correct?: boolean;
-  wrong?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`min-h-[88px] rounded-[1.4rem] border px-4 py-4 text-left text-base font-semibold transition ${
-        correct
-          ? "border-emerald-300/50 bg-emerald-400/14 text-emerald-100"
-          : wrong
-            ? "border-rose-300/50 bg-rose-500/14 text-rose-100 animate-[lessonShake_400ms_ease-in-out]"
-            : active
-              ? "border-white/30 bg-white/10 text-white"
-              : "border-white/10 bg-white/6 text-white/82 hover:bg-white/10"
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
-function TokenChip({
-  token,
-  onClick,
-  highlighted,
-}: {
-  token: string;
-  onClick: () => void;
-  highlighted?: "correct" | "wrong";
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={`Token ${token}`}
-      className={`rounded-full border px-4 py-2 font-mono text-sm font-bold transition active:scale-[0.96] ${
-        highlighted === "correct"
-          ? "border-emerald-300/50 bg-emerald-400/14 text-emerald-100"
-          : highlighted === "wrong"
-            ? "border-rose-300/50 bg-rose-500/14 text-rose-100"
-            : "border-white/10 bg-white/7 text-white hover:-translate-y-0.5"
-      }`}
-    >
-      {token}
-    </button>
-  );
-}
-
-function MatchPairsQuestion({
-  question,
-  answer,
-  onChange,
-  feedback,
-}: {
-  question: LessonArcQuestion;
-  answer: QuestionAttemptAnswer;
-  onChange: (next: QuestionAttemptAnswer) => void;
-  feedback: QuestionEvaluation | null;
-}) {
-  const [selectedLeft, setSelectedLeft] = useState<string | null>(null);
-  const [selectedRight, setSelectedRight] = useState<string | null>(null);
-  const [shakePair, setShakePair] = useState<string | null>(null);
-  const selectedPairs = useMemo(() => answer.selectedPairs ?? [], [answer.selectedPairs]);
-  const pairs = useMemo(() => question.pairs ?? [], [question.pairs]);
-  const matchedLeft = useMemo(() => new Set(selectedPairs.map((pair) => pair.left)), [selectedPairs]);
-  const matchedRight = useMemo(() => new Set(selectedPairs.map((pair) => pair.right)), [selectedPairs]);
-  const remainingPairs = useMemo(
-    () => pairs.filter((pair) => !matchedLeft.has(pair.left) && !matchedRight.has(pair.right)),
-    [matchedLeft, matchedRight, pairs],
-  );
-
-  const resolvePair = useCallback((left: string, right: string) => {
-    const isCorrect = pairs.some((pair) => pair.left === left && pair.right === right);
-    if (isCorrect) {
-      onChange({
-        ...answer,
-        selectedPairs: [...selectedPairs, { left, right }],
-      });
-      setSelectedLeft(null);
-      setSelectedRight(null);
-      return;
-    }
-
-    setShakePair(`${left}:${right}`);
-    window.setTimeout(() => {
-      setSelectedLeft(null);
-      setSelectedRight(null);
-      setShakePair(null);
-    }, 420);
-  }, [answer, onChange, pairs, selectedPairs]);
-
-  return (
-    <div className="grid gap-4 md:grid-cols-2">
-      <div className="space-y-3">
-        {remainingPairs.map((pair) => (
-          <button
-            key={pair.left}
-            type="button"
-            disabled={matchedLeft.has(pair.left)}
-            onClick={() => {
-              if (selectedRight) {
-                resolvePair(pair.left, selectedRight);
-                return;
-              }
-              setSelectedLeft(pair.left);
-            }}
-            className={`min-h-[52px] w-full rounded-[1.2rem] border px-4 py-3 text-left font-semibold transition ${
-              matchedLeft.has(pair.left)
-                ? "border-emerald-300/30 bg-emerald-400/12 text-emerald-100/75"
-                : selectedLeft === pair.left
-                  ? "border-white/30 bg-white/10 text-white"
-                  : "border-white/10 bg-white/6 text-white/84"
-            } ${shakePair?.startsWith(`${pair.left}:`) ? "animate-[lessonShake_400ms_ease-in-out]" : ""}`}
-          >
-            {pair.left}
-          </button>
-        ))}
-      </div>
-      <div className="space-y-3">
-        {remainingPairs.map((pair) => (
-          <button
-            key={pair.right}
-            type="button"
-            disabled={matchedRight.has(pair.right)}
-            onClick={() => {
-              if (selectedLeft) {
-                resolvePair(selectedLeft, pair.right);
-                return;
-              }
-              setSelectedRight(pair.right);
-            }}
-            className={`min-h-[52px] w-full rounded-[1.2rem] border px-4 py-3 text-left font-semibold transition ${
-              matchedRight.has(pair.right)
-                ? "border-emerald-300/30 bg-emerald-400/12 text-emerald-100/75"
-                : selectedRight === pair.right
-                  ? "border-white/30 bg-white/10 text-white"
-                  : "border-white/10 bg-white/6 text-white/84"
-            } ${shakePair?.endsWith(`:${pair.right}`) ? "animate-[lessonShake_400ms_ease-in-out]" : ""}`}
-          >
-            {pair.right}
-          </button>
-        ))}
-      </div>
-      {feedback?.correct ? (
-        <p className="md:col-span-2 text-sm font-semibold text-emerald-100/85">All pairs matched.</p>
-      ) : null}
-    </div>
-  );
-}
-
-function FillSelectQuestion({
-  question,
-  answer,
-  onChange,
-  feedback,
-}: {
-  question: LessonArcQuestion;
-  answer: QuestionAttemptAnswer;
-  onChange: (next: QuestionAttemptAnswer) => void;
-  feedback: QuestionEvaluation | null;
-}) {
-  const code = question.code ?? "";
-  const codeLines = useMemo(() => code.split("\n"), [code]);
-  const blankCount = countCodeBlanks(code);
-  const blankValues = useMemo(() => answer.fillSelectValues ?? [], [answer.fillSelectValues]);
-  const expectedBlanks = useMemo(() => getFillSelectExpectedBlanks(question), [question]);
-  const firstEmptyIndex = blankValues.findIndex((value) => !value);
-  const nextBlankIndex = firstEmptyIndex >= 0 ? firstEmptyIndex : blankValues.length;
-  const lineSegments = useMemo(() => {
-    return codeLines.reduce<Array<{ line: string; parts: string[]; startingBlankIndex: number }>>((segments, line) => {
-      const startingBlankIndex = segments.reduce(
-        (count, entry) => count + Math.max(0, entry.parts.length - 1),
-        0,
-      );
-      const parts = line.split(/_{3,}/);
-      return [...segments, { line, parts, startingBlankIndex }];
-    }, []);
-  }, [codeLines]);
-
-  const fillBlank = useCallback((option: string) => {
-    if (feedback) return;
-    const targetIndex = nextBlankIndex;
-    if (targetIndex < 0 || targetIndex >= blankCount) return;
-    const nextValues = Array.from({ length: blankCount }, (_, index) => blankValues[index] ?? "");
-    nextValues[targetIndex] = option;
-    onChange({
-      ...answer,
-      fillSelectValues: nextValues,
-    });
-  }, [answer, blankCount, blankValues, feedback, nextBlankIndex, onChange]);
-
-  const clearBlank = useCallback((blankIndex: number) => {
-    if (feedback) return;
-    const nextValues = Array.from({ length: blankCount }, (_, index) => blankValues[index] ?? "");
-    nextValues[blankIndex] = "";
-    onChange({
-      ...answer,
-      fillSelectValues: nextValues,
-    });
-  }, [answer, blankCount, blankValues, feedback, onChange]);
-
-  return (
-    <div className="space-y-5">
-      <div className="overflow-hidden rounded-[1.6rem] border border-white/10 bg-[#07101d]">
-        <div className="flex items-center justify-between border-b border-white/8 px-4 py-3">
-          <p className="text-[0.7rem] font-black uppercase tracking-[0.22em] text-white/38">Code</p>
-          <p className="text-[0.68rem] font-black uppercase tracking-[0.22em] text-white/42">
-            Fill {blankCount} blank{blankCount === 1 ? "" : "s"}
-          </p>
-        </div>
-        <div className="space-y-1 px-4 py-4 font-mono text-[0.95rem] text-slate-100">
-          {lineSegments.map(({ line, parts: lineParts, startingBlankIndex }, lineIndex) => {
-            return (
-              <div key={`${lineIndex}-${line}`} className="grid grid-cols-[2rem_1fr] gap-3 rounded-lg px-2 py-1">
-                <span className="text-right text-[0.72rem] font-bold text-white/28">{lineIndex + 1}</span>
-                <code className="flex flex-wrap items-center gap-2 whitespace-pre-wrap break-words">
-                  {lineParts.map((part, partIndex) => {
-                    const blankIndex = startingBlankIndex + partIndex;
-                    const hasBlankAfterPart = partIndex < lineParts.length - 1;
-                    const selectedValue = blankValues[blankIndex] ?? "";
-                    const isCorrect = feedback && expectedBlanks[blankIndex] === selectedValue;
-                    const isWrong = feedback && selectedValue && expectedBlanks[blankIndex] !== selectedValue;
-                    const isActiveBlank = !feedback && blankIndex === nextBlankIndex;
-
-                    return (
-                      <span key={`${lineIndex}-${partIndex}`} className="contents">
-                        {part ? <span className="whitespace-pre-wrap">{part}</span> : null}
-                        {hasBlankAfterPart ? (
-                          <button
-                            type="button"
-                            onClick={() => clearBlank(blankIndex)}
-                            disabled={feedback ? true : !selectedValue}
-                            aria-label={selectedValue ? `Filled blank ${blankIndex + 1} with ${selectedValue}. Tap to clear.` : `Blank ${blankIndex + 1}`}
-                            className={`inline-flex min-h-[2.25rem] min-w-[4.5rem] items-center justify-center rounded-lg border px-3 py-1.5 text-sm font-bold transition ${
-                              isCorrect
-                                ? "border-emerald-300/50 bg-emerald-400/14 text-emerald-100"
-                                : isWrong
-                                  ? "border-rose-300/50 bg-rose-500/14 text-rose-100 animate-[lessonShake_400ms_ease-in-out]"
-                                  : selectedValue
-                                    ? "border-sky-300/35 bg-sky-400/12 text-sky-100"
-                                    : isActiveBlank
-                                      ? "border-amber-300/40 bg-amber-400/12 text-amber-100"
-                                      : "border-white/12 bg-white/6 text-white/45"
-                            } ${!feedback && selectedValue ? "hover:-translate-y-0.5" : ""}`}
-                          >
-                            {selectedValue || `Blank ${blankIndex + 1}`}
-                          </button>
-                        ) : null}
-                      </span>
-                    );
-                  })}
-                </code>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {question.options?.length ? (
-        <div className="space-y-3">
-          {!feedback && nextBlankIndex < blankCount ? (
-            <p className="text-[0.72rem] font-black uppercase tracking-[0.22em] text-white/42">
-              Available choices
-            </p>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            {question.options.map((option, index) => {
-              const usedCount = blankValues.filter((value) => value === option).length;
-              const availableCount = (question.options ?? []).filter((entry) => entry === option).length;
-              const canUse = !feedback && usedCount < availableCount && nextBlankIndex < blankCount;
-              return (
-                <button
-                  key={`${option}-${index}`}
-                  type="button"
-                  onClick={() => fillBlank(option)}
-                  disabled={!canUse}
-                  className={`rounded-full border px-4 py-2 font-mono text-sm font-bold transition ${
-                    canUse
-                      ? "border-white/10 bg-white/7 text-white hover:-translate-y-0.5"
-                      : "border-white/10 bg-white/5 text-white/35"
-                  }`}
-                >
-                  {option}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
+/**
+ * Cream/ink editorial question renderer.
+ * Handles all original types + the new ones.
+ */
 
 export function isQuestionAnswerReady(
-  question: LessonArcQuestion,
-  answer: QuestionAttemptAnswer,
-  runResult: LessonCodeRunResult | null,
-) {
-  switch (question.type) {
+  q: LessonArcQuestion,
+  a: QuestionAttemptAnswer,
+  run: LessonCodeRunResult | null,
+): boolean {
+  switch (q.type) {
     case "mc_concept":
     case "mc_output":
     case "true_false":
-      return typeof answer.optionIndex === "number" || typeof answer.optionValue === "string";
-    case "fill_select": {
-      const blankCount = countCodeBlanks(question.code);
-      if (blankCount <= 1) {
-        return Boolean(answer.fillSelectValues?.[0]);
-      }
-      return (answer.fillSelectValues?.filter(Boolean).length ?? 0) === blankCount;
-    }
-    case "word_bank":
-      return (answer.tokens?.length ?? 0) > 0;
-    case "arrange":
-      return (answer.arrangedLines?.length ?? 0) === (question.lines?.length ?? 0);
+    case "output_to_code":
+      return typeof a.optionIndex === "number";
+    case "code_diff":
+      return a.chosenVersion === "A" || a.chosenVersion === "B";
     case "fill_type":
     case "predict_type":
-      return Boolean(answer.textValue?.trim());
+    case "fill_select":
+      return Boolean(a.textValue?.trim() || a.fillSelectValues?.length);
+    case "word_bank":
+    case "build_regex":
+    case "build_query":
+      return Boolean(a.tokens?.length);
+    case "arrange":
+    case "code_order":
+    case "flowchart":
+      return Boolean(a.arrangedLines?.length);
     case "spot_bug":
-      return Boolean(answer.chosenVersion);
+    case "find_token":
+      return typeof a.tokenIndex === "number" || typeof a.optionIndex === "number";
     case "match_pairs":
-      return (answer.selectedPairs?.length ?? 0) === (question.pairs?.length ?? 0);
+      return (a.selectedPairs?.length ?? 0) === (q.pairs?.length ?? 0);
     case "complete_fn":
     case "debug":
-      return Boolean(answer.codeValue?.trim()) && Boolean(runResult);
+      return Boolean(run?.passed) || Boolean(a.codeValue?.trim());
+    case "trace_steps":
+      return (a.tokens?.length ?? 0) === (q.traceSteps?.length ?? 0);
+    case "slider_predict":
+      return typeof a.numericValue === "number";
     default:
       return false;
   }
 }
 
+type QuestionAnswerSetter = (a: QuestionAttemptAnswer) => void;
+
+type QuestionBodyProps = {
+  question: LessonArcQuestion;
+  answer: QuestionAttemptAnswer;
+  setAnswer: (a: QuestionAttemptAnswer) => void;
+  locked: boolean;
+  runResult: LessonCodeRunResult | null;
+  onRunCode: () => void | Promise<void>;
+};
+
+type QuestionRendererProps = {
+  question: LessonArcQuestion;
+  answer: QuestionAttemptAnswer;
+  setAnswer?: QuestionAnswerSetter;
+  onChange?: QuestionAnswerSetter;
+  feedback: { correct: boolean } | null;
+  runResult: LessonCodeRunResult | null;
+  onRunCode: () => void | Promise<void>;
+  hintVisible: boolean;
+  onRevealHint: () => void;
+  hintEnabled: boolean;
+};
+
 export default function QuestionRenderer({
   question,
   answer,
+  setAnswer,
   onChange,
   feedback,
   runResult,
@@ -424,319 +105,1017 @@ export default function QuestionRenderer({
   hintVisible,
   onRevealHint,
   hintEnabled,
-}: {
-  question: LessonArcQuestion;
-  answer: QuestionAttemptAnswer;
-  onChange: (next: QuestionAttemptAnswer) => void;
-  feedback: QuestionEvaluation | null;
-  runResult: LessonCodeRunResult | null;
-  onRunCode: () => void;
-  hintVisible: boolean;
-  onRevealHint: () => void;
-  hintEnabled: boolean;
-}) {
-  const shuffledLines = useMemo(
-    () => question.lines ? seededOrder(question.lines, question.id) : [],
-    [question.id, question.lines],
-  );
-  const arrangedLines = answer.arrangedLines ?? [];
+}: QuestionRendererProps) {
+  const updateAnswer = setAnswer ?? onChange;
 
-  useEffect(() => {
-    if (question.type !== "arrange") return;
-    if ((answer.arrangedLines?.length ?? 0) > 0) return;
-    onChange({ ...answer, arrangedLines: shuffledLines });
-  }, [answer, onChange, question.type, shuffledLines]);
+  if (typeof updateAnswer !== "function") {
+    throw new TypeError("QuestionRenderer requires a setAnswer or onChange callback.");
+  }
 
-  const { versionA, versionB } = useMemo(() => splitSpotBugVersions(question.code), [question.code]);
-  const fillParts = splitCodeBlank(question.code);
-
-  useEffect(() => {
-    if (process.env.NODE_ENV !== "development") return;
-    console.log("[lesson-arc] rendering question", {
-      id: question.id,
-      concept: question.concept,
-      type: question.type,
-      difficulty: question.difficulty,
-    });
-  }, [question.concept, question.difficulty, question.id, question.type]);
+  const locked = Boolean(feedback);
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6" role="group" aria-label={`Question: ${question.prompt}`}>
-      <style>{`
-        @keyframes lessonShake {
-          0%, 100% { transform: translateX(0); }
-          20% { transform: translateX(-4px); }
-          40% { transform: translateX(4px); }
-          60% { transform: translateX(-4px); }
-          80% { transform: translateX(4px); }
-        }
-      `}</style>
-      <div className="flex items-start justify-between gap-4">
-        <div className="max-w-3xl">
-          <p className="text-[0.75rem] font-black uppercase tracking-[0.24em] text-white/36">{question.type.replace(/_/g, " ")}</p>
-          <h1 className="mt-2 text-3xl font-black leading-tight text-white md:text-4xl">{question.prompt}</h1>
-        </div>
-        {question.hint ? (
+    <div className="mx-auto w-full max-w-[1100px] px-6 py-10">
+      {/* concept chip + hint */}
+      <div className="mb-5 flex items-center justify-between">
+        <span className="font-mono text-[11px] uppercase tracking-[0.22em] text-[#e8761c]">
+          {question.concept}
+        </span>
+        {question.hint && hintEnabled && !hintVisible && !locked ? (
           <button
             type="button"
             onClick={onRevealHint}
-            disabled={!hintEnabled && hintVisible}
-            className="mt-1 inline-flex h-12 shrink-0 items-center gap-2 rounded-full border border-white/10 bg-white/6 px-4 text-sm font-black uppercase tracking-[0.16em] text-white/75"
+            className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#1a1815]/55 underline-offset-4 hover:text-[#1a1815] hover:underline"
           >
-            <svg viewBox="0 0 24 24" className="h-5 w-5 text-amber-300" fill="currentColor">
-              <path d="M12 2a7 7 0 0 0-4.43 12.42c.64.52 1.09 1.14 1.31 1.86l.11.34h6.02l.11-.34c.22-.72.67-1.34 1.31-1.86A7 7 0 0 0 12 2Zm-3 16h6v2H9v-2Zm1 3h4v1h-4v-1Z" />
-            </svg>
-            Hint
+            Show hint
           </button>
         ) : null}
       </div>
 
+      <h1 className="font-serif text-3xl leading-tight text-[#1a1815] sm:text-4xl">{question.prompt}</h1>
+
       {hintVisible && question.hint ? (
-        <div className="rounded-[1.4rem] border border-amber-300/20 bg-amber-400/10 px-5 py-4 text-sm font-semibold leading-6 text-amber-50">
+        <div className="mt-4 rounded-xl border border-[#e8761c]/40 bg-[#e8761c]/8 p-4 font-serif text-[15px] text-[#1a1815]/85">
+          <span className="mr-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[#c95f10]">Hint</span>
           {question.hint}
         </div>
       ) : null}
 
-      {(question.type === "mc_output" || question.type === "predict_type" || question.type === "fill_type" || question.type === "true_false" || question.type === "complete_fn" || question.type === "debug") && question.code ? (
-        <CodeCard code={question.code} />
-      ) : null}
+      <div className="mt-7">
+        <Body
+          question={question}
+          answer={answer}
+          setAnswer={updateAnswer}
+          locked={locked}
+          runResult={runResult}
+          onRunCode={onRunCode}
+        />
+      </div>
+    </div>
+  );
+}
 
-      {(question.type === "mc_concept" || question.type === "mc_output") && question.options ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          {question.options.map((option, index) => (
-            <ChoiceCard
-              key={option}
-              label={option}
-              active={answer.optionIndex === index}
-              correct={Boolean(feedback && question.correctIndex === index)}
-              wrong={Boolean(feedback && !feedback.correct && answer.optionIndex === index)}
-              onClick={() => onChange({ optionIndex: index, optionValue: option })}
-            />
-          ))}
-        </div>
-      ) : null}
+/* ---------- Body switch ---------- */
 
-      {question.type === "word_bank" ? (
-        <div className="space-y-5">
-          <div className="min-h-[74px] rounded-[1.6rem] border border-white/10 bg-white/6 px-4 py-4">
-            <div className="flex flex-wrap gap-2">
-              {(answer.tokens ?? []).map((token, index) => {
-                const correctToken = question.correctTokens?.[index] === token;
-                return (
-                  <TokenChip
-                    key={`${token}-${index}`}
-                    token={token}
-                    onClick={() => {
-                      const nextTokens = [...(answer.tokens ?? [])];
-                      nextTokens.splice(index, 1);
-                      onChange({ ...answer, tokens: nextTokens });
-                    }}
-                    highlighted={feedback ? (correctToken ? "correct" : "wrong") : undefined}
-                  />
-                );
-              })}
-            </div>
+function Body(p: QuestionBodyProps) {
+  const Component = QUESTION_COMPONENTS[p.question.type];
+  if (!Component) {
+    return <FallbackQuestion question={p.question} />;
+  }
+
+  return <Component key={p.question.id} {...p} />;
+}
+
+/* ---------- Shared bits ---------- */
+
+function CodeBlock({ code, highlightLine }: { code: string; highlightLine?: number }) {
+  const lines = code.split("\n");
+  return (
+    <pre className="overflow-x-auto rounded-xl border-2 border-[#1a1815] bg-[#1a1815] p-5 font-mono text-[13px] leading-relaxed text-[#faf5ec]">
+      <code>
+        {lines.map((line, i) => (
+          <div
+            key={i}
+            className={`flex gap-4 ${highlightLine === i + 1 ? "bg-[#e8761c]/20 -mx-5 px-5" : ""}`}
+          >
+            <span className="select-none text-[#faf5ec]/30 tabular-nums">{String(i + 1).padStart(2, " ")}</span>
+            <span className="whitespace-pre">{line || " "}</span>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {(question.tokens ?? []).map((token, index) => {
-              const alreadyUsed = (answer.tokens ?? []).filter((entry) => entry === token).length;
-              const availableCount = (question.correctTokens ?? []).filter((entry) => entry === token).length;
-              const canUse = alreadyUsed < Math.max(availableCount, 1);
-              return (
-                <TokenChip
-                  key={`${token}-${index}`}
-                  token={token}
-                  onClick={() => {
-                    if (!canUse) return;
-                    onChange({ ...answer, tokens: [...(answer.tokens ?? []), token] });
-                  }}
-                />
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
+        ))}
+      </code>
+    </pre>
+  );
+}
 
-      {question.type === "arrange" ? (
-        <div className="space-y-3">
-          {arrangedLines.map((line, index) => {
-            const expectedLine = question.lines?.[index];
-            const state = feedback
-              ? expectedLine === line
-                ? "correct"
-                : "wrong"
-              : "idle";
-            return (
-              <div
-                key={`${line}-${index}`}
-                className={`flex items-center gap-3 rounded-[1.3rem] border px-4 py-3 ${
-                  state === "correct"
-                    ? "border-emerald-300/50 bg-emerald-400/14 text-emerald-100"
-                    : state === "wrong"
-                      ? "border-rose-300/50 bg-rose-500/14 text-rose-100"
-                      : "border-white/10 bg-white/6 text-white"
-                }`}
-              >
-                <div className="flex flex-col gap-2">
-                  <button type="button" className="rounded border border-white/10 px-2 py-1 text-xs" onClick={() => {
-                    if (index === 0) return;
-                    const next = [...arrangedLines];
-                    [next[index - 1], next[index]] = [next[index], next[index - 1]];
-                    onChange({ ...answer, arrangedLines: next });
-                  }}>▲</button>
-                  <button type="button" className="rounded border border-white/10 px-2 py-1 text-xs" onClick={() => {
-                    if (index === arrangedLines.length - 1) return;
-                    const next = [...arrangedLines];
-                    [next[index], next[index + 1]] = [next[index + 1], next[index]];
-                    onChange({ ...answer, arrangedLines: next });
-                  }}>▼</button>
-                </div>
-                <code className="whitespace-pre-wrap font-mono text-sm">{line}</code>
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
+function getQuestionBlankCount(question: LessonArcQuestion) {
+  if (question.correctBlanks?.length) return question.correctBlanks.length;
+  const inlineBlanks = question.code?.match(/_{3,}/g)?.length ?? 0;
+  if (inlineBlanks > 0) return inlineBlanks;
+  if (typeof question.correctAnswer === "string" && question.correctAnswer.trim().length > 0) {
+    return 1;
+  }
+  return 1;
+}
 
-      {question.type === "fill_type" ? (
-        <div className="rounded-[1.6rem] border border-white/10 bg-[#07101d] px-4 py-4 font-mono text-[1rem] text-slate-100">
-          {fillParts[0]}
-          <input
-            autoFocus
-            value={answer.textValue ?? ""}
-            onChange={(event) => onChange({ textValue: event.target.value })}
-            aria-label="Type the missing code token"
-            className={`mx-2 inline-block min-w-[9rem] rounded-md border px-2 py-1 font-mono outline-none ${
-              feedback?.correct
-                ? "border-emerald-300/50 bg-emerald-400/10 text-emerald-100"
-                : feedback && !feedback.correct
-                  ? "border-rose-300/50 bg-rose-500/10 text-rose-100"
-                  : "border-white/10 bg-white/8 text-white"
-            }`}
-          />
-          {fillParts[1]}
-        </div>
-      ) : null}
+function getBlankValues(answer: QuestionAttemptAnswer, count: number) {
+  if (answer.fillSelectValues?.length) {
+    return Array.from({ length: count }, (_, index) => answer.fillSelectValues?.[index] ?? "");
+  }
+  if (answer.textValue !== undefined) {
+    return [answer.textValue, ...Array.from({ length: Math.max(0, count - 1) }, () => "")];
+  }
+  return Array.from({ length: count }, () => "");
+}
 
-      {question.type === "fill_select" ? (
-        <FillSelectQuestion question={question} answer={answer} onChange={onChange} feedback={feedback} />
-      ) : null}
+function InlineBlankCode({
+  code,
+  values,
+  locked,
+  activeBlank,
+  onFocusBlank,
+  onChangeBlank,
+}: {
+  code: string;
+  values: string[];
+  locked: boolean;
+  activeBlank?: number;
+  onFocusBlank?: (index: number) => void;
+  onChangeBlank: (index: number, value: string) => void;
+}) {
+  let blankIndex = 0;
+  const lines = code.split("\n");
 
-      {question.type === "spot_bug" ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {([
-            { label: "Version A", code: versionA, version: "A" as const },
-            { label: "Version B", code: versionB, version: "B" as const },
-          ]).map((panel) => {
-            const chosen = answer.chosenVersion === panel.version;
-            const correct = feedback?.selectedVersion ? question.correctIndex === (panel.version === "A" ? 0 : 1) : false;
-            const wrong = Boolean(feedback && !feedback.correct && chosen);
-            return (
-              <button
-                key={panel.label}
-                type="button"
-                onClick={() => onChange({ chosenVersion: panel.version })}
-                className={`rounded-[1.6rem] border p-4 text-left transition ${
-                  correct
-                    ? "border-emerald-300/50 bg-emerald-400/12"
-                    : wrong
-                      ? "border-rose-300/50 bg-rose-500/12 animate-[lessonShake_400ms_ease-in-out]"
-                      : chosen
-                        ? "border-white/28 bg-white/10"
-                        : "border-white/10 bg-white/6"
-                }`}
-              >
-                <p className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-white/55">{panel.label}</p>
-                <CodeCard
-                  code={panel.code}
-                  highlightLine={
-                    feedback && question.correctIndex === (panel.version === "A" ? 0 : 1)
-                      ? question.bugLine
-                      : undefined
+  return (
+    <pre className="overflow-x-auto rounded-xl border-2 border-[#1a1815] bg-[#1a1815] p-5 font-mono text-[13px] leading-relaxed text-[#faf5ec]">
+      <code>
+        {lines.map((line, lineIndex) => {
+          const segments = line.split(/_{3,}/g);
+          const blankMatches = line.match(/_{3,}/g) ?? [];
+
+          return (
+            <div key={lineIndex} className="flex gap-4">
+              <span className="select-none text-[#faf5ec]/30 tabular-nums">{String(lineIndex + 1).padStart(2, " ")}</span>
+              <span className="flex flex-wrap items-center gap-1 whitespace-pre-wrap">
+                {segments.map((segment, segmentIndex) => {
+                  const elements: React.ReactNode[] = [
+                    <span key={`segment-${lineIndex}-${segmentIndex}`}>{segment || (segmentIndex === 0 ? "" : " ")}</span>,
+                  ];
+
+                  if (segmentIndex < blankMatches.length) {
+                    const currentBlank = blankIndex++;
+                    elements.push(
+                      <input
+                        key={`blank-${lineIndex}-${segmentIndex}`}
+                        type="text"
+                        disabled={locked}
+                        spellCheck={false}
+                        autoComplete="off"
+                        value={values[currentBlank] ?? ""}
+                        onFocus={() => onFocusBlank?.(currentBlank)}
+                        onChange={(event) => onChangeBlank(currentBlank, event.target.value)}
+                        className={`min-w-[88px] rounded-md border px-2 py-1 font-mono text-[13px] outline-none transition-colors ${
+                          activeBlank === currentBlank
+                            ? "border-[#e8761c] bg-[#faf5ec] text-[#1a1815]"
+                            : "border-[#faf5ec]/20 bg-[#faf5ec]/10 text-[#faf5ec]"
+                        }`}
+                        aria-label={`Blank ${currentBlank + 1}`}
+                      />,
+                    );
                   }
-                />
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
 
-      {question.type === "predict_type" ? (
-        <textarea
-          autoFocus
-          value={answer.textValue ?? ""}
-          onChange={(event) => onChange({ textValue: event.target.value })}
-          aria-label="Type the exact output"
-          className={`min-h-[128px] w-full rounded-[1.5rem] border bg-[#0a1423] px-4 py-4 font-mono text-base outline-none ${
-            feedback?.correct
-              ? "border-emerald-300/50 text-emerald-100"
-              : feedback && !feedback.correct
-                ? "border-rose-300/50 text-rose-100"
-                : "border-white/10 text-white"
+                  return elements;
+                })}
+              </span>
+            </div>
+          );
+        })}
+      </code>
+    </pre>
+  );
+}
+
+function OptionButton({
+  selected,
+  correct,
+  wrong,
+  locked,
+  onClick,
+  letter,
+  children,
+}: {
+  selected: boolean;
+  correct?: boolean;
+  wrong?: boolean;
+  locked: boolean;
+  onClick: () => void;
+  letter?: string;
+  children: React.ReactNode;
+}) {
+  const base =
+    "group flex items-center gap-4 rounded-xl border-2 px-5 py-4 text-left font-mono text-sm transition-all";
+  const state = locked
+    ? correct
+      ? "border-[#1a1815] bg-[#1a1815] text-[#faf5ec]"
+      : wrong
+        ? "border-[#e8761c] bg-[#e8761c]/10 text-[#1a1815]"
+        : "border-[#1a1815]/15 bg-[#faf5ec] text-[#1a1815]/50"
+    : selected
+      ? "border-[#1a1815] bg-[#f1e9d4] text-[#1a1815]"
+      : "border-[#1a1815]/15 bg-[#faf5ec] text-[#1a1815] hover:border-[#1a1815] hover:bg-[#f1e9d4]";
+
+  return (
+    <button type="button" disabled={locked} onClick={onClick} className={`${base} ${state}`}>
+      {letter ? (
+        <span
+          className={`grid h-7 w-7 shrink-0 place-items-center rounded-md border-2 font-mono text-[11px] ${
+            locked && correct
+              ? "border-[#faf5ec] text-[#faf5ec]"
+              : selected
+                ? "border-[#1a1815] bg-[#1a1815] text-[#faf5ec]"
+                : "border-[#1a1815]/25 text-[#1a1815]/55 group-hover:border-[#1a1815]"
           }`}
-          placeholder="Type the exact output here..."
+        >
+          {letter}
+        </span>
+      ) : null}
+      <span className="flex-1">{children}</span>
+    </button>
+  );
+}
+
+/* ---------- Question types ---------- */
+
+function MultipleChoice({
+  question,
+  answer,
+  setAnswer,
+  locked,
+  columns,
+}: {
+  question: LessonArcQuestion;
+  answer: QuestionAttemptAnswer;
+  setAnswer: (a: QuestionAttemptAnswer) => void;
+  locked: boolean;
+  columns?: 1 | 2;
+}) {
+  const opts = question.options ?? [];
+  return (
+    <div className="space-y-5">
+      {question.code ? <CodeBlock code={question.code} /> : null}
+      <div className={`grid gap-3 ${columns === 2 ? "sm:grid-cols-2" : "sm:grid-cols-2"}`}>
+        {opts.map((opt, i) => (
+          <OptionButton
+            key={i}
+            letter={String.fromCharCode(65 + i)}
+            selected={answer.optionIndex === i}
+            correct={locked && question.correctIndex === i}
+            wrong={locked && answer.optionIndex === i && question.correctIndex !== i}
+            locked={locked}
+            onClick={() => setAnswer({ optionIndex: i, optionValue: opt })}
+          >
+            {opt}
+          </OptionButton>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CodeDiff({
+  question,
+  answer,
+  setAnswer,
+  locked,
+}: {
+  question: LessonArcQuestion;
+  answer: QuestionAttemptAnswer;
+  setAnswer: (a: QuestionAttemptAnswer) => void;
+  locked: boolean;
+}) {
+  const versions = question.codeVersions ?? [];
+  const correct = (question.correctAnswer ?? "A") as "A" | "B";
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      {versions.map((v) => {
+        const selected = answer.chosenVersion === v.id;
+        const isCorrect = locked && v.id === correct;
+        const isWrong = locked && selected && v.id !== correct;
+        return (
+          <button
+            key={v.id}
+            type="button"
+            disabled={locked}
+            onClick={() => setAnswer({ chosenVersion: v.id })}
+            className={`group overflow-hidden rounded-xl border-2 text-left transition-all ${
+              isCorrect
+                ? "border-[#1a1815] ring-2 ring-[#1a1815]"
+                : isWrong
+                  ? "border-[#e8761c] ring-2 ring-[#e8761c]"
+                  : selected
+                    ? "border-[#1a1815]"
+                    : "border-[#1a1815]/15 hover:border-[#1a1815]"
+            }`}
+          >
+            <div className="flex items-center justify-between border-b border-[#faf5ec]/10 bg-[#1a1815] px-4 py-2.5">
+              <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-[#faf5ec]">
+                Version {v.id}
+              </span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#faf5ec]/40">
+                {v.label ?? "candidate"}
+              </span>
+            </div>
+            <pre className="overflow-x-auto bg-[#1a1815] p-4 font-mono text-[12.5px] leading-relaxed text-[#faf5ec]">
+              <code>{v.code}</code>
+            </pre>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function FillType({
+  question,
+  answer,
+  setAnswer,
+  locked,
+}: {
+  question: LessonArcQuestion;
+  answer: QuestionAttemptAnswer;
+  setAnswer: (a: QuestionAttemptAnswer) => void;
+  locked: boolean;
+}) {
+  const blankValues = getBlankValues(answer, 1);
+
+  return (
+    <div className="space-y-5">
+      {question.code?.includes("___") ? (
+        <InlineBlankCode
+          code={question.code}
+          values={blankValues}
+          locked={locked}
+          onChangeBlank={(_, value) => setAnswer({ textValue: value })}
+        />
+      ) : question.code ? (
+        <CodeBlock code={question.code} />
+      ) : null}
+      {!question.code?.includes("___") ? (
+        <input
+          type="text"
+          autoFocus
+          disabled={locked}
+          spellCheck={false}
+          autoComplete="off"
+          value={answer.textValue ?? ""}
+          onChange={(e) => setAnswer({ textValue: e.target.value })}
+          placeholder="Type your answer"
+          className="w-full rounded-xl border-2 border-[#1a1815] bg-[#faf5ec] px-5 py-4 font-mono text-base text-[#1a1815] outline-none transition-colors placeholder:text-[#1a1815]/30 focus:bg-[#f1e9d4]"
         />
       ) : null}
+    </div>
+  );
+}
 
-      {question.type === "match_pairs" ? (
-        <MatchPairsQuestion question={question} answer={answer} onChange={onChange} feedback={feedback} />
+function FillSelect({
+  question,
+  answer,
+  setAnswer,
+  locked,
+}: {
+  question: LessonArcQuestion;
+  answer: QuestionAttemptAnswer;
+  setAnswer: (a: QuestionAttemptAnswer) => void;
+  locked: boolean;
+}) {
+  const blankCount = getQuestionBlankCount(question);
+  const opts = question.options ?? [];
+  const values = getBlankValues(answer, blankCount);
+  const [activeBlank, setActiveBlank] = useState(0);
+
+  const setBlankValue = (index: number, value: string) => {
+    const next = [...values];
+    next[index] = value;
+    setAnswer({ fillSelectValues: next, textValue: next.join(" ") });
+  };
+
+  const fillFromOption = (option: string) => {
+    const targetIndex = values.findIndex((value) => value.trim().length === 0);
+    const nextIndex = targetIndex >= 0 ? targetIndex : activeBlank;
+    setBlankValue(nextIndex, option);
+    if (nextIndex < blankCount - 1) {
+      setActiveBlank(nextIndex + 1);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      {question.code?.includes("___") ? (
+        <InlineBlankCode
+          code={question.code}
+          values={values}
+          locked={locked}
+          activeBlank={activeBlank}
+          onFocusBlank={setActiveBlank}
+          onChangeBlank={setBlankValue}
+        />
+      ) : question.code ? (
+        <CodeBlock code={question.code} />
       ) : null}
 
-      {question.type === "true_false" && question.options ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          {question.options.map((option, index) => (
-            <ChoiceCard
-              key={option}
-              label={option}
-              active={answer.optionIndex === index}
-              correct={Boolean(feedback && question.correctIndex === index)}
-              wrong={Boolean(feedback && !feedback.correct && answer.optionIndex === index)}
-              onClick={() => onChange({ optionIndex: index, optionValue: option, booleanValue: isTrueFalseOptionTrue(option) })}
+      {!question.code?.includes("___") ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {Array.from({ length: blankCount }, (_, index) => (
+            <input
+              key={index}
+              type="text"
+              disabled={locked}
+              spellCheck={false}
+              autoComplete="off"
+              value={values[index] ?? ""}
+              onFocus={() => setActiveBlank(index)}
+              onChange={(event) => setBlankValue(index, event.target.value)}
+              placeholder={`Blank ${index + 1}`}
+              className="rounded-xl border-2 border-[#1a1815] bg-[#faf5ec] px-4 py-3 font-mono text-sm text-[#1a1815] outline-none transition-colors focus:bg-[#f1e9d4]"
             />
           ))}
         </div>
       ) : null}
 
-      {(question.type === "complete_fn" || question.type === "debug") ? (
-        <div className="space-y-4">
-          <textarea
-            value={answer.codeValue ?? question.code ?? ""}
-            onChange={(event) => onChange({ codeValue: event.target.value })}
-            aria-label={question.type === "complete_fn" ? "Complete the function code" : "Fix the code in the editor"}
-            className="min-h-[220px] w-full rounded-[1.6rem] border border-white/10 bg-[#07101d] px-4 py-4 font-mono text-[0.95rem] text-white outline-none"
-            spellCheck={false}
+      <div className="flex flex-wrap gap-2">
+        {opts.map((option) => (
+          <button
+            key={option}
+            type="button"
+            disabled={locked}
+            onClick={() => fillFromOption(option)}
+            className="rounded-md border-2 border-[#1a1815] bg-[#f1e9d4] px-3 py-1.5 font-mono text-sm text-[#1a1815] transition-colors hover:bg-[#1a1815] hover:text-[#faf5ec]"
+          >
+            {option}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WordBank({
+  question,
+  answer,
+  setAnswer,
+  locked,
+  mono,
+}: {
+  question: LessonArcQuestion;
+  answer: QuestionAttemptAnswer;
+  setAnswer: (a: QuestionAttemptAnswer) => void;
+  locked: boolean;
+  mono?: boolean;
+}) {
+  const tokens = question.tokens ?? [];
+  const picked = answer.tokens ?? [];
+
+  return (
+    <div className="space-y-4">
+      {question.code ? <CodeBlock code={question.code} /> : null}
+
+      {question.examples?.length ? (
+        <div className="grid gap-2 rounded-xl border border-[#1a1815]/15 bg-[#f1e9d4] p-4 sm:grid-cols-2">
+          {question.examples.map((ex, i) => (
+            <div key={i} className="flex items-center justify-between font-mono text-[12px]">
+              <span className="text-[#1a1815]">{ex.input}</span>
+              <span className={`font-mono text-[10px] uppercase tracking-[0.18em] ${ex.matches ? "text-[#1a1815]" : "text-[#c95f10]"}`}>
+                {ex.matches ? "match" : "no match"}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="min-h-[64px] rounded-xl border-2 border-dashed border-[#1a1815]/25 bg-[#faf5ec] p-3">
+        <div className="flex flex-wrap gap-2">
+          {picked.length === 0 ? (
+            <span className="font-mono text-xs text-[#1a1815]/40">Tap tokens below to compose your answer</span>
+          ) : (
+            picked.map((tok, i) => (
+              <button
+                key={`${tok}-${i}`}
+                type="button"
+                disabled={locked}
+                onClick={() => setAnswer({ tokens: picked.filter((_, j) => j !== i) })}
+                className={`${mono ? "font-mono" : "font-sans"} rounded-md border-2 border-[#1a1815] bg-[#1a1815] px-3 py-1.5 text-sm text-[#faf5ec]`}
+              >
+                {tok.split("__")[0]}
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {tokens.map((t, i) => {
+          const key = `${t}__${i}`;
+          const used = picked.includes(key);
+          return (
+            <button
+              key={key}
+              type="button"
+              disabled={locked || used}
+              onClick={() => setAnswer({ tokens: [...picked, key] })}
+              className={`${mono ? "font-mono" : "font-sans"} rounded-md border-2 px-3 py-1.5 text-sm transition-colors ${
+                used
+                  ? "border-[#1a1815]/10 bg-[#faf5ec] text-[#1a1815]/25"
+                  : "border-[#1a1815] bg-[#f1e9d4] text-[#1a1815] hover:bg-[#1a1815] hover:text-[#faf5ec]"
+              }`}
+            >
+              {t}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ArrangeLines({
+  question,
+  answer,
+  setAnswer,
+  locked,
+  mono,
+}: {
+  question: LessonArcQuestion;
+  answer: QuestionAttemptAnswer;
+  setAnswer: (a: QuestionAttemptAnswer) => void;
+  locked: boolean;
+  mono?: boolean;
+}) {
+  const sourceLines = question.lines ?? question.flowBlocks ?? [];
+  const [list, setList] = useState(() =>
+    (answer.arrangedLines?.length ? answer.arrangedLines : sourceLines).map((text, index) => ({
+      id: `${index}-${text}`,
+      t: text,
+    })),
+  );
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+
+  const onEnd = (e: DragEndEvent) => {
+    if (locked) return;
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const oldI = list.findIndex((i) => i.id === active.id);
+    const newI = list.findIndex((i) => i.id === over.id);
+    const next = arrayMove(list, oldI, newI);
+    setList(next);
+    setAnswer({ arrangedLines: next.map((n) => n.t) });
+  };
+
+  return (
+    <div className="space-y-3">
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onEnd}>
+        <SortableContext items={list} strategy={verticalListSortingStrategy}>
+          <div className="space-y-2">
+            {list.map((it, idx) => (
+              <SortableLine key={it.id} id={it.id} index={idx} text={it.t} mono={mono} locked={locked} />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
+    </div>
+  );
+}
+
+function SortableLine({
+  id,
+  index,
+  text,
+  mono,
+  locked,
+}: {
+  id: string;
+  index: number;
+  text: string;
+  mono?: boolean;
+  locked: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.6 : 1,
+      }}
+      {...attributes}
+      {...(locked ? {} : listeners)}
+      className={`flex items-center gap-3 rounded-xl border-2 border-[#1a1815] bg-[#faf5ec] px-4 py-3 ${locked ? "" : "cursor-grab active:cursor-grabbing"}`}
+    >
+      <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#1a1815]/40 w-6">{String(index + 1).padStart(2, "0")}</span>
+      <span className={`flex-1 ${mono ? "font-mono text-[13px]" : "font-sans text-sm"} text-[#1a1815]`}>{text}</span>
+      <svg viewBox="0 0 24 24" className="h-4 w-4 text-[#1a1815]/30" fill="currentColor">
+        <circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" />
+        <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
+        <circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />
+      </svg>
+    </div>
+  );
+}
+
+function SpotBug({
+  question,
+  answer,
+  setAnswer,
+  locked,
+}: {
+  question: LessonArcQuestion;
+  answer: QuestionAttemptAnswer;
+  setAnswer: (a: QuestionAttemptAnswer) => void;
+  locked: boolean;
+}) {
+  const lines = (question.code ?? "").split("\n");
+  return (
+    <div className="overflow-hidden rounded-xl border-2 border-[#1a1815] bg-[#1a1815]">
+      {lines.map((line, i) => {
+        const lineNo = i + 1;
+        const selected = answer.optionIndex === lineNo;
+        const isBug = locked && question.bugLine === lineNo;
+        const isWrong = locked && selected && !isBug;
+        return (
+          <button
+            key={i}
+            type="button"
+            disabled={locked}
+            onClick={() => setAnswer({ optionIndex: lineNo })}
+            className={`flex w-full items-center gap-4 px-5 py-2 text-left font-mono text-[13px] transition-colors ${
+              isBug
+                ? "bg-[#e8761c] text-[#faf5ec]"
+                : isWrong
+                  ? "bg-[#e8761c]/30 text-[#faf5ec]"
+                  : selected
+                    ? "bg-[#faf5ec]/10 text-[#faf5ec]"
+                    : "text-[#faf5ec] hover:bg-[#faf5ec]/5"
+            }`}
+          >
+            <span className="select-none w-6 text-[#faf5ec]/40 tabular-nums">{String(lineNo).padStart(2, " ")}</span>
+            <span className="whitespace-pre">{line || " "}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function FindToken({
+  question,
+  answer,
+  setAnswer,
+  locked,
+}: {
+  question: LessonArcQuestion;
+  answer: QuestionAttemptAnswer;
+  setAnswer: (a: QuestionAttemptAnswer) => void;
+  locked: boolean;
+}) {
+  const tokenParts = useMemo(
+    () =>
+      (question.code ?? "").split(/(\s+)/).reduce<
+        Array<{ key: number; text: string; tokenIndex: number | null; whitespace: boolean }>
+      >((parts, text, index) => {
+        if (/^\s+$/.test(text)) {
+          parts.push({
+            key: index,
+            text,
+            tokenIndex: null,
+            whitespace: true,
+          });
+          return parts;
+        }
+
+        const nextIndex = parts.filter((part) => !part.whitespace).length;
+        parts.push({
+          key: index,
+          text,
+          tokenIndex: nextIndex,
+          whitespace: false,
+        });
+        return parts;
+      }, []),
+    [question.code],
+  );
+
+  return (
+    <pre className="overflow-x-auto rounded-xl border-2 border-[#1a1815] bg-[#1a1815] p-5 font-mono text-[14px] leading-relaxed text-[#faf5ec]">
+      <code className="block">
+        {tokenParts.map((part) => {
+          if (part.whitespace || part.tokenIndex === null) {
+            return <span key={part.key}>{part.text}</span>;
+          }
+
+          const myIdx = part.tokenIndex;
+          const selected = answer.tokenIndex === myIdx;
+          const isWrong = locked && question.wrongTokenIndex === myIdx;
+          const isMissed = locked && selected && !isWrong;
+          return (
+            <button
+              key={part.key}
+              type="button"
+              disabled={locked}
+              onClick={() => setAnswer({ tokenIndex: myIdx })}
+              className={`mx-[1px] rounded px-1 transition-colors ${
+                isWrong
+                  ? "bg-[#e8761c] text-[#faf5ec]"
+                  : isMissed
+                    ? "bg-[#e8761c]/30"
+                    : selected
+                      ? "bg-[#faf5ec]/15"
+                      : "hover:bg-[#faf5ec]/10"
+              }`}
+            >
+              {part.text}
+            </button>
+          );
+        })}
+      </code>
+    </pre>
+  );
+}
+
+function MatchPairs({
+  question,
+  answer,
+  setAnswer,
+  locked,
+}: {
+  question: LessonArcQuestion;
+  answer: QuestionAttemptAnswer;
+  setAnswer: (a: QuestionAttemptAnswer) => void;
+  locked: boolean;
+}) {
+  const pairs = question.pairs ?? [];
+  const lefts = pairs.map((p) => p.left);
+  const baseRights = pairs.map((pair) => pair.right);
+  const offset =
+    baseRights.length > 0
+      ? question.id.split("").reduce((sum, character) => sum + character.charCodeAt(0), 0) % baseRights.length
+      : 0;
+  const rights = baseRights.length <= 1
+    ? baseRights
+    : baseRights.map((_, index) => baseRights[(index + offset) % baseRights.length]);
+  const selected = answer.selectedPairs ?? [];
+  const [activeLeft, setActiveLeft] = useState<string | null>(null);
+
+  const matchedLefts = new Set(selected.map((s) => s.left));
+  const matchedRights = new Set(selected.map((s) => s.right));
+
+  const pickRight = (right: string) => {
+    if (!activeLeft || locked) return;
+    setAnswer({ selectedPairs: [...selected.filter((s) => s.left !== activeLeft), { left: activeLeft, right }] });
+    setActiveLeft(null);
+  };
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <div className="space-y-2">
+        {lefts.map((l) => {
+          const matched = matchedLefts.has(l);
+          const active = activeLeft === l;
+          return (
+            <button
+              key={l}
+              type="button"
+              disabled={locked || matched}
+              onClick={() => setActiveLeft(l)}
+              className={`w-full rounded-xl border-2 px-4 py-3 text-left font-mono text-sm transition-colors ${
+                matched
+                  ? "border-[#1a1815] bg-[#1a1815] text-[#faf5ec]"
+                  : active
+                    ? "border-[#e8761c] bg-[#e8761c]/10 text-[#1a1815]"
+                    : "border-[#1a1815]/15 bg-[#faf5ec] text-[#1a1815] hover:border-[#1a1815]"
+              }`}
+            >
+              {l}
+            </button>
+          );
+        })}
+      </div>
+      <div className="space-y-2">
+        {rights.map((r) => {
+          const matched = matchedRights.has(r);
+          return (
+            <button
+              key={r}
+              type="button"
+              disabled={locked || matched}
+              onClick={() => pickRight(r)}
+              className={`w-full rounded-xl border-2 px-4 py-3 text-left font-mono text-sm transition-colors ${
+                matched
+                  ? "border-[#1a1815] bg-[#1a1815] text-[#faf5ec]"
+                  : "border-[#1a1815]/15 bg-[#faf5ec] text-[#1a1815] hover:border-[#1a1815]"
+              }`}
+            >
+              {r}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TraceSteps({
+  question,
+  answer,
+  setAnswer,
+  locked,
+}: {
+  question: LessonArcQuestion;
+  answer: QuestionAttemptAnswer;
+  setAnswer: (a: QuestionAttemptAnswer) => void;
+  locked: boolean;
+}) {
+  const steps = question.traceSteps ?? [];
+  const [active, setActive] = useState(0);
+  const values = answer.tokens ?? Array(steps.length).fill("");
+
+  const setVal = (i: number, v: string) => {
+    const next = [...values];
+    next[i] = v;
+    setAnswer({ tokens: next });
+  };
+
+  return (
+    <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+      <CodeBlock code={question.code ?? ""} highlightLine={steps[active]?.line} />
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          {steps.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setActive(i)}
+              className={`h-2 flex-1 rounded-full transition-colors ${
+                i === active ? "bg-[#e8761c]" : values[i] ? "bg-[#1a1815]" : "bg-[#1a1815]/15"
+              }`}
+              aria-label={`Step ${i + 1}`}
+            />
+          ))}
+        </div>
+        <div className="rounded-xl border-2 border-[#1a1815] bg-[#faf5ec] p-5">
+          <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#e8761c]">
+            Step {active + 1} of {steps.length}
+          </div>
+          <p className="mt-2 font-serif text-lg text-[#1a1815]">{steps[active]?.prompt}</p>
+          <input
+            type="text"
+            disabled={locked}
+            value={values[active] ?? ""}
+            onChange={(e) => setVal(active, e.target.value)}
+            placeholder="Predicted value"
+            className="mt-3 w-full rounded-lg border-2 border-[#1a1815] bg-[#faf5ec] px-3 py-2 font-mono text-sm focus:bg-[#f1e9d4]"
           />
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="mt-4 flex justify-between">
             <button
               type="button"
-              onClick={onRunCode}
-              className="rounded-full border border-sky-300/30 bg-sky-400/12 px-5 py-2 text-sm font-black uppercase tracking-[0.16em] text-sky-100"
+              disabled={active === 0}
+              onClick={() => setActive((a) => Math.max(0, a - 1))}
+              className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#1a1815]/55 hover:text-[#1a1815] disabled:opacity-30"
             >
-              Run
+              ← Prev
             </button>
-            {question.testCases?.[0] ? (
-              <p className="text-sm font-semibold text-white/65">
-                Example test: <code className="rounded bg-white/8 px-1.5 py-0.5 font-mono">{question.testCases[0].input}</code> → {question.testCases[0].expected}
-              </p>
-            ) : null}
+            <button
+              type="button"
+              disabled={active === steps.length - 1}
+              onClick={() => setActive((a) => Math.min(steps.length - 1, a + 1))}
+              className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#1a1815]/55 hover:text-[#1a1815] disabled:opacity-30"
+            >
+              Next →
+            </button>
           </div>
-          {runResult ? (
-            <div className={`rounded-[1.4rem] border px-4 py-4 ${runResult.passed ? "border-emerald-300/35 bg-emerald-400/10" : "border-rose-300/30 bg-rose-500/10"}`}>
-              <p className="text-sm font-black uppercase tracking-[0.16em] text-white/55">Test results</p>
-              <div className="mt-3 space-y-2">
-                {runResult.tests.map((test) => (
-                  <div key={`${test.input}-${test.expected}`} className="rounded-xl border border-white/8 bg-black/10 px-3 py-3 text-sm text-white/85">
-                    <p><span className="font-black text-white">Input:</span> <code>{test.input}</code></p>
-                    <p><span className="font-black text-white">Expected:</span> <code>{test.expected}</code></p>
-                    <p><span className="font-black text-white">Actual:</span> <code>{test.actual}</code></p>
-                  </div>
-                ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SliderPredict({
+  question,
+  answer,
+  setAnswer,
+  locked,
+}: {
+  question: LessonArcQuestion;
+  answer: QuestionAttemptAnswer;
+  setAnswer: (a: QuestionAttemptAnswer) => void;
+  locked: boolean;
+}) {
+  const min = question.numericMin ?? 0;
+  const max = question.numericMax ?? 100;
+  const step = question.numericStep ?? 1;
+  const value = answer.numericValue ?? Math.round((min + max) / 2);
+
+  return (
+    <div className="space-y-6">
+      {question.code ? <CodeBlock code={question.code} /> : null}
+      <div className="rounded-xl border-2 border-[#1a1815] bg-[#faf5ec] p-6">
+        <div className="flex items-baseline justify-between">
+          <span className="font-mono text-[11px] uppercase tracking-[0.22em] text-[#1a1815]/55">Your prediction</span>
+          <span className="font-serif text-5xl text-[#1a1815] tabular-nums">{value}</span>
+        </div>
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          disabled={locked}
+          value={value}
+          onChange={(e) => setAnswer({ numericValue: Number(e.target.value), textValue: e.target.value })}
+          className="mt-4 w-full accent-[#e8761c]"
+        />
+        <div className="mt-2 flex justify-between font-mono text-[10px] uppercase tracking-[0.18em] text-[#1a1815]/45">
+          <span>{min}</span>
+          <span>{max}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CodeEditor({
+  question,
+  answer,
+  setAnswer,
+  locked,
+  runResult,
+  onRunCode,
+}: {
+  question: LessonArcQuestion;
+  answer: QuestionAttemptAnswer;
+  setAnswer: (a: QuestionAttemptAnswer) => void;
+  locked: boolean;
+  runResult: LessonCodeRunResult | null;
+  onRunCode: () => void | Promise<void>;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="overflow-hidden rounded-xl border-2 border-[#1a1815]">
+        <div className="flex items-center justify-between border-b border-[#faf5ec]/10 bg-[#1a1815] px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-[#e8761c]" />
+            <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-[#faf5ec]/70">editor</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => void onRunCode()}
+            disabled={locked}
+            className="rounded-md bg-[#e8761c] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-[#faf5ec] hover:bg-[#c95f10]"
+          >
+            Run tests
+          </button>
+        </div>
+        <textarea
+          value={answer.codeValue ?? question.code ?? ""}
+          disabled={locked}
+          spellCheck={false}
+          onChange={(e) => setAnswer({ codeValue: e.target.value })}
+          className="block min-h-[260px] w-full bg-[#1a1815] p-5 font-mono text-[13px] leading-relaxed text-[#faf5ec] outline-none"
+        />
+      </div>
+
+      {runResult ? (
+        <div className="overflow-hidden rounded-xl border border-[#1a1815]/15 bg-[#f1e9d4]">
+          <div className="border-b border-[#1a1815]/10 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.22em] text-[#1a1815]/60">
+            Tests · {runResult.tests.filter((t) => t.passed).length}/{runResult.tests.length} passed
+          </div>
+          <div className="divide-y divide-[#1a1815]/10">
+            {runResult.tests.map((t, i) => (
+              <div key={i} className="grid grid-cols-[auto_1fr_1fr] items-center gap-4 px-4 py-2 font-mono text-[12px]">
+                <span className={`grid h-5 w-5 place-items-center rounded-full text-[9px] ${t.passed ? "bg-[#1a1815] text-[#faf5ec]" : "bg-[#e8761c] text-[#faf5ec]"}`}>
+                  {t.passed ? "✓" : "×"}
+                </span>
+                <span className="text-[#1a1815]">{t.input}</span>
+                <span className="text-[#1a1815]/70">→ {t.actual}</span>
               </div>
-              {runResult.error ? <p className="mt-3 text-sm font-semibold text-rose-100">{runResult.error}</p> : null}
-            </div>
-          ) : null}
+            ))}
+          </div>
         </div>
       ) : null}
     </div>
   );
 }
+
+function FallbackQuestion({ question }: { question: LessonArcQuestion }) {
+  return (
+    <div className="space-y-4 rounded-xl border-2 border-dashed border-[#e8761c] bg-[#e8761c]/8 p-5">
+      <p className="font-mono text-sm uppercase tracking-[0.18em] text-[#c95f10]">
+        Question type not supported
+      </p>
+      <pre className="overflow-x-auto rounded-lg border border-[#1a1815]/15 bg-[#faf5ec] p-4 font-mono text-[12px] leading-relaxed text-[#1a1815]">
+        <code>{JSON.stringify(question, null, 2)}</code>
+      </pre>
+    </div>
+  );
+}
+
+const QUESTION_COMPONENTS: Partial<Record<LessonArcQuestionType, React.ComponentType<QuestionBodyProps>>> = {
+  mc_concept: MultipleChoice,
+  mc_output: MultipleChoice,
+  output_to_code: MultipleChoice,
+  true_false: (props) => <MultipleChoice {...props} columns={2} />,
+  code_diff: CodeDiff,
+  fill_type: FillType,
+  predict_type: FillType,
+  fill_select: FillSelect,
+  word_bank: WordBank,
+  build_regex: (props) => <WordBank {...props} mono />,
+  build_query: (props) => <WordBank {...props} mono />,
+  arrange: (props) => <ArrangeLines {...props} mono />,
+  code_order: (props) => <ArrangeLines {...props} mono />,
+  flowchart: ArrangeLines,
+  spot_bug: SpotBug,
+  find_token: FindToken,
+  match_pairs: MatchPairs,
+  trace_steps: TraceSteps,
+  slider_predict: SliderPredict,
+  complete_fn: CodeEditor,
+  debug: CodeEditor,
+};
