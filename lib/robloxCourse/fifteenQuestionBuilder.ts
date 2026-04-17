@@ -59,7 +59,7 @@ export type FifteenQuestionConceptSpec = {
   spotBug: SpotBugQuestion;
 };
 
-const TYPE_ABBREVIATIONS: Record<Question["type"], string> = {
+const TYPE_ABBREVIATIONS: Partial<Record<Question["type"], string>> = {
   mc_concept: "mc",
   mc_output: "mco",
   true_false: "tf",
@@ -74,10 +74,14 @@ const TYPE_ABBREVIATIONS: Record<Question["type"], string> = {
   debug: "db",
 };
 
+function getTypeAbbreviation(type: Question["type"]) {
+  return TYPE_ABBREVIATIONS[type] ?? (type.replace(/[^a-z]/g, "").slice(0, 3) || "q");
+}
+
 export function buildFifteenQuestionConcept(spec: FifteenQuestionConceptSpec): Question[] {
   const counters: Record<string, number> = {};
   const push = (question: Omit<Question, "id" | "concept" | "language">) => {
-    const abbr = TYPE_ABBREVIATIONS[question.type];
+    const abbr = getTypeAbbreviation(question.type);
     counters[abbr] = (counters[abbr] ?? 0) + 1;
     questions.push({
       ...question,

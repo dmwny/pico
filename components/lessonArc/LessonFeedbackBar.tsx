@@ -4,9 +4,13 @@ import { useState } from "react";
 
 type FeedbackMode = "idle" | "correct" | "wrong";
 
+/**
+ * Bottom feedback bar. Editorial cream/ink palette.
+ * No emojis — uses geometric SVG marks for correct/wrong.
+ */
 export default function LessonFeedbackBar({
   mode,
-  accentColor,
+  accentColor = "#e8761c",
   disabled,
   correctAnswer,
   xpAwarded,
@@ -17,7 +21,7 @@ export default function LessonFeedbackBar({
   onPrimaryAction,
 }: {
   mode: FeedbackMode;
-  accentColor: string;
+  accentColor?: string;
   disabled: boolean;
   correctAnswer?: string;
   xpAwarded?: number;
@@ -31,20 +35,18 @@ export default function LessonFeedbackBar({
 
   if (mode === "idle") {
     return (
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#0d1522] px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-4 shadow-[0_-20px_40px_rgba(0,0,0,0.35)]">
-        <div className="mx-auto max-w-4xl">
+      <div className="sticky bottom-0 z-30 border-t border-[#1a1815]/10 bg-[#faf5ec]/95 backdrop-blur">
+        <div className="mx-auto flex max-w-[1100px] justify-end px-6 py-5">
           <button
             type="button"
-            onClick={onPrimaryAction}
             disabled={disabled}
-            className={`flex h-14 w-full items-center justify-center rounded-[1.25rem] text-base font-black uppercase tracking-[0.16em] transition active:scale-[0.985] ${
-              disabled
-                ? "cursor-not-allowed bg-white/8 text-white/45"
-                : "text-white shadow-[0_14px_28px_rgba(15,23,42,0.18)]"
-            }`}
-            style={!disabled ? { background: accentColor } : undefined}
+            onClick={onPrimaryAction}
+            className="group relative inline-flex h-12 min-w-[180px] items-center justify-center gap-2 rounded-full bg-[#1a1815] px-7 font-mono text-[12px] uppercase tracking-[0.22em] text-[#faf5ec] transition-all hover:bg-[#e8761c] disabled:cursor-not-allowed disabled:bg-[#1a1815]/15 disabled:text-[#1a1815]/40"
           >
             {primaryLabel}
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+              <path d="M5 12h14M13 6l6 6-6 6" />
+            </svg>
           </button>
         </div>
       </div>
@@ -52,72 +54,75 @@ export default function LessonFeedbackBar({
   }
 
   const isCorrect = mode === "correct";
-  const barColor = isCorrect ? "#58CC02" : "#EA2B2B";
-  const buttonColor = isCorrect ? "#4CAF02" : "#C52323";
 
   return (
     <div
-      aria-live="polite"
-      className="fixed inset-x-0 bottom-0 z-50 animate-[lessonFeedbackSlideUp_250ms_ease-out] px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-4"
+      className="sticky bottom-0 z-30 border-t-2 border-[#1a1815] bg-[#faf5ec]"
+      style={{ animation: "lessonFeedbackSlideUp 320ms cubic-bezier(0.16,1,0.3,1)" }}
     >
-      <style>{`
-        @keyframes lessonFeedbackSlideUp {
-          0% {
-            opacity: 0;
-            transform: translateY(32px);
-          }
-          100% {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-      `}</style>
+      <style>{`@keyframes lessonFeedbackSlideUp{0%{opacity:0;transform:translateY(24px)}100%{opacity:1;transform:translateY(0)}}`}</style>
+
+      {/* accent rule */}
       <div
-        className="mx-auto max-w-4xl rounded-[1.75rem] border border-white/10 px-5 py-5 text-white shadow-[0_-24px_48px_rgba(0,0,0,0.28)]"
-        style={{ background: barColor, minHeight: "132px" }}
-      >
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/15 text-white">
+        className="h-1 w-full"
+        style={{ background: isCorrect ? "#1a1815" : accentColor }}
+      />
+
+      <div className="mx-auto flex max-w-[1100px] flex-col gap-5 px-6 py-6 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-start gap-4">
+          <div
+            className={`grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 ${
+              isCorrect ? "border-[#1a1815] bg-[#1a1815] text-[#faf5ec]" : "text-[#faf5ec]"
+            }`}
+            style={
+              isCorrect
+                ? undefined
+                : {
+                    borderColor: accentColor,
+                    background: accentColor,
+                  }
+            }
+          >
             {isCorrect ? (
-              <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M5 13l4 4L19 7" />
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12l5 5L20 7" />
               </svg>
             ) : (
-              <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-                <path d="M6 6l12 12M18 6 6 18" />
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
+                <path d="M6 6l12 12M18 6L6 18" />
               </svg>
             )}
           </div>
 
           <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-2xl font-black leading-tight">{label}</p>
-                {!isCorrect && correctAnswer ? (
-                  <p className="mt-1 text-sm font-semibold text-white/92">
-                    Correct answer: <code className="rounded bg-black/15 px-1.5 py-0.5 font-mono text-[0.92em]">{correctAnswer}</code>
-                  </p>
-                ) : null}
-              </div>
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h2 className="font-serif text-2xl leading-tight text-[#1a1815]">{label}</h2>
               {isCorrect && typeof xpAwarded === "number" ? (
-                <p className="shrink-0 text-sm font-black uppercase tracking-[0.18em] text-white/88">+{xpAwarded} XP</p>
+                <span className="font-mono text-[11px] uppercase tracking-[0.2em]" style={{ color: accentColor }}>
+                  +{xpAwarded} xp
+                </span>
               ) : null}
             </div>
+
+            {!isCorrect && correctAnswer ? (
+              <p className="mt-1 font-mono text-sm text-[#1a1815]/70">
+                <span className="text-[#1a1815]/40">answer · </span>
+                <span className="text-[#1a1815]">{correctAnswer}</span>
+              </p>
+            ) : null}
 
             {explanation ? (
               <div className="mt-3">
                 <button
                   type="button"
-                  onClick={() => setShowWhy((current) => !current)}
-                  className="text-sm font-black uppercase tracking-[0.16em] text-white/90"
+                  onClick={() => setShowWhy((v) => !v)}
+                  className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#1a1815]/60 underline-offset-4 hover:text-[#1a1815] hover:underline"
                 >
-                  Why?
+                  {showWhy ? "Hide explanation" : "Why?"}
                 </button>
-                <div className={`grid transition-all duration-250 ease-out ${showWhy ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
-                  <div className="overflow-hidden">
-                    <p className="mt-2 max-w-3xl text-sm leading-6 text-white/90">{explanation}</p>
-                  </div>
-                </div>
+                {showWhy ? (
+                  <p className="mt-2 max-w-2xl font-serif text-base leading-relaxed text-[#1a1815]/85">{explanation}</p>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -126,10 +131,23 @@ export default function LessonFeedbackBar({
         <button
           type="button"
           onClick={onPrimaryAction}
-          className="mt-4 flex h-14 w-full items-center justify-center rounded-[1.25rem] bg-white text-base font-black uppercase tracking-[0.16em] text-white transition active:scale-[0.985]"
-          style={{ background: buttonColor }}
+          className={`inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-full px-7 font-mono text-[12px] uppercase tracking-[0.22em] transition-colors ${
+            isCorrect
+              ? "bg-[#1a1815] text-[#faf5ec] hover:bg-[#e8761c]"
+              : "text-[#faf5ec]"
+          }`}
+          style={
+            isCorrect
+              ? undefined
+              : {
+                  background: accentColor,
+                }
+          }
         >
           {primaryLabel}
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+            <path d="M5 12h14M13 6l6 6-6 6" />
+          </svg>
         </button>
       </div>
     </div>

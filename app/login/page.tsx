@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 
 import { normalizeRedirectPath } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 
-export default function Login() {
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectPath = useMemo(
@@ -123,5 +123,13 @@ export default function Login() {
         </p>
       </div>
     </main>
+  );
+}
+
+export default function Login() {
+  return (
+    <Suspense fallback={<main className="min-h-screen bg-[var(--pico-cream)]" />}>
+      <LoginContent />
+    </Suspense>
   );
 }

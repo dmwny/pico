@@ -1,115 +1,121 @@
 "use client";
 
-function HeartIcon({
-  filled,
-  flash,
-}: {
-  filled: boolean;
-  flash: boolean;
-}) {
-  return (
-    <span
-      className={`inline-flex h-9 w-9 items-center justify-center rounded-full border transition-all duration-300 ${
-        filled
-          ? "border-rose-400/50 bg-rose-500/18 text-rose-300"
-          : "border-white/10 bg-white/5 text-white/25"
-      } ${flash ? "animate-[lessonHeartLoss_420ms_ease-in-out]" : ""}`}
-    >
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
-        <path d="M12 21s-6.7-4.35-9.2-8.37C.91 9.56 2.2 5.5 5.88 4.53A5.16 5.16 0 0 1 12 7.14a5.16 5.16 0 0 1 6.12-2.61c3.68.97 4.97 5.03 3.08 8.1C18.7 16.65 12 21 12 21Z" />
-      </svg>
-    </span>
-  );
-}
+import { useEffect, useState } from "react";
 
+/**
+ * Top bar — exit, progress, hearts, XP.
+ * Cream/ink palette. No emojis. Hearts use inline SVG.
+ */
 export default function LessonTopBar({
-  accentColor,
+  accentColor = "#e8761c",
   lessonIndex,
   totalLessons,
+  onExit,
+  onClose,
+  questionNumber,
   currentQuestion,
   totalQuestions,
   hearts,
+  maxHearts = 5,
+  xpEarned = 0,
   unlimitedHearts,
-  onClose,
   lossFlashKey,
 }: {
-  accentColor: string;
-  lessonIndex: number;
-  totalLessons: number;
-  currentQuestion: number;
+  accentColor?: string;
+  lessonIndex?: number;
+  totalLessons?: number;
+  onExit?: () => void;
+  onClose?: () => void;
+  questionNumber?: number;
+  currentQuestion?: number;
   totalQuestions: number;
   hearts: number;
-  unlimitedHearts: boolean;
-  onClose: () => void;
-  lossFlashKey: number;
+  maxHearts?: number;
+  xpEarned?: number;
+  unlimitedHearts?: boolean;
+  lossFlashKey?: number;
 }) {
-  const progressPercent = totalQuestions <= 0 ? 0 : Math.min(100, Math.round((currentQuestion / totalQuestions) * 100));
+  const [flash, setFlash] = useState(false);
+  useEffect(() => {
+    if (lossFlashKey === undefined) return;
+    setFlash(true);
+    const t = window.setTimeout(() => setFlash(false), 380);
+    return () => window.clearTimeout(t);
+  }, [lossFlashKey]);
+
+  const resolvedOnExit = onExit ?? onClose ?? (() => {});
+  const resolvedQuestionNumber = questionNumber ?? currentQuestion ?? 0;
+  const pct = Math.max(0, Math.min(100, (resolvedQuestionNumber / Math.max(1, totalQuestions)) * 100));
 
   return (
-    <div className="sticky top-0 z-30 border-b border-white/8 bg-slate-950/70 px-4 pb-3 pt-[max(env(safe-area-inset-top),0.75rem)] backdrop-blur-xl">
-      <style>{`
-        @keyframes lessonHeartLoss {
-          0% { transform: scale(1); opacity: 1; }
-          30% { transform: scale(1.18); opacity: 1; }
-          100% { transform: scale(0.92); opacity: 0.65; }
-        }
-      `}</style>
-      <div className="flex items-center gap-3">
+    <div className="sticky top-0 z-40 bg-[#faf5ec]/95 backdrop-blur border-b border-[#1a1815]/10">
+      <div className="mx-auto flex max-w-[1100px] items-center gap-6 px-6 py-4">
         <button
           type="button"
-          onClick={onClose}
-          className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/6 text-white transition hover:bg-white/10"
-          aria-label="Close lesson"
+          onClick={resolvedOnExit}
+          aria-label="Exit lesson"
+          className="grid h-9 w-9 place-items-center rounded-full border border-[#1a1815]/15 text-[#1a1815]/70 transition-colors hover:border-[#1a1815] hover:text-[#1a1815]"
         >
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M6 6l12 12M18 6 6 18" />
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+            <path d="M5 5l14 14M19 5L5 19" />
           </svg>
         </button>
 
-        <div className="flex-1">
-          <div className="mb-1.5 flex items-center justify-between gap-3">
-            <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-white/10">
-              <div
-                className="h-full rounded-full transition-[width] duration-300 ease-out"
-                style={{
-                  width: `${progressPercent}%`,
-                  background: accentColor,
-                  boxShadow: `0 0 18px ${accentColor}`,
-                }}
-              />
-            </div>
-            <p className="min-w-[3.3rem] text-right text-xs font-black tracking-[0.18em] text-white/75">
-              {Math.min(totalQuestions, currentQuestion)} / {totalQuestions}
-            </p>
+        <div className="flex flex-1 items-center gap-4">
+          <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-[#1a1815]/10">
+            <div
+              className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
+              style={{ width: `${pct}%`, background: accentColor }}
+            />
           </div>
-          <p className="text-[0.68rem] font-black uppercase tracking-[0.16em] text-white/58">
-            Lesson {lessonIndex} of {totalLessons} · Question {Math.min(totalQuestions, currentQuestion)} / {totalQuestions}
-          </p>
+          <div className="flex flex-col items-end">
+            <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#1a1815]/55 tabular-nums">
+              {String(resolvedQuestionNumber).padStart(2, "0")} / {String(totalQuestions).padStart(2, "0")}
+            </span>
+            {lessonIndex && totalLessons ? (
+              <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#1a1815]/38">
+                Lesson {lessonIndex} / {totalLessons}
+              </span>
+            ) : null}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5" aria-label="Hearts">
           {unlimitedHearts ? (
-            <div className="flex h-11 min-w-[4.25rem] items-center justify-center gap-1 rounded-full border border-white/10 bg-white/6 px-3 text-white">
-              <span className="text-rose-300">
-                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-                  <path d="M12 21s-6.7-4.35-9.2-8.37C.91 9.56 2.2 5.5 5.88 4.53A5.16 5.16 0 0 1 12 7.14a5.16 5.16 0 0 1 6.12-2.61c3.68.97 4.97 5.03 3.08 8.1C18.7 16.65 12 21 12 21Z" />
-                </svg>
-              </span>
-              <span className="text-lg font-black">∞</span>
-            </div>
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.16em]"
+              style={{
+                borderColor: accentColor,
+                background: `${accentColor}1A`,
+                color: accentColor,
+              }}
+            >
+              <Heart filled className="h-3 w-3" /> Unlimited
+            </span>
           ) : (
-            <div className="flex items-center gap-1">
-              {Array.from({ length: 5 }, (_, index) => (
-                <HeartIcon
-                  key={`${index}-${lossFlashKey}`}
-                  filled={index < hearts}
-                  flash={lossFlashKey > 0 && index === hearts}
-                />
-              ))}
-            </div>
+            Array.from({ length: maxHearts }).map((_, i) => (
+              <Heart
+                key={i}
+                filled={i < hearts}
+                className={`h-4 w-4 transition-transform ${flash && i === hearts ? "animate-[pulse_0.4s_ease-out]" : ""}`}
+              />
+            ))
           )}
+        </div>
+
+        <div className="hidden items-baseline gap-1.5 sm:flex">
+          <span className="font-serif text-xl text-[#1a1815] tabular-nums">{xpEarned}</span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#1a1815]/55">xp</span>
         </div>
       </div>
     </div>
+  );
+}
+
+function Heart({ filled, className = "" }: { filled: boolean; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill={filled ? "#e8761c" : "none"} stroke={filled ? "#e8761c" : "#1a181533"} strokeWidth="2">
+      <path d="M12 21s-7-4.35-9.5-9C1 8.5 3 5 6.5 5 8.5 5 10.5 6 12 8c1.5-2 3.5-3 5.5-3C21 5 23 8.5 21.5 12c-2.5 4.65-9.5 9-9.5 9z" />
+    </svg>
   );
 }

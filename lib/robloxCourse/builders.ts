@@ -112,7 +112,7 @@ export type RobloxCodeConceptSpec = {
   bugs: [SpotBugExample, SpotBugExample, SpotBugExample];
 };
 
-const TYPE_ABBREVIATIONS: Record<RobloxQuestionType, string> = {
+const TYPE_ABBREVIATIONS: Partial<Record<RobloxQuestionType, string>> = {
   mc_concept: "mc1",
   mc_output: "mco",
   true_false: "tf",
@@ -126,6 +126,10 @@ const TYPE_ABBREVIATIONS: Record<RobloxQuestionType, string> = {
   complete_fn: "cf",
   debug: "db",
 };
+
+function getTypeAbbreviation(type: RobloxQuestionType) {
+  return TYPE_ABBREVIATIONS[type] ?? (type.replace(/[^a-z]/g, "").slice(0, 3) || "q");
+}
 
 type QuestionSeed = Omit<Question, "id" | "language" | "concept" | "difficulty"> & {
   difficulty?: 1 | 2 | 3;
@@ -145,7 +149,7 @@ function createRobloxQuestionFactory(concept: string, nodeType: RobloxNodeType, 
 
   return {
     push(seed: QuestionSeed) {
-      const abbreviation = TYPE_ABBREVIATIONS[seed.type];
+      const abbreviation = getTypeAbbreviation(seed.type);
       counters[abbreviation] = (counters[abbreviation] ?? 0) + 1;
       questions.push({
         ...seed,
