@@ -1,6 +1,15 @@
 @import "tailwindcss";
 
 :root {
+  --pico-orange: #e8622a;
+  --pico-cream: #f0ebe1;
+  --pico-dark: #1a1a2e;
+  --pico-body: #2d2d2d;
+  --pico-tile-done: #e8622a;
+  --pico-tile-empty: #d9d3c7;
+  --pico-sticky-yellow: #f5d87a;
+  --pico-border: #1a1a2e;
+  --pico-cream-deep: #e2dbcf;
   --midnight: #2c3e50;
   --midnight-soft: #43576b;
   --carrot: #e67e22;
@@ -14,8 +23,15 @@
 }
 
 @theme inline {
-  --color-background: var(--paper);
-  --color-foreground: var(--ink);
+  --color-background: var(--pico-cream);
+  --color-foreground: var(--pico-dark);
+  --color-cream: var(--pico-cream);
+  --color-cream-deep: var(--pico-cream-deep);
+  --color-ink: var(--pico-dark);
+  --color-orange: var(--pico-orange);
+  --color-paper: var(--pico-cream);
+  --color-body: var(--pico-body);
+  --color-sticky-yellow: var(--pico-sticky-yellow);
   --font-sans: "Source Sans 3", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
@@ -31,9 +47,9 @@ html {
 body {
   min-height: 100vh;
   background:
-    radial-gradient(circle at top left, rgba(230, 126, 34, 0.09), transparent 32%),
-    linear-gradient(180deg, #f8f4ee 0%, #f0ece5 100%);
-  color: var(--ink);
+    radial-gradient(circle at top left, rgba(232, 98, 42, 0.1), transparent 32%),
+    linear-gradient(180deg, #f5f0e7 0%, var(--pico-cream) 100%);
+  color: var(--pico-body);
   font-family: "Source Sans 3", sans-serif;
   letter-spacing: 0.01em;
 }
@@ -46,7 +62,7 @@ h5,
 h6 {
   font-family: "Playfair Display", serif;
   letter-spacing: -0.03em;
-  color: var(--midnight);
+  color: var(--pico-dark);
 }
 
 a,
@@ -79,8 +95,8 @@ div {
 }
 
 ::selection {
-  background: rgba(230, 126, 34, 0.24);
-  color: var(--midnight);
+  background: rgba(232, 98, 42, 0.24);
+  color: var(--pico-dark);
 }
 
 .editorial-kicker {
@@ -95,6 +111,64 @@ div {
   background: rgba(248, 245, 240, 0.96);
   border: 1px solid rgba(44, 62, 80, 0.16);
   box-shadow: var(--shadow);
+}
+
+.shadow-card-pico {
+  box-shadow: 10px 10px 0 rgba(26, 26, 46, 0.12);
+}
+
+.shadow-paper {
+  box-shadow: 6px 6px 0 rgba(26, 26, 46, 0.08);
+}
+
+.shadow-sticky {
+  box-shadow: 6px 6px 0 rgba(26, 26, 46, 0.12);
+}
+
+.bg-gradient-orange {
+  background: linear-gradient(90deg, rgba(232, 98, 42, 0.82), #e8622a);
+}
+
+.bg-dotted {
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.18) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+.story-link {
+  position: relative;
+}
+
+.story-link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -0.18rem;
+  height: 1px;
+  transform: scaleX(0);
+  transform-origin: left;
+  background: currentColor;
+  transition: transform 160ms ease;
+}
+
+.story-link:hover::after {
+  transform: scaleX(1);
+}
+
+.pulse-dot {
+  animation: picoPulseDot 1.8s ease-in-out infinite;
+}
+
+@keyframes picoPulseDot {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.95;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.55;
+  }
 }
 
 .ink-button {
