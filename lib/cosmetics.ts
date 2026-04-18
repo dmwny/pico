@@ -63,7 +63,7 @@ export type CosmeticItemKind =
   | "profileBorder"
   | "titleBadge";
 
-export type ShopTab = "packs" | "collection" | "functional";
+export type ShopTab = "packs" | "collection" | "functional" | "customization";
 
 export type PathThemeItemId = `pathTheme:${PathThemeId}`;
 export type ChestSkinItemId = `chestSkin:${ChestSkinId}`;

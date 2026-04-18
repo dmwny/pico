@@ -79,7 +79,7 @@ export const PYTHON_FOR_LOOPS_SEED: LessonArcQuestion[] = [
   }),
   question({
     id: "pfl-mc-output-1",
-    type: "mc_output",
+    type: "predict-output",
     difficulty: 2,
     prompt: "What does this print?",
     code: "for i in range(3):\n    print(i)",
@@ -112,7 +112,7 @@ export const PYTHON_FOR_LOOPS_SEED: LessonArcQuestion[] = [
   }),
   question({
     id: "pfl-mc-output-4",
-    type: "mc_output",
+    type: "output-with-animation",
     difficulty: 2,
     prompt: "What does this print?",
     code: "for ch in 'hi':\n    print(ch)",
@@ -134,7 +134,7 @@ export const PYTHON_FOR_LOOPS_SEED: LessonArcQuestion[] = [
   }),
   question({
     id: "pfl-word-bank-1",
-    type: "word_bank",
+    type: "fill-only-keywords",
     difficulty: 3,
     prompt: "Build a loop header that goes through the numbers 0, 1, and 2.",
     tokens: ["for", "i", "in", "range", "(", "3", ")", ":", "print", "="],
@@ -174,7 +174,7 @@ export const PYTHON_FOR_LOOPS_SEED: LessonArcQuestion[] = [
   }),
   question({
     id: "pfl-word-bank-5",
-    type: "word_bank",
+    type: "code-translation",
     difficulty: 3,
     prompt: "Build a loop that prints the numbers 2, 3, and 4.",
     tokens: ["for", "i", "in", "range", "(", "2", ",", "5", ")", ":", "print", "(", ")"],
@@ -184,7 +184,7 @@ export const PYTHON_FOR_LOOPS_SEED: LessonArcQuestion[] = [
   }),
   question({
     id: "pfl-arrange-1",
-    type: "arrange",
+    type: "timeline-execution",
     difficulty: 3,
     prompt: "Arrange the lines to print 0, 1, and 2.",
     lines: ["for i in range(3):", "    print(i)"],
@@ -202,7 +202,7 @@ export const PYTHON_FOR_LOOPS_SEED: LessonArcQuestion[] = [
   }),
   question({
     id: "pfl-arrange-3",
-    type: "arrange",
+    type: "drag-to-build-function",
     difficulty: 3,
     prompt: "Arrange the lines to add 0, 1, and 2 into `total` and print the result.",
     lines: ["total = 0", "for i in range(3):", "    total = total + i", "print(total)"],
@@ -220,7 +220,7 @@ export const PYTHON_FOR_LOOPS_SEED: LessonArcQuestion[] = [
   }),
   question({
     id: "pfl-arrange-5",
-    type: "arrange",
+    type: "function-call-flow",
     difficulty: 3,
     prompt: "Arrange the lines to define and call a function that prints numbers 0 and 1.",
     lines: ["def show_numbers():", "    for i in range(2):", "        print(i)", "show_numbers()"],
@@ -229,7 +229,7 @@ export const PYTHON_FOR_LOOPS_SEED: LessonArcQuestion[] = [
   }),
   question({
     id: "pfl-fill-type-1",
-    type: "fill_type",
+    type: "fill-the-blank-classic",
     difficulty: 4,
     prompt: "Type the missing token.",
     code: "for i in ________(3):\n    print(i)",
@@ -259,7 +259,7 @@ export const PYTHON_FOR_LOOPS_SEED: LessonArcQuestion[] = [
   }),
   question({
     id: "pfl-fill-type-4",
-    type: "fill_type",
+    type: "fill-only-operators",
     difficulty: 4,
     prompt: "Type the missing token.",
     code: "word = 'go'\nfor letter in word:\n    print(________)",
@@ -334,7 +334,7 @@ export const PYTHON_FOR_LOOPS_SEED: LessonArcQuestion[] = [
   }),
   question({
     id: "pfl-spot-bug-1",
-    type: "spot_bug",
+    type: "glitch-fix",
     difficulty: 4,
     prompt: "Which version has the bug?",
     code: "### Version A\nfor i in range(3):\n    print(i)\n\n### Version B\nfor i in range(3)\n    print(i)",
@@ -362,7 +362,7 @@ export const PYTHON_FOR_LOOPS_SEED: LessonArcQuestion[] = [
   }),
   question({
     id: "pfl-spot-bug-3",
-    type: "spot_bug",
+    type: "off-by-one-maze",
     difficulty: 4,
     prompt: "Which version has the bug?",
     code: "### Version A\nfor n in range(1, 4):\n    print(n)\n\n### Version B\nfor n in range(1, 3):\n    print(n)",
@@ -376,7 +376,7 @@ export const PYTHON_FOR_LOOPS_SEED: LessonArcQuestion[] = [
   }),
   question({
     id: "pfl-spot-bug-4",
-    type: "spot_bug",
+    type: "invisible-bug",
     difficulty: 5,
     prompt: "Which version has the bug?",
     code: "### Version A\nword = 'go'\nfor letter in word:\n    print(letter)\n\n### Version B\nword = 'go'\nfor letter in word:\nprint(letter)",
@@ -437,7 +437,7 @@ export const PYTHON_FOR_LOOPS_SEED: LessonArcQuestion[] = [
   }),
   question({
     id: "pfl-predict-type-4",
-    type: "predict_type",
+    type: "predict-final-variable",
     difficulty: 5,
     prompt: "What will this print? Type your answer exactly.",
     code: "total = 0\nfor i in range(1, 4):\n    total = total + i\nprint(total)",
@@ -588,7 +588,7 @@ export const PYTHON_FOR_LOOPS_SEED: LessonArcQuestion[] = [
   }),
   question({
     id: "pfl-complete-fn-2",
-    type: "complete_fn",
+    type: "function-completion",
     difficulty: 5,
     prompt: "Complete the function so it returns the sum of 1 through `n`.",
     code: "def sum_up_to(n):\n    total = 0\n    # TODO: loop from 1 through n and add each number to total\n    ______",
@@ -648,7 +648,7 @@ export const PYTHON_FOR_LOOPS_SEED: LessonArcQuestion[] = [
   }),
   question({
     id: "pfl-debug-1",
-    type: "debug",
+    type: "boss-fight",
     difficulty: 5,
     prompt: "This function should return `[0, 1, 2]`, but it does not work. Fix it.",
     code: "def first_three():\n    values = []\n    for i in range(4):\n        values.append(i)\n    return values",
@@ -677,7 +677,7 @@ export const PYTHON_FOR_LOOPS_SEED: LessonArcQuestion[] = [
   }),
   question({
     id: "pfl-debug-3",
-    type: "debug",
+    type: "multi-step-debug",
     difficulty: 5,
     prompt: "This function should return each letter in `word`, but it returns too early. Fix it.",
     code: "def letters_in(word):\n    result = []\n    for ch in word:\n        result.append(ch)\n        return result",
@@ -706,7 +706,7 @@ export const PYTHON_FOR_LOOPS_SEED: LessonArcQuestion[] = [
   }),
   question({
     id: "pfl-debug-5",
-    type: "debug",
+    type: "glitch-world",
     difficulty: 5,
     prompt: "This function should repeat `word` `times` times, but it changes the wrong variable. Fix it.",
     code: "def repeat_word(word, times):\n    result = ''\n    for _ in range(times):\n        word = result + word\n    return result",

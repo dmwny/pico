@@ -1,53 +1,60 @@
 "use client";
 
+/**
+ * Lesson end screens — cream/ink editorial.
+ * No emojis. No confetti characters. Geometric motion only.
+ */
+
 function StatRing({ ratio, label }: { ratio: number; label: string }) {
   const clamped = Math.max(0, Math.min(1, ratio));
-  const dash = 282.74;
+  const r = 44;
+  const dash = 2 * Math.PI * r;
   const offset = dash * (1 - clamped);
   return (
-    <div className="relative h-28 w-28">
-      <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
-        <circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="10" />
-        <circle
-          cx="50"
-          cy="50"
-          r="45"
-          fill="none"
-          stroke="url(#lesson-ring)"
-          strokeWidth="10"
-          strokeLinecap="round"
-          strokeDasharray={dash}
-          strokeDashoffset={offset}
-        />
-        <defs>
-          <linearGradient id="lesson-ring" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#58CC02" />
-            <stop offset="100%" stopColor="#22C55E" />
-          </linearGradient>
-        </defs>
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-2xl font-black text-white">{Math.round(clamped * 100)}%</span>
-        <span className="text-[0.65rem] font-black uppercase tracking-[0.18em] text-white/55">{label}</span>
+    <div className="flex items-center gap-4">
+      <div className="relative grid h-24 w-24 place-items-center">
+        <svg viewBox="0 0 100 100" className="h-24 w-24 -rotate-90">
+          <circle cx="50" cy="50" r={r} stroke="#1a181522" strokeWidth="6" fill="none" />
+          <circle
+            cx="50"
+            cy="50"
+            r={r}
+            stroke="#e8761c"
+            strokeWidth="6"
+            fill="none"
+            strokeLinecap="round"
+            strokeDasharray={dash}
+            strokeDashoffset={offset}
+            style={{ transition: "stroke-dashoffset 900ms cubic-bezier(0.16,1,0.3,1)" }}
+          />
+        </svg>
+        <span className="absolute font-serif text-2xl text-[#1a1815] tabular-nums">{Math.round(clamped * 100)}%</span>
       </div>
+      <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-[#1a1815]/55">{label}</span>
     </div>
   );
 }
 
 function ArcSegmentStrip({ completedCount }: { completedCount: number }) {
   return (
-    <div className="mt-6 flex items-center justify-center gap-2">
-      {Array.from({ length: 5 }, (_, index) => {
-        const filled = index < completedCount;
-        return (
-          <span
-            key={index}
-            className={`h-3.5 w-12 rounded-full transition-all duration-300 ${
-              filled ? "bg-[#58CC02] shadow-[0_0_18px_rgba(88,204,2,0.32)]" : "bg-white/10"
-            }`}
-          />
-        );
-      })}
+    <div className="flex gap-1.5" aria-label={`${completedCount} of 5 lessons complete`}>
+      {Array.from({ length: 5 }, (_, i) => (
+        <div
+          key={i}
+          className={`h-2 flex-1 rounded-full transition-colors ${i < completedCount ? "bg-[#e8761c]" : "bg-[#1a1815]/12"}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function Shell({ kicker, children }: { kicker: string; children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen bg-[#faf5ec] px-6 py-12">
+      <div className="mx-auto flex max-w-[680px] flex-col gap-8 rounded-2xl border-2 border-[#1a1815] bg-[#faf5ec] p-10 shadow-[8px_8px_0_0_#1a1815]">
+        <div className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#e8761c]">{kicker}</div>
+        {children}
+      </div>
     </div>
   );
 }
@@ -75,73 +82,68 @@ export function LessonCompleteScreen({
   reviewMode: boolean;
   onContinue: () => void;
 }) {
-  const remainingLessons = Math.max(0, 5 - completedLessonCount);
+  const remaining = Math.max(0, 5 - completedLessonCount);
+  const accuracy = totalQuestions > 0 ? correctCount / totalQuestions : 0;
 
   return (
-    <div className="fixed inset-0 z-40 overflow-y-auto bg-slate-950/96 px-5 py-10 text-white">
-      <div className="mx-auto flex min-h-full max-w-3xl flex-col items-center justify-center text-center">
-        <div className="mb-8 flex h-28 w-28 items-center justify-center rounded-full bg-emerald-500/18 text-emerald-300 shadow-[0_0_60px_rgba(88,204,2,0.22)]">
-          <svg viewBox="0 0 24 24" className="h-14 w-14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 13l4 4L19 7" />
-          </svg>
-        </div>
-        <p className="text-sm font-black uppercase tracking-[0.28em] text-white/45">{lessonLabel}</p>
-        <h1 className="mt-3 text-5xl font-black tracking-tight">
-          {reviewMode ? "Review complete!" : `Lesson ${lessonNumber} of 5 complete!`}
-        </h1>
-        <p className="mt-3 max-w-xl text-lg text-white/70">
-          {reviewMode
-            ? "Review XP is reduced, but the practice still counts."
-            : perfect
-              ? "Perfect run. Clean execution all the way through."
-              : "Progress locked in. The next lesson in the arc is ready."}
-        </p>
-        {!reviewMode ? <ArcSegmentStrip completedCount={completedLessonCount} /> : null}
-        {!reviewMode ? (
-          <p className="mt-4 text-sm font-semibold text-white/58">
-            {remainingLessons > 0 ? `Keep going — ${remainingLessons} more lesson${remainingLessons === 1 ? "" : "s"} to unlock the chest.` : "The chest is ready."}
-          </p>
-        ) : null}
+    <Shell kicker={reviewMode ? "Review · complete" : `Lesson ${lessonNumber} of 5`}>
+      <h1 className="font-serif text-5xl leading-[0.95] text-[#1a1815]">{lessonLabel}</h1>
+      <p className="-mt-4 max-w-md font-serif text-lg text-[#1a1815]/70">
+        {reviewMode
+          ? "Review locked in. Reduced XP, full credit toward retention."
+          : perfect
+            ? "A clean run. Every answer landed."
+            : "Solid work. The next lesson in the arc is unlocked."}
+      </p>
 
-        <div className="mt-10 grid w-full gap-5 md:grid-cols-[1.15fr_0.85fr]">
-          <div className="rounded-[2rem] border border-white/10 bg-white/6 p-6 text-left">
-            <p className="text-[0.72rem] font-black uppercase tracking-[0.28em] text-white/45">XP earned</p>
-            <p className="mt-3 text-6xl font-black text-[#58CC02]">+{xpEarned}</p>
+      {!reviewMode ? (
+        <div className="space-y-2">
+          <ArcSegmentStrip completedCount={completedLessonCount} />
+          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#1a1815]/55">
+            {remaining > 0 ? `${remaining} lesson${remaining === 1 ? "" : "s"} until the chest unlocks` : "Chest is ready"}
+          </p>
+        </div>
+      ) : null}
+
+      <div className="grid gap-6 border-t-2 border-[#1a1815]/10 pt-6 sm:grid-cols-2">
+        <div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#1a1815]/55">XP earned</div>
+          <div className="mt-1 flex items-baseline gap-3">
+            <span className="font-serif text-5xl text-[#1a1815] tabular-nums">+{xpEarned}</span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
             {perfect ? (
-              <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-amber-300/25 bg-amber-400/10 px-4 py-2 text-sm font-black uppercase tracking-[0.16em] text-amber-100">
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                  <path d="M12 2l2.95 5.98L21.55 9l-4.78 4.66 1.13 6.6L12 17.2l-5.9 3.06 1.13-6.6L2.45 9l6.6-.99L12 2Z" />
-                </svg>
+              <span className="rounded-full border border-[#1a1815] bg-[#1a1815] px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-[#faf5ec]">
                 Perfect +25
-              </div>
+              </span>
             ) : null}
             {streakExtended ? (
-              <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-orange-300/20 bg-orange-400/10 px-4 py-2 text-sm font-black uppercase tracking-[0.16em] text-orange-100">
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                  <path d="M12 2s4 2.64 4 7.1c0 2.1-.91 3.88-2.34 5.1 0-2.12-.88-3.3-1.66-4.24-.82 1.18-2 2.62-2 5.04A4 4 0 0 0 18 15c0 3.31-2.69 6-6 6s-6-2.69-6-6c0-5.34 3.64-8.65 6-13Z" />
-                </svg>
+              <span className="rounded-full border border-[#e8761c] bg-[#e8761c]/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-[#c95f10]">
                 Streak extended
-              </div>
+              </span>
             ) : null}
-          </div>
-
-          <div className="flex flex-col items-center justify-center rounded-[2rem] border border-white/10 bg-white/6 p-6">
-            <StatRing ratio={totalQuestions > 0 ? correctCount / totalQuestions : 0} label="accuracy" />
-            <p className="mt-4 text-sm font-semibold text-white/70">
-              You got {correctCount}/{totalQuestions} correct
-            </p>
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={onContinue}
-          className="mt-10 flex h-14 w-full max-w-xl items-center justify-center rounded-[1.4rem] bg-[#58CC02] text-base font-black uppercase tracking-[0.18em] text-white shadow-[0_18px_32px_rgba(88,204,2,0.28)] transition active:scale-[0.985]"
-        >
-          Continue
-        </button>
+        <div className="space-y-2">
+          <StatRing ratio={accuracy} label="accuracy" />
+          <p className="font-mono text-[11px] text-[#1a1815]/60">
+            {correctCount} of {totalQuestions} correct
+          </p>
+        </div>
       </div>
-    </div>
+
+      <button
+        type="button"
+        onClick={onContinue}
+        className="inline-flex h-13 items-center justify-center gap-2 self-stretch rounded-full bg-[#1a1815] px-8 py-4 font-mono text-[12px] uppercase tracking-[0.22em] text-[#faf5ec] transition-colors hover:bg-[#e8761c]"
+      >
+        Continue
+        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+          <path d="M5 12h14M13 6l6 6-6 6" />
+        </svg>
+      </button>
+    </Shell>
   );
 }
 
@@ -159,67 +161,53 @@ export function ArcCompleteScreen({
   onContinue: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-40 overflow-y-auto bg-slate-950/96 px-5 py-10 text-white">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        {Array.from({ length: 70 }).map((_, index) => (
-          <span
-            key={index}
-            className="absolute top-[-10%] h-3 w-3 rounded-full bg-emerald-300/70"
-            style={{
-              left: `${(index * 13) % 100}%`,
-              animation: `lessonArcConfetti ${1.3 + (index % 6) * 0.18}s linear ${index * 40}ms forwards`,
-            }}
-          />
-        ))}
-        <style>{`
-          @keyframes lessonArcConfetti {
-            0% { transform: translateY(0) rotate(0deg); opacity: 1; }
-            100% { transform: translateY(120vh) rotate(720deg); opacity: 0; }
-          }
-        `}</style>
-      </div>
-      <div className="relative mx-auto flex min-h-full max-w-3xl flex-col items-center justify-center text-center">
-        <div className="mb-8 flex h-32 w-32 items-center justify-center rounded-full bg-emerald-500/18 text-emerald-300 shadow-[0_0_90px_rgba(88,204,2,0.28)]">
-          <svg viewBox="0 0 24 24" className="h-16 w-16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 13l4 4L19 7" />
-          </svg>
-        </div>
-        <p className="text-sm font-black uppercase tracking-[0.28em] text-white/40">Arc complete</p>
-        <h1 className="mt-3 text-5xl font-black tracking-tight">{nodeTitle}</h1>
-        <p className="mt-3 max-w-xl text-lg text-white/72">Five lessons down. The node is complete, the chest is unlocked, and the path can advance.</p>
-        <ArcSegmentStrip completedCount={5} />
+    <Shell kicker="Arc · complete">
+      <style>{`@keyframes arcRise{0%{transform:translateY(8px);opacity:0}100%{transform:translateY(0);opacity:1}}`}</style>
 
-        <div className="mt-10 w-full rounded-[2rem] border border-white/10 bg-white/6 p-7">
-          <div className="flex flex-wrap items-center justify-center gap-6 text-center">
-            <div>
-              <p className="text-[0.72rem] font-black uppercase tracking-[0.28em] text-white/45">Arc XP</p>
-              <p className="mt-2 text-5xl font-black text-[#58CC02]">+{totalArcXp}</p>
-            </div>
-            <div className="rounded-[1.2rem] border border-emerald-300/20 bg-emerald-400/10 px-5 py-4">
-              <p className="text-[0.72rem] font-black uppercase tracking-[0.22em] text-emerald-100/80">Arc bonus</p>
-              <p className="mt-2 text-xl font-black text-emerald-100">+{arcBonusXp} XP</p>
-            </div>
-            {streakExtended ? (
-              <div className="rounded-[1.2rem] border border-orange-300/20 bg-orange-400/10 px-5 py-4">
-                <p className="text-[0.72rem] font-black uppercase tracking-[0.22em] text-orange-100/80">Streak</p>
-                <p className="mt-2 text-xl font-black text-orange-100">Extended!</p>
-              </div>
-            ) : null}
-            <div className="rounded-[1.2rem] border border-amber-300/20 bg-amber-400/10 px-5 py-4">
-              <p className="text-[0.72rem] font-black uppercase tracking-[0.22em] text-amber-100/80">Reward</p>
-              <p className="mt-2 text-xl font-black text-amber-100">Chest unlocked</p>
-            </div>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={onContinue}
-          className="mt-10 flex h-14 w-full max-w-xl items-center justify-center rounded-[1.4rem] bg-[#58CC02] text-base font-black uppercase tracking-[0.18em] text-white shadow-[0_18px_32px_rgba(88,204,2,0.28)] transition active:scale-[0.985]"
-        >
-          Awesome!
-        </button>
+      <div style={{ animation: "arcRise 700ms cubic-bezier(0.16,1,0.3,1)" }}>
+        <h1 className="font-serif text-5xl leading-[0.95] text-[#1a1815]">Arc complete</h1>
+        <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.22em] text-[#e8761c]">{nodeTitle}</p>
       </div>
+
+      <p className="font-serif text-lg text-[#1a1815]/70">
+        Five lessons down. The node is sealed, the chest is unlocked, the path moves on.
+      </p>
+
+      {/* geometric "chest" — pure SVG, no emoji */}
+      <div className="grid place-items-center py-2">
+        <svg viewBox="0 0 200 140" className="h-32 w-44" style={{ animation: "arcRise 900ms 200ms both cubic-bezier(0.16,1,0.3,1)" }}>
+          <rect x="20" y="50" width="160" height="80" rx="6" fill="#f1e9d4" stroke="#1a1815" strokeWidth="3" />
+          <path d="M20 70 Q100 10 180 70" fill="#e8761c" stroke="#1a1815" strokeWidth="3" />
+          <rect x="88" y="78" width="24" height="28" rx="3" fill="#1a1815" />
+          <circle cx="100" cy="90" r="3" fill="#e8761c" />
+        </svg>
+      </div>
+
+      <div className="grid gap-4 border-t-2 border-[#1a1815]/10 pt-6 sm:grid-cols-3">
+        <Stat label="Arc XP" value={`+${totalArcXp}`} />
+        <Stat label="Arc bonus" value={`+${arcBonusXp}`} />
+        <Stat label={streakExtended ? "Streak" : "Reward"} value={streakExtended ? "Extended" : "Chest"} />
+      </div>
+
+      <button
+        type="button"
+        onClick={onContinue}
+        className="inline-flex h-13 items-center justify-center gap-2 self-stretch rounded-full bg-[#e8761c] px-8 py-4 font-mono text-[12px] uppercase tracking-[0.22em] text-[#faf5ec] transition-colors hover:bg-[#c95f10]"
+      >
+        Claim and continue
+        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+          <path d="M5 12h14M13 6l6 6-6 6" />
+        </svg>
+      </button>
+    </Shell>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#1a1815]/55">{label}</div>
+      <div className="mt-1 font-serif text-2xl text-[#1a1815]">{value}</div>
     </div>
   );
 }
@@ -238,42 +226,34 @@ export function LessonFailedScreen({
   onUseHeartRefill: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-40 overflow-y-auto bg-slate-950/96 px-5 py-10 text-white">
-      <div className="mx-auto flex min-h-full max-w-2xl flex-col items-center justify-center text-center">
-        <div className="mb-8 flex h-32 w-32 items-center justify-center rounded-full bg-white/6 text-white/70">
-          <svg viewBox="0 0 24 24" className="h-14 w-14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 21s-6.7-4.35-9.2-8.37C.91 9.56 2.2 5.5 5.88 4.53A5.16 5.16 0 0 1 12 7.14a5.16 5.16 0 0 1 6.12-2.61c3.68.97 4.97 5.03 3.08 8.1C18.7 16.65 12 21 12 21Z" />
-            <path d="M8 15c1-1 2-1.4 4-1.4s3 .4 4 1.4" />
-          </svg>
-        </div>
-        <h1 className="text-5xl font-black tracking-tight">You ran out of hearts</h1>
-        <p className="mt-3 max-w-xl text-lg text-white/70">Don&apos;t give up. You were on question {currentQuestion}/{totalQuestions}.</p>
+    <Shell kicker="Out of hearts">
+      <h1 className="font-serif text-5xl leading-[0.95] text-[#1a1815]">Take a breath.</h1>
+      <p className="font-serif text-lg text-[#1a1815]/70">
+        You were on question {currentQuestion} of {totalQuestions}. Restart fresh, or spend a refill to keep going.
+      </p>
 
-        <div className="mt-10 w-full space-y-3">
-          <button
-            type="button"
-            onClick={onRetry}
-            className="flex h-14 w-full items-center justify-center rounded-[1.4rem] bg-[#58CC02] text-base font-black uppercase tracking-[0.18em] text-white shadow-[0_18px_32px_rgba(88,204,2,0.28)] transition active:scale-[0.985]"
-          >
-            Practice again
-          </button>
-          <button
-            type="button"
-            onClick={onUseHeartRefill}
-            disabled={!hasHeartRefill}
-            className={`flex h-14 w-full items-center justify-center rounded-[1.4rem] border text-base font-black uppercase tracking-[0.18em] transition active:scale-[0.985] ${
-              hasHeartRefill
-                ? "border-white/14 bg-white/8 text-white"
-                : "cursor-not-allowed border-white/8 bg-white/5 text-white/35"
-            }`}
-          >
-            Use a heart refill
-          </button>
-          {!hasHeartRefill ? (
-            <p className="text-sm font-semibold text-white/48">Hearts refill tomorrow.</p>
-          ) : null}
-        </div>
+      <div className="flex flex-col gap-3 pt-2">
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex h-12 items-center justify-center rounded-full bg-[#1a1815] px-6 font-mono text-[12px] uppercase tracking-[0.22em] text-[#faf5ec] transition-colors hover:bg-[#e8761c]"
+        >
+          Practice again
+        </button>
+        <button
+          type="button"
+          onClick={onUseHeartRefill}
+          disabled={!hasHeartRefill}
+          className="inline-flex h-12 items-center justify-center rounded-full border-2 border-[#1a1815] bg-[#faf5ec] px-6 font-mono text-[12px] uppercase tracking-[0.22em] text-[#1a1815] transition-colors hover:bg-[#f1e9d4] disabled:cursor-not-allowed disabled:border-[#1a1815]/20 disabled:text-[#1a1815]/30"
+        >
+          Use a heart refill
+        </button>
+        {!hasHeartRefill ? (
+          <p className="text-center font-mono text-[11px] uppercase tracking-[0.18em] text-[#1a1815]/45">
+            Hearts refill tomorrow
+          </p>
+        ) : null}
       </div>
-    </div>
+    </Shell>
   );
 }

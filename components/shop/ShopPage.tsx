@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import AppTopNav from "@/components/AppTopNav";
 import PackOpeningModal from "@/components/shop/PackOpeningModal";
 import ShopItemIcon from "@/components/shop/ShopItemIcon";
@@ -10,6 +11,7 @@ import ThemePackCard from "@/components/shop/ThemePackCard";
 import { SnowflakeIcon } from "@/components/streak/StreakFlame";
 import { useCosmetics } from "@/contexts/CosmeticsContext";
 import { useThemeContext } from "@/contexts/ThemeContext";
+import { toast } from "@/lib/toast";
 import {
   FunctionalProductId,
   HEART_REFILL_CAP,
@@ -23,12 +25,17 @@ import {
   SuccessfulThemePackOpenResult,
 } from "@/lib/cosmetics";
 import { PATH_THEME_IDS, PATH_THEMES, mixHex, withAlpha } from "@/lib/themes";
+import { getThemeDefinition, THEMES, type ThemeDefinition } from "@/lib/themes/themeRegistry";
+import { useUserStore } from "@/store/userStore";
 
 const TAB_OPTIONS: { id: ShopTab; label: string }[] = [
   { id: "packs", label: "Packs" },
   { id: "collection", label: "Collection" },
+  { id: "customization", label: "Customization" },
   { id: "functional", label: "Functional" },
 ];
+
+type CustomizationFilter = "all" | "owned" | "rank-reward";
 
 function GemIcon() {
   return (
@@ -196,7 +203,170 @@ function CompactFunctionalCard({
   );
 }
 
+function CustomizationThemeCard({
+  theme,
+  owned,
+  equipped,
+  canAfford,
+  onEquip,
+  onUnlock,
+  onViewLeagues,
+}: {
+  theme: ThemeDefinition;
+  owned: boolean;
+  equipped: boolean;
+  canAfford: boolean;
+  onEquip: () => void;
+  onUnlock: () => void;
+  onViewLeagues: () => void;
+}) {
+  const { pathTheme } = useThemeContext();
+
+  return (
+    <article
+      className="rounded-[1.7rem] border p-5 shadow-[0_24px_60px_rgba(2,6,23,0.24)]"
+      style={{
+        borderColor: equipped ? withAlpha(pathTheme.accentColor, 0.42) : withAlpha(pathTheme.accentColor, 0.16),
+        background: owned
+          ? pathTheme.surfaceCard
+          : "linear-gradient(180deg,rgba(8,12,24,0.88),rgba(4,7,16,0.94))",
+        boxShadow: equipped
+          ? `0 24px 60px ${withAlpha(pathTheme.accentColor, 0.18)}`
+          : "0 24px 60px rgba(2,6,23,0.24)",
+      }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="mb-3 flex items-center gap-2">
+            {theme.swatches.map((swatch) => (
+              <span
+                key={swatch}
+                aria-hidden="true"
+                className="inline-block h-4 w-4 rounded-full border"
+                style={{
+                  background: swatch,
+                  borderColor: "rgba(255,255,255,0.18)",
+                }}
+              />
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-black" style={{ color: pathTheme.surfaceText }}>
+              {theme.name}
+            </h2>
+            <span
+              className="rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em]"
+              style={{
+                borderColor: withAlpha(pathTheme.accentColor, 0.18),
+                background: withAlpha(pathTheme.accentColor, 0.08),
+                color: owned ? pathTheme.accentColor : withAlpha(pathTheme.surfaceText, 0.56),
+              }}
+            >
+              {theme.hasJsEffects ? "Animated" : "Static"}
+            </span>
+          </div>
+          <p className="mt-2 text-sm font-semibold leading-6" style={{ color: withAlpha(pathTheme.surfaceText, 0.68) }}>
+            {theme.description}
+          </p>
+        </div>
+
+        {equipped ? (
+          <span
+            className="shrink-0 rounded-full px-3 py-2 text-[10px] font-black uppercase tracking-[0.2em]"
+            style={{
+              background: `linear-gradient(135deg, ${pathTheme.accentColor} 0%, ${mixHex(pathTheme.accentColor, pathTheme.previewHighlight, 0.42)} 100%)`,
+              color: "#ffffff",
+            }}
+          >
+            Equipped
+          </span>
+        ) : null}
+      </div>
+
+      <div className="mt-5 rounded-[1.2rem] border px-4 py-3" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.12), background: withAlpha("#000000", 0.12) }}>
+        <p className="text-[0.62rem] font-black uppercase tracking-[0.24em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.42) }}>
+          {owned
+            ? "Owned"
+            : theme.group === "rank-reward"
+              ? "Unlock Requirement"
+              : "Price"}
+        </p>
+        <p className="mt-2 text-sm font-black" style={{ color: pathTheme.surfaceText }}>
+          {owned
+            ? "Ready to equip"
+            : theme.group === "rank-reward"
+              ? `Reach ${theme.unlockRank} League`
+              : `${theme.price ?? 0} gems`}
+        </p>
+        <p className="mt-1 text-xs font-semibold leading-5" style={{ color: withAlpha(pathTheme.surfaceText, 0.58) }}>
+          {owned
+            ? "Interface themes stack with your current path, trail, chest, and profile cosmetics."
+            : theme.group === "rank-reward"
+              ? "League rewards unlock automatically when your account reaches that tier."
+              : canAfford
+                ? "Direct unlock. No random roll required."
+                : "Earn more gems, then unlock it here."}
+        </p>
+      </div>
+
+      <div className="mt-5 flex items-center gap-3">
+        {owned ? (
+          <button
+            type="button"
+            onClick={onEquip}
+            aria-pressed={equipped}
+            className="rounded-full px-4 py-3 text-sm font-black uppercase tracking-[0.18em]"
+            style={equipped
+              ? {
+                  background: withAlpha(pathTheme.surfaceText, 0.08),
+                  color: withAlpha(pathTheme.surfaceText, 0.64),
+                }
+              : {
+                  background: pathTheme.accentColor,
+                  color: "#ffffff",
+                }}
+          >
+            {equipped ? "Active" : "Equip"}
+          </button>
+        ) : theme.group === "rank-reward" ? (
+          <button
+            type="button"
+            onClick={onViewLeagues}
+            className="rounded-full border px-4 py-3 text-sm font-black uppercase tracking-[0.18em]"
+            style={{
+              borderColor: withAlpha(pathTheme.accentColor, 0.2),
+              background: withAlpha(pathTheme.accentColor, 0.08),
+              color: pathTheme.accentColor,
+            }}
+          >
+            View Leagues
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onUnlock}
+            disabled={!canAfford}
+            className={`rounded-full px-4 py-3 text-sm font-black uppercase tracking-[0.18em] ${canAfford ? "" : "cursor-not-allowed"}`}
+            style={canAfford
+              ? {
+                  background: pathTheme.accentColor,
+                  color: "#ffffff",
+                }
+              : {
+                  background: withAlpha(pathTheme.surfaceText, 0.08),
+                  color: withAlpha(pathTheme.surfaceText, 0.32),
+                }}
+          >
+            {canAfford ? `Unlock ${theme.price ?? 0}` : "Need Gems"}
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
+
 export default function ShopPage() {
+  const router = useRouter();
   const { pathTheme } = useThemeContext();
   const {
     cosmetics,
@@ -216,15 +386,23 @@ export default function ShopPage() {
     unlimitedHeartsActive,
     unlimitedHeartsCountdown,
     activateUnlimitedHeartsWithToken,
+    updateProgress,
   } = useCosmetics();
+  const interfaceThemeHydrated = useUserStore((state) => state.isHydrated);
+  const unlockedInterfaceThemes = useUserStore((state) => state.unlockedThemes);
+  const equippedInterfaceTheme = useUserStore((state) => state.equippedTheme);
+  const unlockInterfaceTheme = useUserStore((state) => state.unlockTheme);
+  const equipInterfaceTheme = useUserStore((state) => state.equipTheme);
 
   const [activeTab, setActiveTab] = useState<ShopTab>("packs");
+  const [customizationFilter, setCustomizationFilter] = useState<CustomizationFilter>("all");
   const [confirmingId, setConfirmingId] = useState<FunctionalProductId | string | null>(null);
   const [processingId, setProcessingId] = useState<FunctionalProductId | string | null>(null);
   const [packOpening, setPackOpening] = useState<SuccessfulThemePackOpenResult | null>(null);
   const [displayedGems, setDisplayedGems] = useState(gemBalance);
   const [expandedPackId, setExpandedPackId] = useState<string | null>(null);
   const [freezeCelebration, setFreezeCelebration] = useState<FunctionalProductId | null>(null);
+  const [themeFlashVisible, setThemeFlashVisible] = useState(false);
   const displayedGemRef = useRef(gemBalance);
   const storeReady = !loading && !isHydrating;
 
@@ -259,6 +437,18 @@ export default function ShopPage() {
 
   const collectionThemes = PATH_THEME_IDS.map((themeId) => PATH_THEMES[themeId]);
   const ownedThemes = cosmetics.owned.pathThemes.map((themeId) => PATH_THEMES[themeId]).slice(0, 10);
+  const filteredCustomizationThemes = useMemo(() => {
+    if (customizationFilter === "owned") {
+      return THEMES.filter((theme) => unlockedInterfaceThemes.includes(theme.id));
+    }
+    if (customizationFilter === "rank-reward") {
+      return THEMES.filter((theme) => theme.group === "rank-reward");
+    }
+    return THEMES;
+  }, [customizationFilter, unlockedInterfaceThemes]);
+  const activeInterfaceTheme = getThemeDefinition(
+    (equippedInterfaceTheme || "default") as Parameters<typeof getThemeDefinition>[0],
+  );
   const accentGlow = withAlpha(pathTheme.accentColor, 0.18);
 
   const getFunctionalCardState = (product: typeof SHOP_FUNCTIONAL_PRODUCTS[number]) => {
@@ -364,8 +554,39 @@ export default function ShopPage() {
     }
   };
 
+  const handleEquipInterfaceTheme = (themeId: ThemeDefinition["id"]) => {
+    setThemeFlashVisible(true);
+    equipInterfaceTheme(themeId);
+    toast.success("Theme equipped", `${getThemeDefinition(themeId).name} is now active.`);
+    window.setTimeout(() => setThemeFlashVisible(false), 500);
+  };
+
+  const handleUnlockInterfaceTheme = (theme: ThemeDefinition) => {
+    if (!theme.price || theme.group === "rank-reward") return;
+    if (gemBalance < theme.price) {
+      toast.error("Not enough gems", `You need ${theme.price - gemBalance} more gems for ${theme.name}.`);
+      return;
+    }
+
+    unlockInterfaceTheme(theme.id);
+    void updateProgress({ gems: gemBalance - theme.price }, { syncRemote: true });
+    toast.success("Theme unlocked", `${theme.name} is now in your customization collection.`);
+  };
+
   return (
     <main className="relative min-h-screen overflow-hidden text-white" style={{ background: pathTheme.surfaceBackground }}>
+      <div
+        aria-hidden="true"
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "#ffffff",
+          opacity: themeFlashVisible ? 1 : 0,
+          transition: "opacity 250ms ease",
+          pointerEvents: "none",
+          zIndex: 9998,
+        }}
+      />
       <div className="pointer-events-none absolute inset-0" style={{ background: pathTheme.pageOverlay, opacity: 0.92 }} />
       <div
         className="pointer-events-none absolute inset-0 opacity-70"
@@ -616,6 +837,118 @@ export default function ShopPage() {
               ) : (
                 <div className="rounded-[1.8rem] border border-white/10 bg-white/[0.04] p-8 text-center text-sm font-semibold text-white/54">
                   Loading your discovered themes...
+                </div>
+              )}
+            </section>
+          ) : null}
+
+          {activeTab === "customization" ? (
+            <section className="mt-8 space-y-6">
+              <section
+                className="rounded-[2rem] border p-6 shadow-[0_24px_60px_rgba(2,6,23,0.28)]"
+                style={{
+                  borderColor: withAlpha(pathTheme.accentColor, 0.18),
+                  background: `linear-gradient(135deg, ${withAlpha(pathTheme.accentColor, 0.14)} 0%, ${withAlpha(pathTheme.previewHighlight, 0.12)} 100%)`,
+                }}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="max-w-3xl">
+                    <p className="text-[0.68rem] font-black uppercase tracking-[0.28em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.5) }}>
+                      Customization Pack
+                    </p>
+                    <h2 className="mt-3 text-3xl font-black" style={{ color: pathTheme.surfaceText }}>
+                      Interface themes live here now
+                    </h2>
+                    <p className="mt-3 max-w-2xl text-sm font-semibold leading-7" style={{ color: withAlpha(pathTheme.surfaceText, 0.74) }}>
+                      These interface themes sit on top of your existing cosmetic loadout. You can keep your current path theme, trail, chest skin,
+                      and flair while changing the app shell itself.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-[1.4rem] border px-4 py-3" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.16), background: pathTheme.surfaceCard }}>
+                      <p className="text-[0.62rem] font-black uppercase tracking-[0.22em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.42) }}>Interface Theme</p>
+                      <p className="mt-2 text-sm font-black" style={{ color: pathTheme.surfaceText }}>{activeInterfaceTheme.name}</p>
+                    </div>
+                    <div className="rounded-[1.4rem] border px-4 py-3" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.16), background: pathTheme.surfaceCard }}>
+                      <p className="text-[0.62rem] font-black uppercase tracking-[0.22em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.42) }}>Path Theme</p>
+                      <p className="mt-2 text-sm font-black" style={{ color: pathTheme.surfaceText }}>{pathTheme.name}</p>
+                    </div>
+                    <div className="rounded-[1.4rem] border px-4 py-3" style={{ borderColor: withAlpha(pathTheme.accentColor, 0.16), background: pathTheme.surfaceCard }}>
+                      <p className="text-[0.62rem] font-black uppercase tracking-[0.22em]" style={{ color: withAlpha(pathTheme.surfaceText, 0.42) }}>Gems</p>
+                      <p className="mt-2 text-sm font-black" style={{ color: pathTheme.surfaceText }}>{interfaceThemeHydrated ? gemBalance.toLocaleString("en-US") : "Loading..."}</p>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <p className="text-[0.68rem] font-black uppercase tracking-[0.28em] text-white/34">Theme Inventory</p>
+                  <p className="mt-2 text-3xl font-black text-white">
+                    {unlockedInterfaceThemes.length} of {THEMES.length} interface themes owned
+                  </p>
+                  <p className="mt-2 text-sm font-semibold" style={{ color: withAlpha(pathTheme.surfaceText, 0.68) }}>
+                    Direct unlock themes cost gems. Rank reward themes stay locked until your league tier reaches their requirement.
+                  </p>
+                </div>
+
+                <div
+                  className="inline-flex rounded-full border p-1"
+                  style={{
+                    borderColor: withAlpha(pathTheme.accentColor, 0.18),
+                    background: withAlpha("#000000", 0.16),
+                  }}
+                >
+                  {[
+                    { id: "all", label: "All" },
+                    { id: "owned", label: "Owned" },
+                    { id: "rank-reward", label: "Rank Rewards" },
+                  ].map((filter) => (
+                    <button
+                      key={filter.id}
+                      type="button"
+                      onClick={() => setCustomizationFilter(filter.id as CustomizationFilter)}
+                      className="rounded-full px-4 py-2 text-sm font-black transition"
+                      style={customizationFilter === filter.id
+                        ? {
+                            background: `linear-gradient(135deg, ${pathTheme.accentColor} 0%, ${mixHex(pathTheme.accentColor, pathTheme.previewHighlight, 0.36)} 100%)`,
+                            color: "#ffffff",
+                          }
+                        : {
+                            color: withAlpha(pathTheme.surfaceText, 0.58),
+                          }}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {interfaceThemeHydrated ? (
+                <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+                  {filteredCustomizationThemes.map((theme) => {
+                    const owned = unlockedInterfaceThemes.includes(theme.id);
+                    const equipped = equippedInterfaceTheme === theme.id;
+                    const canAfford = typeof theme.price === "number" ? gemBalance >= theme.price : false;
+
+                    return (
+                      <CustomizationThemeCard
+                        key={theme.id}
+                        theme={theme}
+                        owned={owned}
+                        equipped={equipped}
+                        canAfford={canAfford}
+                        onEquip={() => handleEquipInterfaceTheme(theme.id)}
+                        onUnlock={() => handleUnlockInterfaceTheme(theme)}
+                        onViewLeagues={() => router.push("/leagues")}
+                      />
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-[1.8rem] border border-white/10 bg-white/[0.04] p-8 text-center text-sm font-semibold text-white/54">
+                  Loading your interface themes...
                 </div>
               )}
             </section>

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import AppProviders from "@/components/providers/AppProviders";
+import UserHydrator from "@/components/UserHydrator";
+import { ToastContainer } from "@/components/ui/Toast";
 
 export const metadata: Metadata = {
   title: "Pico",
@@ -23,7 +25,11 @@ export default function RootLayout({
         />
       </head>
       <body>
-        <AppProviders>{children}</AppProviders>
+        <AppProviders>
+          <UserHydrator />
+          <ToastContainer />
+          {children}
+        </AppProviders>
       </body>
     </html>
   );

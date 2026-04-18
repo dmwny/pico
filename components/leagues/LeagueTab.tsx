@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { createPortal } from "react-dom";
 import {
   Fragment,
   forwardRef,
@@ -15,9 +14,7 @@ import {
 import { useGroupLeaderboard, useHotStreak, useOvertakeEvents } from "@/lib/hooks/useLeague";
 import {
   clamp,
-  computeZone,
   easeOutCubic,
-  formatXp,
   getAvatarColor,
   getInitials,
   getNextMultiplierThreshold,
@@ -38,6 +35,7 @@ type LeagueEventType = "double_xp" | "shuffle" | "rival_surge" | "promotion_rush
 type LeagueEvent = {
   type: LeagueEventType;
   expiresIn: string;
+  expiresAt: string;
   key: string;
 };
 
@@ -63,69 +61,102 @@ type LeagueTabProps = {
   onZoneChange?: (zone: LeagueZone) => void;
 };
 
-type LeaderboardRowModel = {
-  key: string;
+type SimEntry = {
+  id: string;
+  name: string;
+  xp: number;
   rank: number;
-  player: Player | null;
-  zone: RowZone;
+  avatarUrl: string | null;
+  isYou: boolean;
+  isRival: boolean;
+  isGhost: boolean;
+  rivalSurge: boolean;
+  momentum: number;
+  recentActivity: boolean[];
+  seedOrder: number;
 };
 
-type ToastTone = "danger" | "success";
+type LeagueRuntime = {
+  entries: SimEntry[];
+  state: LeagueState;
+};
+
+type ToastType = "passed_by" | "overtook" | "milestone" | "event";
 
 type ToastItem = {
   id: string;
+  type: ToastType;
   message: string;
-  tone: ToastTone;
+  expiresAt: number;
 };
 
-interface StatBlockProps {
+type DistanceTone = "default" | "promotion" | "danger";
+
+type RuntimeOptions = {
+  totalPlayers: number;
+  promotionCutoffRank: number;
+  demotionCount: number;
+  streak: number;
+  multiplier: number;
+  eventType: LeagueEventType | null;
+  weekEnd: string | null;
+  weekId: string | null;
+  fallbackXp: number;
+  fallbackRank: number;
+  now: number;
+};
+
+type StatBlockProps = {
   label: string;
   value: string;
   valueColor?: string;
-}
+};
 
-interface StreakPillProps {
+type StreakPillProps = {
   multiplier: string;
   days: number;
-}
+};
 
-interface ProgressBarProps {
-  xp: number;
+type ProgressBarProps = {
+  state: LeagueState;
   totalXP: number;
   promotionCutoffXP: number;
   demotionCutoffXP: number;
-  zone: "promotion" | "safe" | "demotion";
   distanceMessage: ReactNode;
-  memoryMessage?: string | null;
-  promotionPulseToken?: number;
-}
+};
 
-interface RivalCardProps {
-  rival: Player;
+type RivalCardProps = {
+  rival: SimEntry;
   myXP: number;
-}
+  hoursRemaining: number;
+};
 
-interface LeaderboardRowProps {
+type LeaderboardRowProps = {
   rank: number;
+  rowKey: string;
   player: Player | null;
   isYou: boolean;
   isRival: boolean;
-  zone: "promotion" | "safe" | "demotion";
-  animateIn?: boolean;
+  zone: RowZone;
   doubleXp?: boolean;
   shuffleFlash?: boolean;
-}
+  medalSweep?: boolean;
+  dangerPulse?: boolean;
+  onXpRef?: (node: HTMLDivElement | null) => void;
+};
 
-interface ZoneDividerProps {
-  zone: "promotion" | "safe" | "demotion";
+type ZoneDividerProps = {
+  zone: RowZone;
   label: string;
-}
+  bright?: boolean;
+};
 
-interface EventBannerProps {
-  type: "double_xp" | "shuffle" | "rival_surge" | "promotion_rush";
-  expiresIn: string;
+type EventBannerProps = {
+  type: LeagueEventType;
+  expiresAt: string;
   onDismiss: () => void;
-}
+  finalHours: boolean;
+};
 
 type LeagueBadgeProps = {
   leagueName: string;
@@ -133,10 +164,42 @@ type LeagueBadgeProps = {
   pulse: boolean;
 };
 
-type ToastViewProps = {
-  tone: ToastTone;
-  message: string;
-};
+const sectionLabelStyle = {
+  color: STORM_THEME.textMuted,
+  fontFamily: LEAGUE_SANS_FONT,
+  fontSize: 11,
+  fontWeight: 600,
+  letterSpacing: "0.08em",
+  lineHeight: 1,
+  textTransform: "uppercase",
+} as const;
+
+const GHOST_NAMES = ["Alex", "Jordan", "Riley", "Morgan", "Quinn", "Avery", "Rowan", "Sage", "Parker", "Skyler"];
+const GHOST_INITIALS = ["A", "B", "C", "D", "E", "F", "G", "H", "J", "K"];
+const GHOST_AVATAR_STYLES = ["micah", "personas", "adventurer-neutral", "thumbs", "fun-emoji"] as const;
+
+function ghostPersona(seedValue: string) {
+  let hash = 0;
+  for (let index = 0; index < seedValue.length; index += 1) {
+    hash = ((hash << 5) - hash) + seedValue.charCodeAt(index);
+    hash |= 0;
+  }
+  const safeHash = Math.abs(hash);
+  const first = GHOST_NAMES[safeHash % GHOST_NAMES.length] ?? "Pico";
+  const last = GHOST_INITIALS[(safeHash >> 3) % GHOST_INITIALS.length] ?? "L";
+  const style = GHOST_AVATAR_STYLES[(safeHash >> 5) % GHOST_AVATAR_STYLES.length] ?? "micah";
+
+  return {
+    name: `${first} ${last}.`,
+    avatarUrl: `https://api.dicebear.com/7.x/${style}/svg?seed=${encodeURIComponent(`${first}-${last}-${safeHash}`)}`,
+  };
+}
+
+function sanitizeName(name: string | null | undefined, isGhost: boolean) {
+  const trimmed = name?.trim();
+  if (trimmed) return trimmed;
+  return isGhost ? "Ghost learner" : "Pico learner";
+}
 
 function normalizeEventType(modifierType: string | null | undefined, modifierLabel: string | null | undefined): LeagueEventType | null {
   const raw = `${modifierType ?? ""} ${modifierLabel ?? ""}`.trim().toLowerCase();
@@ -152,35 +215,214 @@ function formatEventExpiry(endAt: string, now: number) {
   const diff = Math.max(0, new Date(endAt).getTime() - now);
   const hours = Math.floor(diff / 3600000);
   const minutes = Math.floor((diff % 3600000) / 60000);
+  const seconds = Math.floor((diff % 60000) / 1000);
+  return `${hours}h ${minutes}m ${seconds}s`;
+}
 
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
-
-  return `${minutes}m`;
+function computeHoursRemaining(weekEnd: string | null, now: number) {
+  if (!weekEnd) return 0;
+  return Math.max(0, Math.ceil((new Date(weekEnd).getTime() - now) / 3600000));
 }
 
 function getLeagueBadgeLabel(name: string) {
   return name.slice(0, 4).toUpperCase();
 }
 
-function getDistanceMessage(state: LeagueState, secondPlaceXp: number | null, override: string | null) {
-  if (override) {
-    return <span>{override}</span>;
-  }
+function wait(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
 
-  if (state.rank === 1) {
-    return <span>You&apos;re leading the league — don&apos;t stop now</span>;
+function initialMomentum(rank: number, totalPlayers: number, promotionCutoffRank: number, demotionCount: number, isRival: boolean) {
+  if (isRival) return 0.6;
+  const firstDemotionRank = Math.max(totalPlayers - demotionCount + 1, 1);
+  if (rank >= promotionCutoffRank - 2 && rank <= promotionCutoffRank + 3) {
+    return 0.5 + Math.random() * 0.3;
   }
+  if (rank >= firstDemotionRank) {
+    return 0.1 + Math.random() * 0.2;
+  }
+  return 0.2 + Math.random() * 0.5;
+}
 
+function sortEntries(entries: SimEntry[]) {
+  return [...entries]
+    .sort((left, right) => {
+      if (right.xp !== left.xp) return right.xp - left.xp;
+      return left.seedOrder - right.seedOrder;
+    })
+    .map((entry, index) => ({
+      ...entry,
+      rank: index + 1,
+    }));
+}
+
+function mapEntryToPlayer(entry: SimEntry): Player | null {
+  return {
+    id: entry.id,
+    name: entry.name,
+    xp: entry.xp,
+    rank: entry.rank,
+    avatarUrl: entry.avatarUrl,
+    isYou: entry.isYou,
+    isRival: entry.isRival,
+    isGhost: entry.isGhost,
+    rivalSurge: entry.rivalSurge,
+  };
+}
+
+function computeLeagueZone(
+  rank: number,
+  totalPlayers: number,
+  xpToPromotion: number,
+  xpToDemotion: number,
+  promotionCutoffRank: number,
+  demotionCount: number,
+): LeagueZone {
+  const firstDemotionRank = Math.max(totalPlayers - demotionCount + 1, 1);
+  const lastSafeRank = Math.max(firstDemotionRank - 1, 1);
+
+  if (rank <= promotionCutoffRank) return "promotion";
+  if (xpToPromotion > 0 && xpToPromotion <= 50) return "near_promotion";
+  if (rank >= firstDemotionRank) return "demotion";
+  if (xpToDemotion <= 50 || rank >= lastSafeRank - 2) return "near_demotion";
+  return "safe";
+}
+
+function buildSeedEntries(
+  entries: LeaderboardEntry[],
+  totalPlayers: number,
+  promotionCutoffRank: number,
+  demotionCount: number,
+  eventType: LeagueEventType | null,
+) {
+  const seeded = Array.from({ length: totalPlayers }, (_, index) => {
+    const entry = entries[index] ?? null;
+    const rank = index + 1;
+    const isGhost = entry?.isGhost ?? true;
+    const ghost = ghostPersona(entry?.userId ?? `ghost-${rank}`);
+
+    return {
+      id: entry?.userId ?? `ghost-${rank}`,
+      name: isGhost ? (entry?.username ?? ghost.name) : sanitizeName(entry?.username, false),
+      xp: entry?.xpThisWeek ?? 0,
+      rank,
+      avatarUrl: entry?.avatarUrl ?? (isGhost ? ghost.avatarUrl : null),
+      isYou: Boolean(entry?.isMe),
+      isRival: Boolean(entry?.isRival),
+      isGhost,
+      rivalSurge: eventType === "rival_surge" && Boolean(entry?.isRival),
+      momentum: initialMomentum(rank, totalPlayers, promotionCutoffRank, demotionCount, Boolean(entry?.isRival)),
+      recentActivity: [false, false, false, false, false],
+      seedOrder: rank,
+    } satisfies SimEntry;
+  });
+
+  return sortEntries(seeded);
+}
+
+function mergeDynamicEntryFields(nextEntries: SimEntry[], previousEntries: SimEntry[] | null) {
+  if (!previousEntries) return nextEntries;
+  const previousMap = new Map(previousEntries.map((entry) => [entry.id, entry]));
+  return nextEntries.map((entry) => {
+    const previous = previousMap.get(entry.id);
+    if (!previous) return entry;
+    return {
+      ...entry,
+      momentum: entry.isRival ? 0.6 : previous.momentum,
+      recentActivity: previous.recentActivity,
+      seedOrder: previous.seedOrder,
+    };
+  });
+}
+
+function createLeagueRuntime(entries: SimEntry[], options: RuntimeOptions): LeagueRuntime {
+  const orderedEntries = sortEntries(entries);
+  const youEntry = orderedEntries.find((entry) => entry.isYou) ?? null;
+  const rivalEntry = orderedEntries.find((entry) => entry.isRival) ?? null;
+  const promotionTarget = orderedEntries[Math.max(options.promotionCutoffRank - 1, 0)]?.xp ?? (youEntry?.xp ?? options.fallbackXp);
+  const firstDemotionRank = Math.max(options.totalPlayers - options.demotionCount + 1, 1);
+  const firstDemotionEntry = orderedEntries[Math.max(firstDemotionRank - 1, 0)] ?? null;
+  const lastSafeEntry = orderedEntries[Math.max(firstDemotionRank - 2, 0)] ?? firstDemotionEntry;
+  const rank = youEntry?.rank ?? options.fallbackRank;
+  const xp = youEntry?.xp ?? options.fallbackXp;
+  const xpToPromotion = rank <= options.promotionCutoffRank ? 0 : Math.max(0, promotionTarget - xp + 1);
+  const xpToDemotion = rank >= firstDemotionRank
+    ? Math.max(0, (lastSafeEntry?.xp ?? xp) - xp + 1)
+    : Math.max(0, xp - (firstDemotionEntry?.xp ?? xp));
+  const zone = computeLeagueZone(
+    rank,
+    options.totalPlayers,
+    xpToPromotion,
+    xpToDemotion,
+    options.promotionCutoffRank,
+    options.demotionCount,
+  );
+  const hoursRemaining = computeHoursRemaining(options.weekEnd, options.now);
+
+  return {
+    entries: orderedEntries,
+    state: {
+      rank,
+      xp,
+      xpToPromotion,
+      xpToDemotion,
+      zone,
+      rivalGap: rivalEntry ? rivalEntry.xp - xp : 0,
+      streak: options.streak,
+      multiplier: options.multiplier,
+      hoursRemaining,
+      players: orderedEntries.map(mapEntryToPlayer),
+      eventActive: options.eventType && options.weekEnd
+        ? {
+            type: options.eventType,
+            expiresAt: options.weekEnd,
+            expiresIn: formatEventExpiry(options.weekEnd, options.now),
+            key: `${options.eventType}-${options.weekId ?? options.weekEnd}`,
+          }
+        : null,
+    },
+  };
+}
+
+function markRecentActivity(entries: SimEntry[], activeId: string | null) {
+  return entries.map((entry) => {
+    if (entry.isGhost || entry.isYou) return entry;
+    return {
+      ...entry,
+      recentActivity: [...entry.recentActivity.slice(-4), activeId === entry.id],
+    };
+  });
+}
+
+function getVisibleSafeRanks(myRank: number, totalPlayers: number, promotionCutoffRank: number, demotionCount: number) {
+  const safeStart = promotionCutoffRank + 1;
+  const safeEnd = Math.max(totalPlayers - demotionCount, safeStart);
+  const safeRanks = Array.from({ length: Math.max(safeEnd - safeStart + 1, 0) }, (_, index) => safeStart + index);
+  if (safeRanks.length <= 8) return safeRanks;
+
+  const focus = safeRanks.filter((rank) => Math.abs(rank - myRank) <= 2);
+  const selected = new Set<number>([
+    safeRanks[0] ?? safeStart,
+    safeRanks[1] ?? safeStart + 1,
+    safeRanks[safeRanks.length - 2] ?? safeEnd - 1,
+    safeRanks[safeRanks.length - 1] ?? safeEnd,
+    ...focus,
+  ]);
+
+  return safeRanks.filter((rank) => selected.has(rank));
+}
+
+function buildDistanceMessage(state: LeagueState, secondPlaceXp: number | null, override: string | null) {
+  if (override) return <span>{override}</span>;
+  if (state.rank === 1) return <span>You&apos;re leading the league — don&apos;t stop now</span>;
   if (secondPlaceXp !== null && state.xp > secondPlaceXp + 500) {
     return <span>You&apos;re well clear of promotion — keep your streak going</span>;
   }
-
   if (state.zone === "promotion") {
     return <span>You&apos;re in the promotion zone — hold your position</span>;
   }
-
   if (state.zone === "near_promotion") {
     return (
       <span>
@@ -188,7 +430,6 @@ function getDistanceMessage(state: LeagueState, secondPlaceXp: number | null, ov
       </span>
     );
   }
-
   if (state.zone === "safe") {
     return (
       <span>
@@ -196,7 +437,6 @@ function getDistanceMessage(state: LeagueState, secondPlaceXp: number | null, ov
       </span>
     );
   }
-
   if (state.zone === "near_demotion") {
     return (
       <span>
@@ -204,7 +444,6 @@ function getDistanceMessage(state: LeagueState, secondPlaceXp: number | null, ov
       </span>
     );
   }
-
   return (
     <span>
       Do one lesson now to avoid demotion — <strong>{state.xpToDemotion} XP</strong> needed
@@ -212,64 +451,189 @@ function getDistanceMessage(state: LeagueState, secondPlaceXp: number | null, ov
   );
 }
 
-function animateXP(el: HTMLElement, from: number, to: number, color: string) {
+function animateXPCountUp(el: HTMLElement, from: number, to: number, duration = 800, suffix = " XP") {
   const start = performance.now();
   const diff = to - from;
 
-  function tick(now: number) {
-    const progress = Math.min((now - start) / 800, 1);
-    const ease = easeOutCubic(progress);
-    el.textContent = `${Math.round(from + diff * ease).toLocaleString("en-US")} XP`;
+  function tick(nowValue: number) {
+    const progress = Math.min((nowValue - start) / duration, 1);
+    const eased = easeOutCubic(progress);
+    el.textContent = `${Math.round(from + diff * eased).toLocaleString("en-US")}${suffix}`;
     if (progress < 1) {
       window.requestAnimationFrame(tick);
-      return;
     }
-
-    el.style.transition = "color 200ms ease";
-    el.style.color = STORM_THEME.accentGold;
-    window.setTimeout(() => {
-      el.style.color = color;
-    }, 200);
-    window.setTimeout(() => {
-      el.style.transition = "";
-    }, 400);
   }
 
   window.requestAnimationFrame(tick);
 }
 
-function animateNumberLine(el: HTMLElement, value: number, behindColor: string, aheadColor: string) {
+function animateGapLabel(el: HTMLElement, value: number) {
   const absolute = Math.abs(Math.round(value));
   const ahead = value <= 0;
   el.textContent = `${absolute.toLocaleString("en-US")} XP ${ahead ? "ahead" : "behind"}`;
-  el.style.color = ahead ? aheadColor : behindColor;
+  el.style.color = ahead ? STORM_THEME.accentGreen : STORM_THEME.accentRed;
 }
 
-function getVisibleSafeRanks(myRank: number, totalPlayers: number) {
-  const safeRanks = Array.from({ length: Math.max(totalPlayers - 15, 0) }, (_, index) => index + 11);
-  if (safeRanks.length <= 8) return safeRanks;
+function rollRankNumber(el: HTMLElement, oldRank: number, newRank: number) {
+  const direction = newRank < oldRank ? 1 : -1;
+  el.style.transition = "transform 180ms ease-in, opacity 180ms ease-in";
+  el.style.transform = `translateY(${direction * -100}%)`;
+  el.style.opacity = "0";
 
-  const focus = safeRanks.filter((rank) => Math.abs(rank - myRank) <= 2);
-  const selected = new Set<number>([
-    safeRanks[0] ?? 11,
-    safeRanks[1] ?? 12,
-    safeRanks[safeRanks.length - 2] ?? totalPlayers - 6,
-    safeRanks[safeRanks.length - 1] ?? totalPlayers - 5,
-    ...focus,
-  ]);
+  window.setTimeout(() => {
+    el.textContent = `#${newRank}`;
+    el.style.transition = "none";
+    el.style.transform = `translateY(${direction * 100}%)`;
+    el.style.opacity = "0";
 
-  return safeRanks.filter((rank) => selected.has(rank));
+    window.requestAnimationFrame(() => {
+      el.style.transition = "transform 200ms ease-out, opacity 200ms ease-out";
+      el.style.transform = "translateY(0)";
+      el.style.opacity = "1";
+    });
+  }, 190);
 }
 
-const sectionLabelStyle = {
-  color: STORM_THEME.textMuted,
-  fontFamily: LEAGUE_SANS_FONT,
-  fontSize: 11,
-  fontWeight: 600,
-  letterSpacing: "0.08em",
-  lineHeight: 1,
-  textTransform: "uppercase",
-} as const;
+function startYouRowBreathing(el: HTMLElement) {
+  let start: number | null = null;
+  let paused = false;
+  let rafId = 0;
+
+  function tick(time: number) {
+    if (!paused) {
+      if (start === null) start = time;
+      const t = (time - start) / 3000;
+      const scale = 1 + Math.sin(t * Math.PI * 2) * 0.0015;
+      const opacity = 1 - Math.sin(t * Math.PI * 2) * 0.04;
+      el.style.transform = `scaleX(${scale})`;
+      el.style.opacity = String(opacity);
+    }
+    rafId = window.requestAnimationFrame(tick);
+  }
+
+  rafId = window.requestAnimationFrame(tick);
+
+  return {
+    pause: () => {
+      paused = true;
+      el.style.transform = "";
+      el.style.opacity = "1";
+    },
+    resume: () => {
+      paused = false;
+      start = null;
+    },
+    stop: () => {
+      window.cancelAnimationFrame(rafId);
+      el.style.transform = "";
+      el.style.opacity = "1";
+    },
+  };
+}
+
+function startPromotionPulse(el: HTMLElement) {
+  let phase = 0;
+  let rafId = 0;
+
+  function tick() {
+    phase += 0.025;
+    const glow = 0.15 + Math.sin(phase) * 0.1;
+    el.style.boxShadow = `0 0 0 2px rgba(34,197,94,${glow})`;
+    rafId = window.requestAnimationFrame(tick);
+  }
+
+  rafId = window.requestAnimationFrame(tick);
+
+  return () => {
+    window.cancelAnimationFrame(rafId);
+    el.style.boxShadow = "";
+  };
+}
+
+function showRankUpTrail(el: HTMLElement) {
+  const trail = document.createElement("div");
+  trail.style.cssText = `
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 3px;
+    height: 100%;
+    background: linear-gradient(to bottom, transparent, ${STORM_THEME.accentOrange}, transparent);
+    border-radius: 2px;
+    pointer-events: none;
+    animation: leagueTrailFade 600ms ease-out forwards;
+  `;
+  el.style.position = "relative";
+  el.appendChild(trail);
+  window.setTimeout(() => {
+    trail.remove();
+  }, 620);
+}
+
+function spawnParticles(anchor: HTMLElement, count: number, colors: string[], upward = true) {
+  const rect = anchor.getBoundingClientRect();
+  for (let index = 0; index < count; index += 1) {
+    const particle = document.createElement("div");
+    const color = colors[Math.floor(Math.random() * colors.length)] ?? colors[0];
+    const size = 3 + Math.random() * 4;
+    particle.style.cssText = `
+      position: fixed;
+      left: ${rect.left + Math.random() * rect.width}px;
+      top: ${rect.top + rect.height * 0.5}px;
+      width: ${size}px;
+      height: ${size}px;
+      border-radius: ${Math.random() > 0.5 ? "50%" : "2px"};
+      background: ${color};
+      pointer-events: none;
+      z-index: 9999;
+      transition: transform ${800 + Math.random() * 600}ms ease-out, opacity ${800 + Math.random() * 600}ms ease-out;
+    `;
+    document.body.appendChild(particle);
+    window.requestAnimationFrame(() => {
+      const x = (Math.random() - 0.5) * 40;
+      const y = upward ? -40 - Math.random() * 30 : 20 + Math.random() * 20;
+      particle.style.transform = `translate(${x}px, ${y}px) rotate(${Math.random() * 360}deg)`;
+      particle.style.opacity = "0";
+    });
+    window.setTimeout(() => {
+      particle.remove();
+    }, 1500);
+  }
+}
+
+function spawnOvertakeParticles(anchor: HTMLElement) {
+  spawnParticles(anchor, 8, [STORM_THEME.accentOrange]);
+}
+
+function spawnConfetti(anchor: HTMLElement) {
+  spawnParticles(anchor, 15, [STORM_THEME.accentGreen, STORM_THEME.accentGold, STORM_THEME.accentOrange]);
+}
+
+function showBonusFloater(anchor: HTMLElement, text: string, color: string) {
+  const floater = document.createElement("div");
+  floater.textContent = text;
+  floater.style.cssText = `
+    position: absolute;
+    right: 16px;
+    top: 12px;
+    color: ${color};
+    font-family: ${LEAGUE_SANS_FONT};
+    font-size: 11px;
+    font-weight: 700;
+    pointer-events: none;
+    z-index: 3;
+    transition: transform 800ms ease-out, opacity 800ms ease-out;
+  `;
+  anchor.style.position = "relative";
+  anchor.appendChild(floater);
+  window.requestAnimationFrame(() => {
+    floater.style.transform = "translateY(-20px)";
+    floater.style.opacity = "0";
+  });
+  window.setTimeout(() => {
+    floater.remove();
+  }, 850);
+}
 
 const StatBlock = forwardRef<HTMLDivElement, StatBlockProps>(function StatBlock({ label, value, valueColor }, ref) {
   return (
@@ -412,29 +776,22 @@ function LeagueBadge({ leagueName, shimmerIntervalMs, pulse }: LeagueBadgeProps)
   );
 }
 
-function ProgressBar({
-  xp,
-  totalXP,
-  promotionCutoffXP,
-  demotionCutoffXP,
-  zone,
-  distanceMessage,
-  memoryMessage,
-  promotionPulseToken = 0,
-}: ProgressBarProps) {
+function ProgressBar({ state, totalXP, promotionCutoffXP, demotionCutoffXP, distanceMessage }: ProgressBarProps) {
   const dotRef = useRef<HTMLDivElement | null>(null);
   const fillRef = useRef<HTMLDivElement | null>(null);
-  const promotionSegmentRef = useRef<HTMLDivElement | null>(null);
   const hasAnimatedRef = useRef(false);
-  const percent = totalXP > 0 ? clamp((xp / totalXP) * 100, 0, 100) : 0;
-  const promotionPercent = totalXP > 0 ? clamp((promotionCutoffXP / totalXP) * 100, 0, 100) : 0;
+  const percent = totalXP > 0 ? clamp((state.xp / totalXP) * 100, 0, 100) : 0;
+  const promotionPercent = state.eventActive?.type === "promotion_rush"
+    ? 50
+    : totalXP > 0
+      ? clamp((promotionCutoffXP / totalXP) * 100, 0, 100)
+      : 0;
   const demotionPercent = totalXP > 0 ? clamp((demotionCutoffXP / totalXP) * 100, 0, 100) : 0;
-  const dotShadow =
-    zone === "promotion"
-      ? "0 0 0 3px rgba(232,130,12,0.25)"
-      : zone === "demotion"
-        ? "0 0 0 3px rgba(239,68,68,0.3)"
-        : "none";
+  const dotColor = state.zone === "promotion"
+    ? STORM_THEME.accentGreen
+    : state.zone === "demotion" || state.zone === "near_demotion"
+      ? STORM_THEME.accentRed
+      : STORM_THEME.accentOrange;
 
   useEffect(() => {
     const dot = dotRef.current;
@@ -443,23 +800,18 @@ function ProgressBar({
     const dotNode = dot;
     const fillNode = fill;
 
-    dotNode.style.boxShadow = dotShadow;
-
     if (!hasAnimatedRef.current) {
       hasAnimatedRef.current = true;
       const start = performance.now();
-      const from = 0;
-      const to = percent;
 
-      function tick(now: number) {
-        const progress = Math.min((now - start) / 900, 1);
+      function tick(nowValue: number) {
+        const progress = Math.min((nowValue - start) / 900, 1);
         const eased = easeOutCubic(progress);
-        const value = from + (to - from) * eased;
-        dotNode.style.left = `${value}%`;
-        fillNode.style.width = `${value}%`;
+        const current = percent * eased;
+        fillNode.style.width = `${current}%`;
+        dotNode.style.left = `calc(${current}% - 6px)`;
         if (progress < 1) {
           window.requestAnimationFrame(tick);
-          return;
         }
       }
 
@@ -467,47 +819,11 @@ function ProgressBar({
       return;
     }
 
-    dotNode.style.transition = "left 600ms ease-out, box-shadow 220ms ease";
     fillNode.style.transition = "width 600ms ease-out";
-    dotNode.style.left = `${percent}%`;
+    dotNode.style.transition = "left 600ms ease-out, background 180ms ease";
     fillNode.style.width = `${percent}%`;
-  }, [dotShadow, percent]);
-
-  useEffect(() => {
-    if (!promotionPulseToken) return;
-    const segment = promotionSegmentRef.current;
-    if (!segment) return;
-
-    segment.style.transition = "opacity 200ms ease";
-    segment.style.opacity = "1";
-
-    const first = window.setTimeout(() => {
-      if (!promotionSegmentRef.current) return;
-      promotionSegmentRef.current.style.opacity = "0.6";
-    }, 300);
-    const second = window.setTimeout(() => {
-      if (!promotionSegmentRef.current) return;
-      promotionSegmentRef.current.style.opacity = "1";
-    }, 600);
-    const third = window.setTimeout(() => {
-      if (!promotionSegmentRef.current) return;
-      promotionSegmentRef.current.style.opacity = "0.6";
-    }, 900);
-
-    return () => {
-      window.clearTimeout(first);
-      window.clearTimeout(second);
-      window.clearTimeout(third);
-    };
-  }, [promotionPulseToken]);
-
-  const tickMarks = useMemo(() => {
-    const count = Math.floor(totalXP / 100);
-    return Array.from({ length: count }, (_, index) => {
-      const value = (index + 1) * 100;
-      return totalXP > 0 ? clamp((value / totalXP) * 100, 0, 100) : 0;
-    });
-  }, [totalXP]);
+    dotNode.style.left = `calc(${percent}% - 6px)`;
+  }, [percent]);
 
   return (
     <div>
@@ -529,7 +845,8 @@ function ProgressBar({
             width: `${demotionPercent}%`,
             background: STORM_THEME.accentRed,
             borderRadius: 3,
-            opacity: 0.5,
+            opacity: state.zone === "demotion" || state.zone === "near_demotion" ? 0.7 : 0.45,
+            animation: state.zone === "demotion" || state.zone === "near_demotion" ? "leagueRedSegmentPulse 1.2s ease-in-out infinite" : undefined,
           }}
         />
         <div
@@ -543,7 +860,6 @@ function ProgressBar({
           }}
         />
         <div
-          ref={promotionSegmentRef}
           style={{
             position: "absolute",
             left: `${promotionPercent}%`,
@@ -552,23 +868,22 @@ function ProgressBar({
             width: `${Math.max(100 - promotionPercent, 0)}%`,
             background: STORM_THEME.accentGreen,
             borderRadius: 3,
-            opacity: 0.6,
+            opacity: 0.58,
+            overflow: "hidden",
           }}
-        />
-        {tickMarks.map((mark) => (
-          <div
-            key={mark}
-            style={{
-              position: "absolute",
-              top: -2,
-              left: `${mark}%`,
-              width: 1,
-              height: 9,
-              background: "rgba(255,255,255,0.08)",
-              transform: "translateX(-50%)",
-            }}
-          />
-        ))}
+        >
+          {state.zone === "promotion" ? (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                background: "linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.28), rgba(255,255,255,0))",
+                animation: "leaguePromotionShimmer 3s linear infinite",
+              }}
+            />
+          ) : null}
+        </div>
+
         <div
           ref={fillRef}
           style={{
@@ -581,6 +896,7 @@ function ProgressBar({
             borderRadius: 3,
           }}
         />
+
         <div
           style={{
             position: "absolute",
@@ -594,34 +910,29 @@ function ProgressBar({
             transform: "translate(-50%, -50%)",
           }}
         />
-        <div
-          style={{
-            position: "absolute",
-            left: `${promotionPercent}%`,
-            top: -18,
-            transform: "translateX(-50%)",
-            color: STORM_THEME.textMuted,
-            fontFamily: LEAGUE_SANS_FONT,
-            fontSize: 11,
-            fontWeight: 400,
-            lineHeight: 1,
-            whiteSpace: "nowrap",
-          }}
-        >
-          Promotion
-        </div>
+
         <div
           ref={dotRef}
           style={{
             position: "absolute",
-            left: 0,
+            left: "calc(0% - 6px)",
             top: "50%",
             width: 13,
             height: 13,
             borderRadius: "50%",
-            background: STORM_THEME.accentOrange,
+            background: dotColor,
             border: `2px solid ${STORM_THEME.background}`,
-            transform: "translate(-50%, -50%)",
+            transform: "translateY(-50%)",
+            boxShadow: state.zone === "promotion"
+              ? "0 0 0 3px rgba(34,197,94,0.28)"
+              : state.zone === "demotion" || state.zone === "near_demotion"
+                ? "0 0 0 4px rgba(239,68,68,0.32)"
+                : state.zone === "near_promotion"
+                  ? "0 0 0 4px rgba(232,130,12,0.3)"
+                  : "none",
+            animation: state.zone === "near_promotion"
+              ? "leagueDotRingPulse 1.5s ease-in-out infinite"
+              : undefined,
           }}
         />
       </div>
@@ -647,47 +958,35 @@ function ProgressBar({
 
       <div
         style={{
-          color: STORM_THEME.textSecondary,
+          color: state.zone === "demotion" || state.zone === "near_demotion"
+            ? STORM_THEME.accentRed
+            : STORM_THEME.textSecondary,
           fontFamily: LEAGUE_SANS_FONT,
           fontSize: 12,
-          fontWeight: 400,
+          fontWeight: state.zone === "demotion" || state.zone === "near_demotion" ? 600 : 400,
           lineHeight: 1.5,
           marginTop: 8,
+          textShadow: state.zone === "near_promotion" ? "0 0 10px rgba(232,130,12,0.14)" : undefined,
         }}
       >
         {distanceMessage}
       </div>
-
-      {memoryMessage ? (
-        <div
-          style={{
-            color: STORM_THEME.textMuted,
-            fontFamily: LEAGUE_SANS_FONT,
-            fontSize: 11,
-            fontWeight: 400,
-            lineHeight: 1.4,
-            marginTop: 8,
-          }}
-        >
-          {memoryMessage}
-        </div>
-      ) : null}
     </div>
   );
 }
 
-function RivalCard({ rival, myXP }: RivalCardProps) {
+const RivalCard = forwardRef<HTMLDivElement, RivalCardProps>(function RivalCard({ rival, myXP, hoursRemaining }, ref) {
   const gapRef = useRef<HTMLDivElement | null>(null);
-  const cardRef = useRef<HTMLDivElement | null>(null);
-  const nameRef = useRef<HTMLDivElement | null>(null);
   const previousGapRef = useRef<number | null>(null);
   const gap = rival.xp - myXP;
+  const urgent = gap > 0;
+  const finalHours = hoursRemaining <= 6;
 
   useEffect(() => {
     if (!gapRef.current) return;
     if (previousGapRef.current === null) {
       previousGapRef.current = gap;
-      animateNumberLine(gapRef.current, gap, STORM_THEME.accentRed, STORM_THEME.accentGreen);
+      animateGapLabel(gapRef.current, gap);
       return;
     }
 
@@ -696,12 +995,11 @@ function RivalCard({ rival, myXP }: RivalCardProps) {
     previousGapRef.current = gap;
     const start = performance.now();
 
-    function tick(now: number) {
+    function tick(nowValue: number) {
       if (!gapRef.current) return;
-      const progress = Math.min((now - start) / 600, 1);
-      const eased = easeOutCubic(progress);
-      const current = from + (to - from) * eased;
-      animateNumberLine(gapRef.current, current, STORM_THEME.accentRed, STORM_THEME.accentGreen);
+      const progress = Math.min((nowValue - start) / 500, 1);
+      const current = from + (to - from) * easeOutCubic(progress);
+      animateGapLabel(gapRef.current, current);
       if (progress < 1) {
         window.requestAnimationFrame(tick);
       }
@@ -710,39 +1008,24 @@ function RivalCard({ rival, myXP }: RivalCardProps) {
     window.requestAnimationFrame(tick);
   }, [gap]);
 
-  useEffect(() => {
-    if (!rival.rivalSurge) return;
-    const cardNode = cardRef.current;
-    const nameNode = nameRef.current;
-    if (cardNode) {
-      cardNode.style.boxShadow = "0 0 0 1px rgba(232,130,12,0.4)";
-    }
-    if (nameNode) {
-      nameNode.style.animation = "leagueRivalNamePulse 2s ease-in-out infinite";
-    }
-
-    return () => {
-      if (cardNode) {
-        cardNode.style.boxShadow = "";
-      }
-      if (nameNode) {
-        nameNode.style.animation = "";
-      }
-    };
-  }, [rival.rivalSurge]);
-
   return (
     <div
-      ref={cardRef}
+      ref={ref}
       style={{
         alignItems: "center",
         background: STORM_THEME.surfaceRaised,
-        border: `1px solid ${rival.rivalSurge ? "rgba(232,130,12,0.4)" : "rgba(112,144,204,0.20)"}`,
+        border: "1px solid rgba(112,144,204,0.20)",
         borderRadius: 4,
         display: "flex",
         gap: 12,
         margin: "0 0 16px 0",
         padding: "14px 16px",
+        position: "relative",
+        animation: urgent
+          ? finalHours
+            ? "leagueRivalUrgencyHigh 2s ease-in-out infinite"
+            : "leagueRivalUrgency 2s ease-in-out infinite"
+          : undefined,
       }}
     >
       <div
@@ -773,7 +1056,7 @@ function RivalCard({ rival, myXP }: RivalCardProps) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
-            color: "rgba(120,150,220,0.7)",
+            color: "#8aabdd",
             fontFamily: LEAGUE_SANS_FONT,
             fontSize: 10,
             fontWeight: 700,
@@ -784,21 +1067,36 @@ function RivalCard({ rival, myXP }: RivalCardProps) {
         >
           Rival
         </div>
-        <div
-          ref={nameRef}
-          style={{
-            color: STORM_THEME.textPrimary,
-            fontFamily: LEAGUE_SANS_FONT,
-            fontSize: 13,
-            fontWeight: 600,
-            lineHeight: 1.4,
-            marginTop: 4,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {rival.name}
+        <div style={{ alignItems: "center", display: "flex", gap: 10, marginTop: 4, minWidth: 0 }}>
+          <div
+            style={{
+              color: STORM_THEME.textPrimary,
+              fontFamily: LEAGUE_SANS_FONT,
+              fontSize: 13,
+              fontWeight: 600,
+              lineHeight: 1.4,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {rival.name}
+          </div>
+          <div style={{ alignItems: "center", display: "flex", gap: 3 }}>
+            {rival.recentActivity.map((active, index) => (
+              <span
+                key={`${rival.id}-activity-${index}`}
+                style={{
+                  width: 5,
+                  height: 5,
+                  borderRadius: "50%",
+                  background: active ? STORM_THEME.accentOrange : "rgba(255,255,255,0.12)",
+                  display: "block",
+                }}
+              />
+            ))}
+          </div>
         </div>
         <div
           style={{
@@ -835,60 +1133,81 @@ function RivalCard({ rival, myXP }: RivalCardProps) {
             marginTop: 4,
           }}
         >
-          {formatXp(rival.xp)}
+          {rival.xp.toLocaleString("en-US")} XP
         </div>
       </div>
     </div>
   );
-}
+});
 
 const LeaderboardRow = forwardRef<HTMLDivElement, LeaderboardRowProps>(function LeaderboardRow(
-  { rank, player, isYou, isRival, zone, animateIn = false, doubleXp = false, shuffleFlash = false },
+  { rank, rowKey, player, isYou, isRival, zone, doubleXp = false, shuffleFlash = false, medalSweep = false, dangerPulse = false, onXpRef },
   ref,
 ) {
-  const rowRef = useRef<HTMLDivElement | null>(null);
   const baseBackground = player === null
     ? "transparent"
     : isYou
-      ? "rgba(232,130,12,0.09)"
+      ? "rgba(232,130,12,0.11)"
       : isRival
         ? "rgba(112,144,204,0.07)"
         : "transparent";
 
   return (
     <div
-      ref={(node) => {
-        rowRef.current = node;
-        if (typeof ref === "function") {
-          ref(node);
-        } else if (ref) {
-          ref.current = node;
-        }
-      }}
+      id={isYou ? "row-you" : undefined}
+      data-row-key={rowKey}
+      data-base-bg={baseBackground}
+      ref={ref}
       onMouseEnter={(event) => {
-        event.currentTarget.style.background = "rgba(255,255,255,0.03)";
+        event.currentTarget.style.background = "rgba(255,255,255,0.025)";
       }}
       onMouseLeave={(event) => {
         event.currentTarget.style.background = baseBackground;
       }}
       style={{
         alignItems: "center",
-        animation: isYou ? "leagueYouBreathe 3s ease-in-out infinite" : undefined,
         background: baseBackground,
-        border: isYou ? "1px solid rgba(232,130,12,0.18)" : "1px solid transparent",
-        borderLeft: zone === "promotion" ? `2px solid ${STORM_THEME.accentGreen}` : zone === "demotion" ? `2px solid ${STORM_THEME.accentRed}` : "2px solid transparent",
+        backfaceVisibility: "hidden",
+        border: isYou ? "1px solid rgba(232,130,12,0.25)" : "1px solid transparent",
+        borderLeft: isYou
+          ? `3px solid ${STORM_THEME.accentOrange}`
+          : zone === "promotion"
+            ? `2px solid ${STORM_THEME.accentGreen}`
+            : zone === "demotion"
+              ? `2px solid ${STORM_THEME.accentRed}`
+              : "2px solid transparent",
         borderRadius: isYou ? 4 : 0,
         boxSizing: "border-box",
         display: "grid",
-        gridTemplateColumns: "20px 12px 30px 12px 1fr 80px",
+        gridTemplateColumns: "24px 30px 1fr 80px",
+        gap: 12,
         height: 50,
-        opacity: animateIn ? 0 : 1,
+        minHeight: 50,
+        maxHeight: 50,
         overflow: "hidden",
         padding: "10px 14px",
         position: "relative",
+        transform: "translateZ(0)",
         transition: "background 120ms ease",
+        animation: dangerPulse ? "leagueDangerRowPulse 2s ease-in-out infinite" : undefined,
       }}
     >
+      {medalSweep ? (
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 12,
+            background: "linear-gradient(180deg, rgba(200,168,75,0), rgba(200,168,75,0.4), rgba(200,168,75,0))",
+            opacity: 0,
+            animation: "leagueMedalSweep 6s ease-in-out infinite",
+            pointerEvents: "none",
+          }}
+        />
+      ) : null}
+
       <div
         style={{
           color: getRankColor(rank),
@@ -900,7 +1219,6 @@ const LeaderboardRow = forwardRef<HTMLDivElement, LeaderboardRowProps>(function 
       >
         {rank}
       </div>
-      <div />
 
       {player === null ? (
         <div
@@ -933,20 +1251,18 @@ const LeaderboardRow = forwardRef<HTMLDivElement, LeaderboardRowProps>(function 
         >
           {player.avatarUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={player.avatarUrl} alt={player.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            <img src={player.avatarUrl} alt="" loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           ) : (
             getInitials(player.name)
           )}
         </div>
       )}
 
-      <div />
-
       <div style={{ minWidth: 0 }}>
         {player === null ? (
           <div
             style={{
-              width: 80,
+              width: 86,
               height: 12,
               borderRadius: 3,
               background: "linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.12), rgba(255,255,255,0.06))",
@@ -955,60 +1271,76 @@ const LeaderboardRow = forwardRef<HTMLDivElement, LeaderboardRowProps>(function 
             }}
           />
         ) : (
-          <>
-            <div style={{ alignItems: "center", display: "flex", gap: 8, minWidth: 0 }}>
-              <div
+          <div style={{ alignItems: "center", display: "flex", gap: 8, minWidth: 0 }}>
+            <div
+              style={{
+                color: STORM_THEME.textPrimary,
+                fontFamily: LEAGUE_SANS_FONT,
+                fontSize: 13,
+                fontWeight: 500,
+                lineHeight: 1.4,
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {player.name}
+            </div>
+            {isYou ? (
+              <span
                 style={{
-                  color: STORM_THEME.textPrimary,
+                  background: STORM_THEME.accentOrange,
+                  borderRadius: 3,
+                  color: STORM_THEME.badgeTextDark,
                   fontFamily: LEAGUE_SANS_FONT,
-                  fontSize: 13,
-                  fontWeight: 500,
-                  lineHeight: 1.4,
-                  minWidth: 0,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  lineHeight: 1.2,
+                  padding: "1px 5px",
+                  textTransform: "uppercase",
                 }}
               >
-                {player.name}
-              </div>
-              {isYou ? (
-                <span
-                  style={{
-                    background: STORM_THEME.accentOrange,
-                    borderRadius: 3,
-                    color: STORM_THEME.badgeTextDark,
-                    fontFamily: LEAGUE_SANS_FONT,
-                    fontSize: 9,
-                    fontWeight: 700,
-                    letterSpacing: "0.06em",
-                    lineHeight: 1.2,
-                    padding: "1px 5px",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  You
-                </span>
-              ) : null}
-              {isRival ? (
-                <span
-                  style={{
-                    background: "rgba(112,144,204,0.20)",
-                    borderRadius: 3,
-                    color: "#8aabdd",
-                    fontFamily: LEAGUE_SANS_FONT,
-                    fontSize: 9,
-                    fontWeight: 700,
-                    letterSpacing: "0.06em",
-                    lineHeight: 1.2,
-                    padding: "1px 5px",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  Rival
-                </span>
-              ) : null}
-            </div>
+                You
+              </span>
+            ) : null}
+            {isRival ? (
+              <span
+                style={{
+                  background: "rgba(112,144,204,0.20)",
+                  borderRadius: 3,
+                  color: "#8aabdd",
+                  fontFamily: LEAGUE_SANS_FONT,
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  lineHeight: 1.2,
+                  padding: "1px 5px",
+                  textTransform: "uppercase",
+                }}
+              >
+                Rival
+              </span>
+            ) : null}
+            {player?.isGhost ? (
+              <span
+                style={{
+                  background: "rgba(255,255,255,0.08)",
+                  borderRadius: 3,
+                  color: STORM_THEME.textMuted,
+                  fontFamily: LEAGUE_SANS_FONT,
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  lineHeight: 1.2,
+                  padding: "1px 5px",
+                  textTransform: "uppercase",
+                }}
+              >
+                Ghost
+              </span>
+            ) : null}
             {shuffleFlash ? (
               <div
                 style={{
@@ -1020,11 +1352,12 @@ const LeaderboardRow = forwardRef<HTMLDivElement, LeaderboardRowProps>(function 
                 }}
               />
             ) : null}
-          </>
+          </div>
         )}
       </div>
 
       <div
+        ref={onXpRef}
         style={{
           color: player === null
             ? STORM_THEME.textMuted
@@ -1036,6 +1369,9 @@ const LeaderboardRow = forwardRef<HTMLDivElement, LeaderboardRowProps>(function 
           fontWeight: 600,
           lineHeight: 1,
           textAlign: "right",
+          width: 80,
+          justifySelf: "end",
+          position: "relative",
         }}
       >
         {player === null ? "—" : player.xp.toLocaleString("en-US")}
@@ -1044,7 +1380,7 @@ const LeaderboardRow = forwardRef<HTMLDivElement, LeaderboardRowProps>(function 
   );
 });
 
-function ZoneDivider({ zone, label }: ZoneDividerProps) {
+function ZoneDivider({ zone, label, bright = false }: ZoneDividerProps) {
   const color = zone === "promotion" ? STORM_THEME.accentGreen : zone === "demotion" ? STORM_THEME.accentRed : STORM_THEME.accentOrange;
 
   return (
@@ -1071,25 +1407,78 @@ function ZoneDivider({ zone, label }: ZoneDividerProps) {
         style={{
           flex: 1,
           height: 1,
-          background: "rgba(255,255,255,0.06)",
+          background: bright ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.06)",
         }}
       />
     </div>
   );
 }
 
-function EventBanner({ type, expiresIn, onDismiss }: EventBannerProps) {
-  const copy =
-    type === "double_xp"
-      ? "Double XP Hour is active in your league"
-      : type === "shuffle"
-        ? "Leaderboard Shuffle Weekend — small XP boost for all players"
-        : type === "rival_surge"
-          ? "Rival Surge event — everyone near you is boosted"
-          : "Promotion Rush — top 15 promoted this week instead of 10";
+function EventBanner({ type, expiresAt, onDismiss, finalHours }: EventBannerProps) {
+  const [countdown, setCountdown] = useState(() => formatEventExpiry(expiresAt, Date.now()));
+  const bannerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    function update() {
+      const remaining = new Date(expiresAt).getTime() - Date.now();
+      if (remaining <= 0) {
+        setCountdown("Expired");
+        return;
+      }
+      setCountdown(formatEventExpiry(expiresAt, Date.now()));
+    }
+
+    update();
+    const interval = window.setInterval(update, 1000);
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [expiresAt]);
+
+  useEffect(() => {
+    if (type !== "double_xp" || !bannerRef.current) return;
+    const container = bannerRef.current;
+    const interval = window.setInterval(() => {
+      const particle = document.createElement("div");
+      const left = 24 + Math.random() * Math.max(container.clientWidth - 48, 24);
+      particle.style.cssText = `
+        position: absolute;
+        left: ${left}px;
+        bottom: 18px;
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: ${STORM_THEME.accentGold};
+        opacity: 0.8;
+        pointer-events: none;
+        transition: transform 1400ms ease-out, opacity 1400ms ease-out;
+      `;
+      container.appendChild(particle);
+      window.requestAnimationFrame(() => {
+        particle.style.transform = "translateY(-40px)";
+        particle.style.opacity = "0";
+      });
+      window.setTimeout(() => {
+        particle.remove();
+      }, 1450);
+    }, 3000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [type]);
+
+  const copy = type === "double_xp"
+    ? "Double XP Hour is active in your league"
+    : type === "shuffle"
+      ? "Leaderboard Shuffle Weekend — small XP boost for all players"
+      : type === "rival_surge"
+        ? "Rival Surge event — everyone near you is boosted"
+        : "Promotion Rush — top 15 promoted this week instead of 10";
 
   return (
     <div
+      ref={bannerRef}
       style={{
         background: "rgba(232,130,12,0.12)",
         border: "1px solid rgba(232,130,12,0.25)",
@@ -1098,11 +1487,26 @@ function EventBanner({ type, expiresIn, onDismiss }: EventBannerProps) {
         display: "flex",
         gap: 16,
         justifyContent: "space-between",
+        marginTop: 16,
         marginBottom: 16,
+        overflow: "hidden",
         padding: "12px 16px",
+        position: "relative",
       }}
     >
-      <div>
+      {type === "double_xp" ? (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "linear-gradient(90deg, rgba(255,255,255,0), rgba(200,168,75,0.22), rgba(255,255,255,0))",
+            animation: "leagueBannerShimmer 4s linear infinite",
+            pointerEvents: "none",
+          }}
+        />
+      ) : null}
+
+      <div style={{ position: "relative", zIndex: 1 }}>
         <div
           style={{
             color: STORM_THEME.textPrimary,
@@ -1112,6 +1516,7 @@ function EventBanner({ type, expiresIn, onDismiss }: EventBannerProps) {
             lineHeight: 1.4,
           }}
         >
+          {finalHours ? "Final hours · " : ""}
           {copy}
         </div>
         <div
@@ -1124,7 +1529,7 @@ function EventBanner({ type, expiresIn, onDismiss }: EventBannerProps) {
             marginTop: 4,
           }}
         >
-          Expires in {expiresIn}
+          {countdown === "Expired" ? "Expired" : `${countdown} remaining`}
         </div>
       </div>
 
@@ -1142,6 +1547,8 @@ function EventBanner({ type, expiresIn, onDismiss }: EventBannerProps) {
           fontWeight: 600,
           lineHeight: 1,
           padding: 0,
+          position: "relative",
+          zIndex: 1,
         }}
       >
         ×
@@ -1157,6 +1564,7 @@ function ComebackBanner() {
         alignItems: "center",
         background: "rgba(239,68,68,0.10)",
         border: "1px solid rgba(239,68,68,0.25)",
+        borderLeft: `3px solid ${STORM_THEME.accentRed}`,
         borderRadius: 4,
         display: "flex",
         gap: 16,
@@ -1174,16 +1582,19 @@ function ComebackBanner() {
           lineHeight: 1.5,
         }}
       >
-        Complete one lesson for +15 bonus XP and climb out of the demotion zone
+        You&apos;re in the demotion zone — one lesson gives you +15 bonus XP
       </div>
       <Link
         href="/learn"
         style={{
+          border: "1px solid rgba(239,68,68,0.4)",
+          borderRadius: 4,
           color: STORM_THEME.accentRed,
           fontFamily: LEAGUE_SANS_FONT,
           fontSize: 13,
           fontWeight: 600,
           lineHeight: 1,
+          padding: "8px 10px",
           textDecoration: "none",
           whiteSpace: "nowrap",
         }}
@@ -1194,102 +1605,58 @@ function ComebackBanner() {
   );
 }
 
-function ToastView({ tone, message }: ToastViewProps) {
-  const toastRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const toast = toastRef.current;
-    if (!toast) return;
-    toast.style.transform = "translateX(100%)";
-    toast.style.opacity = "0";
-
-    window.requestAnimationFrame(() => {
-      if (!toastRef.current) return;
-      toastRef.current.style.transition = "transform 300ms ease, opacity 300ms ease";
-      toastRef.current.style.transform = "translateX(0)";
-      toastRef.current.style.opacity = "1";
-    });
-
-    const exitTimer = window.setTimeout(() => {
-      if (!toastRef.current) return;
-      toastRef.current.style.transform = "translateX(100%)";
-      toastRef.current.style.opacity = "0";
-    }, 3000);
-
-    return () => {
-      window.clearTimeout(exitTimer);
-    };
-  }, []);
+function ToastView({ toast }: { toast: ToastItem }) {
+  const background = toast.type === "passed_by"
+    ? "rgba(239,68,68,0.14)"
+    : toast.type === "overtook"
+      ? "rgba(34,197,94,0.12)"
+      : "rgba(232,130,12,0.12)";
+  const border = toast.type === "passed_by"
+    ? "1px solid rgba(239,68,68,0.28)"
+    : toast.type === "overtook"
+      ? "1px solid rgba(34,197,94,0.25)"
+      : "1px solid rgba(232,130,12,0.25)";
 
   return (
     <div
-      ref={toastRef}
       style={{
-        background: tone === "danger" ? "rgba(239,68,68,0.15)" : "rgba(34,197,94,0.12)",
-        border: tone === "danger" ? "1px solid rgba(239,68,68,0.3)" : "1px solid rgba(34,197,94,0.25)",
+        animation: "leagueToastIn 280ms ease-out, leagueToastOut 280ms ease-in 3220ms forwards",
+        background,
+        border,
         borderRadius: 4,
         color: STORM_THEME.textPrimary,
+        fontFamily: LEAGUE_SANS_FONT,
+        fontSize: 13,
+        fontWeight: 500,
+        lineHeight: 1.4,
         maxWidth: 260,
         overflow: "hidden",
         padding: "10px 14px",
-        position: "relative",
       }}
     >
-      {tone === "success"
-        ? Array.from({ length: 6 }, (_, index) => (
-            <span
-              key={index}
-              style={{
-                position: "absolute",
-                left: 16 + index * 10,
-                top: 22,
-                width: 3,
-                height: 3,
-                borderRadius: "50%",
-                background: index % 2 === 0 ? STORM_THEME.accentGreen : STORM_THEME.accentGold,
-                animation: `leagueToastParticle 700ms ease-out ${index * 30}ms 1`,
-              }}
-            />
-          ))
-        : null}
-      <div
-        style={{
-          fontFamily: LEAGUE_SANS_FONT,
-          fontSize: 13,
-          fontWeight: 500,
-          lineHeight: 1.4,
-          position: "relative",
-          zIndex: 1,
-        }}
-      >
-        {message}
-      </div>
+      {toast.message}
     </div>
   );
 }
 
-function ToastPortal({ toasts }: { toasts: ToastItem[] }) {
-  if (typeof document === "undefined" || toasts.length === 0) {
-    return null;
-  }
-
-  return createPortal(
+function ToastStack({ toasts }: { toasts: ToastItem[] }) {
+  if (toasts.length === 0) return null;
+  return (
     <div
       style={{
         display: "flex",
         flexDirection: "column",
         gap: 8,
-        position: "fixed",
-        right: 24,
-        top: 24,
-        zIndex: 9999,
+        position: "absolute",
+        right: 0,
+        top: 0,
+        zIndex: 20,
       }}
     >
       {toasts.map((toast) => (
-        <ToastView key={toast.id} tone={toast.tone} message={toast.message} />
+        <ToastView key={toast.id} toast={toast} />
       ))}
-    </div>,
-    document.body,
+    </div>
   );
 }
 
@@ -1318,262 +1685,411 @@ export default function LeagueTab({ membership, league, week, loading, onZoneCha
   const { events } = useOvertakeEvents(membership?.leagueGroupId ?? null);
   const [now, setNow] = useState(() => Date.now());
   const [dismissedEventKey, setDismissedEventKey] = useState<string | null>(null);
+  const [runtime, setRuntime] = useState<LeagueRuntime | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const [promotionPulseToken, setPromotionPulseToken] = useState(0);
   const [distanceOverride, setDistanceOverride] = useState<string | null>(null);
+  const [distanceTone, setDistanceTone] = useState<DistanceTone>("default");
+
+  const runtimeRef = useRef<LeagueRuntime | null>(null);
   const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const rowXpRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const rowTopRef = useRef<Map<string, number>>(new Map());
   const seenToastIdsRef = useRef<Set<string>>(new Set());
-  const previousZoneRef = useRef<LeagueZone | null>(null);
-  const previousXpRef = useRef<number | null>(null);
-  const previousRivalGapRef = useRef<number | null>(null);
+  const activeWeekIdRef = useRef<string | null>(null);
+  const promotionSequencePlayedRef = useRef(false);
+  const youBreathingRef = useRef<ReturnType<typeof startYouRowBreathing> | null>(null);
+  const promotionPulseStopRef = useRef<(() => void) | null>(null);
   const xpValueRef = useRef<HTMLDivElement | null>(null);
   const rankValueRef = useRef<HTMLDivElement | null>(null);
-  const confettiCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const rivalCardRef = useRef<HTMLDivElement | null>(null);
+  const promotionSectionRef = useRef<HTMLDivElement | null>(null);
+  const previousZoneRef = useRef<LeagueZone | null>(null);
+  const previousRivalGapRef = useRef<number | null>(null);
+  const previousDisplayedXpRef = useRef<number | null>(null);
+  const previousDisplayedRankRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const interval = window.setInterval(() => setNow(Date.now()), 60000);
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
     return () => {
       window.clearInterval(interval);
     };
   }, []);
 
   const totalPlayers = Math.max(entries.length, 30);
-  const promotionCutoffRank = league?.promotionCutoff ?? 10;
-  const demotionCount = league?.demotionCutoff ?? 5;
-  const weekNumber = week ? getWeekNumber(week.weekStart) : 0;
-  const msRemaining = week ? Math.max(0, new Date(week.weekEnd).getTime() - now) : 0;
-  const hoursRemaining = Math.max(0, Math.ceil(msRemaining / 3600000));
-  const daysRemaining = Math.floor(hoursRemaining / 24);
   const eventType = normalizeEventType(week?.modifierType, week?.modifierLabel);
+  const basePromotionCutoffRank = league?.promotionCutoff ?? 10;
+  const promotionCutoffRank = eventType === "promotion_rush" ? Math.min(15, totalPlayers) : basePromotionCutoffRank;
+  const demotionCount = league?.demotionCutoff ?? 5;
+  const fallbackXp = myEntry?.xpThisWeek ?? membership?.xpEarnedThisWeek ?? 0;
+  const fallbackRank = myRank ?? membership?.peakRankThisWeek ?? totalPlayers;
+  const hoursRemaining = computeHoursRemaining(week?.weekEnd ?? null, now);
+  const under24Hours = hoursRemaining <= 24;
+  const under6Hours = hoursRemaining <= 6;
+  const lastHour = hoursRemaining <= 1;
 
-  const promotionRushCutoffRank = eventType === "promotion_rush" ? Math.min(15, totalPlayers) : promotionCutoffRank;
-
-  const leagueState = useMemo<LeagueState>(() => {
-    const rankMap = new Map<number, LeaderboardEntry>();
-    entries.forEach((entry) => {
-      rankMap.set(entry.rank, entry);
-    });
-
-    const players = Array.from({ length: totalPlayers }, (_, index) => {
-      const rank = index + 1;
-      const entry = rankMap.get(rank);
-      if (!entry || entry.isGhost) return null;
-
-      return {
-        id: entry.userId,
-        name: entry.username,
-        xp: entry.xpThisWeek,
-        rank,
-        avatarUrl: entry.avatarUrl,
-        isYou: entry.isMe,
-        isRival: entry.isRival,
-        isGhost: false,
-        rivalSurge: eventType === "rival_surge" && entry.isRival,
-      } satisfies Player;
-    });
-
-    const effectiveRank = myRank ?? membership?.peakRankThisWeek ?? totalPlayers;
-    const effectiveXp = myEntry?.xpThisWeek ?? membership?.xpEarnedThisWeek ?? 0;
-    const promotionTarget = rankMap.get(promotionCutoffRank)?.xpThisWeek ?? effectiveXp;
-    const demotionEntry = rankMap.get(totalPlayers - demotionCount + 1)?.xpThisWeek ?? effectiveXp;
-    const safeEntry = rankMap.get(totalPlayers - demotionCount)?.xpThisWeek ?? effectiveXp;
-    const zone = computeZone(effectiveRank, totalPlayers);
-    const rivalEntry = entries.find((entry) => entry.isRival) ?? null;
-
-    return {
-      rank: effectiveRank,
-      xp: effectiveXp,
-      xpToPromotion: effectiveRank <= promotionCutoffRank ? 0 : Math.max(0, promotionTarget - effectiveXp + 1),
-      xpToDemotion: zone === "demotion"
-        ? Math.max(0, safeEntry - effectiveXp + 1)
-        : Math.max(0, effectiveXp - demotionEntry),
-      zone,
-      rivalGap: rivalEntry ? rivalEntry.xpThisWeek - effectiveXp : 0,
-      streak,
-      multiplier,
-      hoursRemaining,
-      players,
-      eventActive: eventType && week
-        ? {
-            type: eventType,
-            expiresIn: formatEventExpiry(week.weekEnd, now),
-            key: `${eventType}-${week.id}`,
-          }
-        : null,
-    };
-  }, [
-    demotionCount,
-    entries,
-    eventType,
-    hoursRemaining,
-    membership?.peakRankThisWeek,
-    membership?.xpEarnedThisWeek,
-    multiplier,
-    myEntry?.xpThisWeek,
-    myRank,
-    now,
-    promotionCutoffRank,
-    streak,
+  const runtimeOptions = useMemo<RuntimeOptions>(() => ({
     totalPlayers,
-    week,
-  ]);
+    promotionCutoffRank,
+    demotionCount,
+    streak,
+    multiplier,
+    eventType,
+    weekEnd: week?.weekEnd ?? null,
+    weekId: week?.id ?? null,
+    fallbackXp,
+    fallbackRank,
+    now,
+  }), [demotionCount, eventType, fallbackRank, fallbackXp, multiplier, now, promotionCutoffRank, streak, totalPlayers, week?.id, week?.weekEnd]);
+  const youEntryId = runtime?.entries.find((entry) => entry.isYou)?.id ?? null;
+  const runtimeOrderSignature = runtime ? runtime.entries.map((entry) => `${entry.id}:${entry.rank}:${entry.xp}`).join("|") : "runtime-empty";
+  const simulationKey = runtime ? `${week?.id ?? "week"}:${runtime.entries.length}:${runtime.state.eventActive?.key ?? "none"}` : "simulation-empty";
 
-  const secondPlaceXp = entries[1]?.xpThisWeek ?? null;
-  const firstPlaceXp = entries[0]?.xpThisWeek ?? Math.max(leagueState.xp, 1);
-  const promotionCutoffXp = entries[Math.max(promotionRushCutoffRank - 1, 0)]?.xpThisWeek ?? leagueState.xp;
-  const demotionCutoffXp = entries[Math.min(totalPlayers - demotionCount, entries.length - 1)]?.xpThisWeek ?? leagueState.xp;
-  const rival = leagueState.players.find((player) => player?.isRival) ?? null;
-  const subtitleEndingSoon = leagueState.hoursRemaining <= 24;
-  const distanceMessage = getDistanceMessage(leagueState, secondPlaceXp, distanceOverride);
-  const normalizedProgressZone: "promotion" | "safe" | "demotion" =
-    leagueState.zone === "promotion" ? "promotion" : leagueState.zone === "demotion" ? "demotion" : "safe";
-  const shuffleFlash = leagueState.eventActive?.type === "shuffle";
+  const showToast = (type: ToastType, message: string) => {
+    const id = Math.random().toString(36).slice(2);
+    const nextToast = { id, type, message, expiresAt: Date.now() + 3500 };
+    setToasts((current) => [...current, nextToast]);
+    window.setTimeout(() => {
+      setToasts((current) => current.filter((toast) => toast.id !== id));
+    }, 3500);
+  };
 
-  const youRowKey = useMemo(() => {
-    for (const player of leagueState.players) {
-      if (player?.isYou) {
-        return player.id;
+  const composeRuntime = (nextEntries: SimEntry[], currentNow: number) => createLeagueRuntime(nextEntries, {
+    ...runtimeOptions,
+    now: currentNow,
+  });
+
+  const triggerPassedByAnimation = (player: SimEntry | null) => {
+    const youRow = document.getElementById("row-you");
+    if (!youRow) return;
+    youRow.style.background = "rgba(239,68,68,0.18)";
+    youRow.style.animation = "leagueRowShake 400ms ease-out";
+    window.setTimeout(() => {
+      youRow.style.background = youRow.getAttribute("data-base-bg") ?? "";
+      youRow.style.animation = "";
+    }, 500);
+    if (player) {
+      showToast("passed_by", `${player.name} just passed you`);
+    }
+  };
+
+  const triggerOvertakeAnimation = () => {
+    const youRow = document.getElementById("row-you");
+    if (!youRow) return;
+    showRankUpTrail(youRow);
+    youRow.style.background = "rgba(34,197,94,0.15)";
+    spawnOvertakeParticles(youRow);
+    window.setTimeout(() => {
+      youRow.style.background = youRow.getAttribute("data-base-bg") ?? "";
+    }, 600);
+  };
+
+  const animateSimPlayerXP = (playerId: string, from: number, to: number, gain: number) => {
+    const xpEl = rowXpRefs.current.get(playerId);
+    if (xpEl) {
+      const xpNode = xpEl;
+      const start = performance.now();
+      const duration = 200;
+
+      function tick(nowValue: number) {
+        const progress = Math.min((nowValue - start) / duration, 1);
+        const value = Math.round(from + (to - from) * (1 - Math.pow(1 - progress, 2)));
+        xpNode.textContent = value.toLocaleString("en-US");
+        if (progress < 1) {
+          window.requestAnimationFrame(tick);
+        }
+      }
+
+      window.requestAnimationFrame(tick);
+
+      const floater = document.createElement("div");
+      floater.textContent = `+${gain}`;
+      floater.style.cssText = `
+        position: absolute;
+        right: 0;
+        top: -4px;
+        font-size: 11px;
+        font-weight: 600;
+        color: ${runtimeRef.current?.state.eventActive?.type === "double_xp" ? STORM_THEME.accentGold : STORM_THEME.accentGreen};
+        pointer-events: none;
+        z-index: 10;
+        transition: transform 800ms ease-out, opacity 800ms ease-out;
+      `;
+      xpNode.style.position = "relative";
+      xpNode.appendChild(floater);
+      window.requestAnimationFrame(() => {
+        floater.style.transform = "translateY(-20px)";
+        floater.style.opacity = "0";
+      });
+      window.setTimeout(() => {
+        floater.remove();
+      }, 850);
+    }
+
+    const row = rowRefs.current.get(playerId);
+    if (row) {
+      row.style.background = "rgba(34,197,94,0.08)";
+      window.setTimeout(() => {
+        row.style.background = row.getAttribute("data-base-bg") ?? "";
+      }, 400);
+    }
+  };
+
+  const flashRivalSuccess = () => {
+    const card = rivalCardRef.current;
+    if (!card) return;
+    card.style.boxShadow = "0 0 0 1px rgba(34,197,94,0.5)";
+    window.setTimeout(() => {
+      card.style.boxShadow = "";
+    }, 600);
+    showBonusFloater(card, "+50 bonus XP", STORM_THEME.accentGold);
+  };
+
+  const triggerPromotionEntrySequence = async () => {
+    if (promotionSequencePlayedRef.current) return;
+    const youRow = document.getElementById("row-you");
+    if (!youRow || !promotionSectionRef.current) return;
+
+    promotionSequencePlayedRef.current = true;
+    await wait(400);
+
+    promotionSectionRef.current.style.transition = "background 600ms";
+    promotionSectionRef.current.style.background = "rgba(34,197,94,0.08)";
+    await wait(600);
+    promotionSectionRef.current.style.background = "linear-gradient(180deg, rgba(34,197,94,0), rgba(34,197,94,0.03) 4px, rgba(34,197,94,0.03) calc(100% - 4px), rgba(34,197,94,0))";
+
+    youRow.style.transition = "box-shadow 400ms ease-out";
+    youRow.style.boxShadow = "0 0 0 2px rgba(34,197,94,0.5)";
+    setDistanceOverride("You reached the promotion zone");
+    setDistanceTone("promotion");
+    spawnConfetti(youRow);
+    showToast("milestone", "You entered the promotion zone");
+    await wait(2000);
+    youRow.style.boxShadow = "";
+    setDistanceOverride(null);
+    setDistanceTone("default");
+  };
+
+  const addXP = (amount: number, baseEntries?: SimEntry[]) => {
+    if (amount === 0) return;
+    const current = runtimeRef.current;
+    if (!current || !xpValueRef.current) return;
+    const sourceEntries = (baseEntries ?? current.entries).map((entry) => ({ ...entry, recentActivity: [...entry.recentActivity] }));
+    const previousYou = sourceEntries.find((entry) => entry.isYou) ?? null;
+    if (!previousYou) return;
+    const oldRank = previousYou.rank;
+    const oldXP = previousYou.xp;
+    const updatedEntries = sourceEntries.map((entry) => entry.isYou ? { ...entry, xp: entry.xp + amount } : entry);
+    const nextRuntime = composeRuntime(updatedEntries, Date.now());
+    const overtaken = sourceEntries.filter((entry) => !entry.isYou && !entry.isGhost && entry.rank < oldRank)
+      .filter((entry) => {
+        const nextEntry = nextRuntime.entries.find((candidate) => candidate.id === entry.id);
+        return Boolean(nextEntry && nextEntry.rank > nextRuntime.state.rank);
+      });
+    setRuntime(nextRuntime);
+
+    animateXPCountUp(xpValueRef.current, oldXP, nextRuntime.state.xp, 800);
+    window.setTimeout(() => {
+      if (!xpValueRef.current) return;
+      xpValueRef.current.style.transition = "color 200ms";
+      xpValueRef.current.style.color = STORM_THEME.accentGold;
+      window.setTimeout(() => {
+        if (xpValueRef.current) {
+          xpValueRef.current.style.color = STORM_THEME.textPrimary;
+        }
+      }, 400);
+    }, 400);
+
+    if (xpValueRef.current) {
+      spawnOvertakeParticles(xpValueRef.current);
+    }
+
+    if (nextRuntime.state.rank < oldRank) {
+      triggerOvertakeAnimation();
+      if (overtaken[0]) {
+        showToast("overtook", `You passed ${overtaken[0].name}`);
       }
     }
-    return null;
-  }, [leagueState.players]);
 
-  const promotionRows = useMemo<LeaderboardRowModel[]>(
-    () =>
-      Array.from({ length: Math.min(10, totalPlayers) }, (_, index) => {
-        const rank = index + 1;
-        const player = leagueState.players[rank - 1] ?? null;
-        const key = player ? player.id : `ghost-${rank}`;
+    if (oldRank > promotionCutoffRank && nextRuntime.state.rank <= promotionCutoffRank) {
+      void wait(300).then(() => triggerPromotionEntrySequence());
+    }
+  };
+
+  const applySimulatedGain = (playerId: string, gain: number) => {
+    const current = runtimeRef.current;
+    if (!current) return;
+    const previousYouXp = current.state.xp;
+    const updatedEntries = markRecentActivity(
+      current.entries.map((entry) => {
+        if (entry.id !== playerId) return { ...entry, recentActivity: [...entry.recentActivity] };
         return {
-          key,
-          rank,
-          player,
-          zone: "promotion",
+          ...entry,
+          xp: entry.xp + gain,
+          recentActivity: [...entry.recentActivity],
         };
       }),
-    [leagueState.players, totalPlayers],
-  );
+      playerId,
+    );
+    const targetBefore = current.entries.find((entry) => entry.id === playerId) ?? null;
+    const nextRuntime = composeRuntime(updatedEntries, Date.now());
+    const targetAfter = nextRuntime.entries.find((entry) => entry.id === playerId) ?? null;
+    setRuntime(nextRuntime);
 
-  const safeRowRanks = useMemo(() => getVisibleSafeRanks(leagueState.rank, totalPlayers), [leagueState.rank, totalPlayers]);
-  const safeRows = useMemo<LeaderboardRowModel[]>(
-    () =>
-      safeRowRanks.map((rank) => {
-        const player = leagueState.players[rank - 1] ?? null;
-        const key = player ? player.id : `ghost-${rank}`;
-        return {
-          key,
-          rank,
-          player,
-          zone: "safe",
-        };
-      }),
-    [leagueState.players, safeRowRanks],
-  );
-
-  const demotionRows = useMemo<LeaderboardRowModel[]>(
-    () =>
-      Array.from({ length: demotionCount }, (_, index) => {
-        const rank = totalPlayers - demotionCount + index + 1;
-        const player = leagueState.players[rank - 1] ?? null;
-        const key = player ? player.id : `ghost-${rank}`;
-        return {
-          key,
-          rank,
-          player,
-          zone: "demotion",
-        };
-      }),
-    [demotionCount, leagueState.players, totalPlayers],
-  );
+    if (!targetAfter) return;
+    animateSimPlayerXP(targetAfter.id, targetBefore?.xp ?? 0, targetAfter.xp, gain);
+    if (
+      targetAfter.isRival
+      || (targetAfter.isGhost && Math.abs(targetAfter.rank - nextRuntime.state.rank) <= 3 && Math.random() > 0.55)
+    ) {
+      showToast("event", `${targetAfter.name} gained ${gain} XP`);
+    }
+    if (targetBefore && targetBefore.xp < previousYouXp && targetAfter.xp >= previousYouXp) {
+      triggerPassedByAnimation(targetAfter);
+    }
+  };
 
   useEffect(() => {
-    onZoneChange?.(leagueState.zone);
+    runtimeRef.current = runtime;
+  }, [runtime]);
+
+  useEffect(() => {
+    if (!membership || !league || !week) return;
+    const seedEntries = mergeDynamicEntryFields(
+      buildSeedEntries(entries, totalPlayers, promotionCutoffRank, demotionCount, eventType),
+      runtimeRef.current?.entries ?? null,
+    );
+    const nextRuntime = composeRuntime(seedEntries, Date.now());
+
+    if (activeWeekIdRef.current !== week.id) {
+      activeWeekIdRef.current = week.id;
+      promotionSequencePlayedRef.current = nextRuntime.state.rank <= promotionCutoffRank;
+      previousDisplayedXpRef.current = null;
+      previousDisplayedRankRef.current = null;
+      const rafId = window.requestAnimationFrame(() => {
+        setRuntime(nextRuntime);
+      });
+      return () => {
+        window.cancelAnimationFrame(rafId);
+      };
+      return;
+    }
+
+    const currentRuntime = runtimeRef.current;
+    if (!currentRuntime) {
+      const rafId = window.requestAnimationFrame(() => {
+        setRuntime(nextRuntime);
+      });
+      return () => {
+        window.cancelAnimationFrame(rafId);
+      };
+    }
+
+    if (nextRuntime.state.xp > currentRuntime.state.xp) {
+      const baseEntries = nextRuntime.entries.map((entry) => entry.isYou ? { ...entry, xp: currentRuntime.state.xp } : entry);
+      addXP(nextRuntime.state.xp - currentRuntime.state.xp, baseEntries);
+      return;
+    }
+
+    if (nextRuntime.state.xp < currentRuntime.state.xp) {
+      promotionSequencePlayedRef.current = nextRuntime.state.rank <= promotionCutoffRank;
+      previousDisplayedXpRef.current = null;
+      previousDisplayedRankRef.current = null;
+    }
+
+    const rafId = window.requestAnimationFrame(() => {
+      setRuntime(nextRuntime);
+    });
+    return () => {
+      window.cancelAnimationFrame(rafId);
+    };
+  }, [demotionCount, entries, eventType, league, membership, promotionCutoffRank, totalPlayers, week]);
+
+  useEffect(() => {
+    if (!runtimeRef.current) return;
+    const rafId = window.requestAnimationFrame(() => {
+      setRuntime((current) => {
+        if (!current) return current;
+        return composeRuntime(current.entries, now);
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(rafId);
+    };
+  }, [now]);
+
+  useEffect(() => {
+    if (!runtime) return;
+    onZoneChange?.(runtime.state.zone);
     return () => {
       onZoneChange?.("safe");
     };
-  }, [leagueState.zone, onZoneChange]);
+  }, [onZoneChange, runtime]);
 
   useEffect(() => {
-    if (!xpValueRef.current) return;
-    if (previousXpRef.current === null) {
-      previousXpRef.current = leagueState.xp;
-      xpValueRef.current.textContent = `${leagueState.xp.toLocaleString("en-US")} XP`;
-      return;
-    }
+    if (!runtime) return;
+    if (!youEntryId) return;
+    const youRow = rowRefs.current.get(youEntryId);
+    if (!youRow) return;
 
-    animateXP(xpValueRef.current, previousXpRef.current, leagueState.xp, STORM_THEME.textPrimary);
-    if (leagueState.xp - previousXpRef.current >= 100) {
-      const id = `surge-${leagueState.xp}`;
-      window.requestAnimationFrame(() => {
-        setToasts((current) => [...current, { id, tone: "success", message: "Surge bonus — you gained 100 XP in one session" }]);
-      });
-      window.setTimeout(() => {
-        setToasts((current) => current.filter((item) => item.id !== id));
-      }, 3400);
-    }
-    previousXpRef.current = leagueState.xp;
-  }, [leagueState.xp]);
-
-  useEffect(() => {
-    if (!rankValueRef.current) return;
-    const node = rankValueRef.current;
-    const previousValue = node.getAttribute("data-rank");
-    const nextValue = `#${leagueState.rank}`;
-
-    if (!previousValue) {
-      node.textContent = nextValue;
-      node.setAttribute("data-rank", nextValue);
-      return;
-    }
-
-    if (previousValue === nextValue) {
-      node.textContent = nextValue;
-      return;
-    }
-
-    const currentSpan = document.createElement("span");
-    const nextSpan = document.createElement("span");
-    currentSpan.textContent = previousValue;
-    nextSpan.textContent = nextValue;
-
-    const spanStyle = `
-      position:absolute;
-      left:0;
-      top:0;
-      transition:transform 200ms ease, opacity 200ms ease;
-    `;
-
-    currentSpan.style.cssText = `${spanStyle}transform: translateY(0); opacity: 1;`;
-    nextSpan.style.cssText = `${spanStyle}transform: translateY(100%); opacity: 0;`;
-
-    node.innerHTML = "";
-    node.style.height = "20px";
-    node.style.overflow = "hidden";
-    node.style.position = "relative";
-    node.appendChild(currentSpan);
-    node.appendChild(nextSpan);
-
-    window.requestAnimationFrame(() => {
-      currentSpan.style.transform = "translateY(-100%)";
-      currentSpan.style.opacity = "0";
-      nextSpan.style.transform = "translateY(0)";
-      nextSpan.style.opacity = "1";
-    });
-
-    const resetTimer = window.setTimeout(() => {
-      node.innerHTML = nextValue;
-      node.setAttribute("data-rank", nextValue);
-    }, 400);
+    youBreathingRef.current?.stop();
+    youBreathingRef.current = startYouRowBreathing(youRow);
 
     return () => {
-      window.clearTimeout(resetTimer);
+      youBreathingRef.current?.stop();
+      youBreathingRef.current = null;
     };
-  }, [leagueState.rank]);
+  }, [runtime, youEntryId]);
+
+  useEffect(() => {
+    promotionPulseStopRef.current?.();
+    promotionPulseStopRef.current = null;
+    if (!runtime) return;
+    if (runtime.state.zone !== "near_promotion" || runtime.state.xpToPromotion > 50) return;
+    const youEntry = runtime.entries.find((entry) => entry.isYou) ?? null;
+    if (!youEntry) return;
+    const youRow = rowRefs.current.get(youEntry.id);
+    if (!youRow) return;
+    promotionPulseStopRef.current = startPromotionPulse(youRow);
+    return () => {
+      promotionPulseStopRef.current?.();
+      promotionPulseStopRef.current = null;
+    };
+  }, [runtime, runtime?.state.zone, runtime?.state.xpToPromotion]);
+
+  useEffect(() => {
+    if (!runtime || !xpValueRef.current) return;
+    if (previousDisplayedXpRef.current === null) {
+      previousDisplayedXpRef.current = runtime.state.xp;
+      xpValueRef.current.textContent = `${runtime.state.xp.toLocaleString("en-US")} XP`;
+      return;
+    }
+
+    if (previousDisplayedXpRef.current > runtime.state.xp) {
+      xpValueRef.current.textContent = `${runtime.state.xp.toLocaleString("en-US")} XP`;
+    }
+
+    previousDisplayedXpRef.current = runtime.state.xp;
+  }, [runtime?.state.xp]);
+
+  useEffect(() => {
+    if (!runtime || !rankValueRef.current) return;
+    if (previousDisplayedRankRef.current === null) {
+      previousDisplayedRankRef.current = runtime.state.rank;
+      rankValueRef.current.textContent = `#${runtime.state.rank}`;
+      return;
+    }
+
+    if (previousDisplayedRankRef.current !== runtime.state.rank) {
+      rollRankNumber(rankValueRef.current, previousDisplayedRankRef.current, runtime.state.rank);
+    }
+    previousDisplayedRankRef.current = runtime.state.rank;
+  }, [runtime?.state.rank]);
 
   useEffect(() => {
     if (!events.length) return;
-
     const currentUserId = myEntry?.userId ?? membership?.userId ?? "";
     if (!currentUserId) return;
 
@@ -1584,216 +2100,162 @@ export default function LeagueTab({ membership, league, week, loading, onZoneCha
         if (seenToastIdsRef.current.has(event.id)) return;
         seenToastIdsRef.current.add(event.id);
 
-        const toast =
-          event.overtakerUserId === currentUserId
-            ? {
-                id: event.id,
-                message: `You passed ${event.overtakenUsername ?? "Pico learner"}`,
-                tone: "success" as const,
-              }
-            : event.overtakenUserId === currentUserId
-              ? {
-                  id: event.id,
-                  message: `${event.overtakerUsername} passed you`,
-                  tone: "danger" as const,
-                }
-              : null;
+        if (event.overtakerUserId === currentUserId) {
+          triggerOvertakeAnimation();
+          showToast("overtook", `You passed ${event.overtakenUsername ?? "Pico learner"}`);
+          return;
+        }
 
-        if (!toast) return;
-        window.requestAnimationFrame(() => {
-          setToasts((current) => [...current, toast]);
-        });
-        window.setTimeout(() => {
-          setToasts((current) => current.filter((item) => item.id !== toast.id));
-        }, 3400);
+        if (event.overtakenUserId === currentUserId) {
+          triggerPassedByAnimation(null);
+          showToast("passed_by", `${event.overtakerUsername} just passed you`);
+        }
       });
   }, [events, membership?.userId, myEntry?.userId]);
 
   useEffect(() => {
-    if (previousRivalGapRef.current !== null && previousRivalGapRef.current > 0 && leagueState.rivalGap <= 0 && rival) {
-      const id = `rival-pass-${leagueState.xp}`;
-      window.requestAnimationFrame(() => {
-        setToasts((current) => [...current, { id, tone: "success", message: "You passed your rival — bonus XP incoming" }]);
-      });
-      window.setTimeout(() => {
-        setToasts((current) => current.filter((item) => item.id !== id));
-      }, 3400);
+    if (!runtime) return;
+    if (previousRivalGapRef.current !== null && previousRivalGapRef.current > 0 && runtime.state.rivalGap <= 0) {
+      const timeoutId = window.setTimeout(() => {
+        showToast("milestone", "You passed your rival — bonus XP incoming");
+      }, 0);
+      flashRivalSuccess();
+      triggerOvertakeAnimation();
+      return () => {
+        window.clearTimeout(timeoutId);
+      };
     }
-    previousRivalGapRef.current = leagueState.rivalGap;
-  }, [leagueState.rivalGap, leagueState.xp, rival]);
+    previousRivalGapRef.current = runtime.state.rivalGap;
+  }, [runtime?.state.rivalGap]);
 
   useEffect(() => {
+    if (!runtime) return;
     const previousZone = previousZoneRef.current;
-    previousZoneRef.current = leagueState.zone;
+    previousZoneRef.current = runtime.state.zone;
+    if (previousZone && previousZone !== "promotion" && runtime.state.zone === "promotion" && runtime.state.rank <= promotionCutoffRank) {
+      const timeoutId = window.setTimeout(() => {
+        void triggerPromotionEntrySequence();
+      }, 0);
+      return () => {
+        window.clearTimeout(timeoutId);
+      };
+    }
+  }, [promotionCutoffRank, runtime?.state.rank, runtime?.state.zone]);
 
-    if (previousZone === null || previousZone === "promotion" || leagueState.zone !== "promotion") {
-      return;
+  useEffect(() => {
+    if (!runtime) return;
+    let active = true;
+    let timeoutId = 0;
+
+    function getDelayRange() {
+      const state = runtimeRef.current?.state;
+      if (!state) return [2500, 5000] as const;
+      if (state.hoursRemaining <= 6) return state.zone === "demotion" || state.zone === "near_demotion" ? [1000, 2000] as const : [1200, 2200] as const;
+      if (state.hoursRemaining <= 24) return state.zone === "demotion" || state.zone === "near_demotion" ? [1200, 2500] as const : [1500, 3000] as const;
+      if (state.zone === "demotion" || state.zone === "near_demotion") return [2000, 4200] as const;
+      return [2500, 5000] as const;
     }
 
-    window.requestAnimationFrame(() => {
-      setPromotionPulseToken((current) => current + 1);
-      setDistanceOverride("You reached the promotion zone");
-    });
-
-    const toastId = `promotion-${leagueState.rank}-${leagueState.xp}`;
-    window.requestAnimationFrame(() => {
-      setToasts((current) => [...current, { id: toastId, tone: "success", message: "First time in the promotion zone this week" }]);
-    });
-    const toastTimer = window.setTimeout(() => {
-      setToasts((current) => current.filter((item) => item.id !== toastId));
-    }, 3400);
-    const messageTimer = window.setTimeout(() => {
-      setDistanceOverride(null);
-    }, 2000);
-
-    const youKey = youRowKey;
-    if (youKey) {
-      const node = rowRefs.current.get(youKey);
-      if (node) {
-        node.style.transition = "box-shadow 1200ms ease";
-        node.style.boxShadow = "0 0 0 2px rgba(34,197,94,0.4)";
-        window.setTimeout(() => {
-          const currentNode = rowRefs.current.get(youKey);
-          if (!currentNode) return;
-          currentNode.style.boxShadow = "none";
-        }, 60);
-      }
-    }
-
-    const canvas = confettiCanvasRef.current;
-    if (canvas) {
-      const context = canvas.getContext("2d");
-      if (context) {
-        const context2d = context;
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width * window.devicePixelRatio;
-        canvas.height = rect.height * window.devicePixelRatio;
-        context2d.scale(window.devicePixelRatio, window.devicePixelRatio);
-
-        const particles = Array.from({ length: 12 }, () => ({
-          x: rect.width * 0.5 + (Math.random() - 0.5) * 50,
-          y: rect.height * 0.7,
-          vx: (Math.random() - 0.5) * 2.2,
-          vy: -2 - Math.random() * 2.4,
-          size: 3 + Math.random() * 3,
-          color: Math.random() > 0.5 ? STORM_THEME.accentGreen : STORM_THEME.accentGold,
-        }));
-
-        const start = performance.now();
-
-        function draw(nowValue: number) {
-          const elapsed = nowValue - start;
-          context2d.clearRect(0, 0, rect.width, rect.height);
-
-          particles.forEach((particle) => {
-            const progress = elapsed / 900;
-            const x = particle.x + particle.vx * elapsed * 0.05;
-            const y = particle.y + particle.vy * elapsed * 0.05 + progress * progress * 80;
-            context2d.globalAlpha = Math.max(0, 1 - progress);
-            context2d.fillStyle = particle.color;
-            context2d.fillRect(x, y, particle.size, particle.size);
-          });
-
-          if (elapsed < 900) {
-            window.requestAnimationFrame(draw);
-            return;
-          }
-
-          context2d.clearRect(0, 0, rect.width, rect.height);
+    function scheduleNext() {
+      if (!active) return;
+      const [minDelay, maxDelay] = getDelayRange();
+      timeoutId = window.setTimeout(() => {
+        if (!active || !runtimeRef.current) return;
+        const candidates = runtimeRef.current.entries.filter((entry) => !entry.isYou);
+        if (candidates.length === 0) {
+          scheduleNext();
+          return;
         }
 
-        window.requestAnimationFrame(draw);
-      }
+        const weights = candidates.map((entry) => 0.2 + entry.momentum * 0.8);
+        const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+        let pick = Math.random() * totalWeight;
+        let chosen = candidates[0];
+        for (let index = 0; index < candidates.length; index += 1) {
+          pick -= weights[index] ?? 0;
+          if (pick <= 0) {
+            chosen = candidates[index] ?? candidates[0];
+            break;
+          }
+        }
+
+        const gain = chosen.isGhost
+          ? Math.floor(6 + Math.random() * 22)
+          : Math.floor(3 + Math.random() * 15);
+        applySimulatedGain(chosen.id, gain);
+        scheduleNext();
+      }, minDelay + Math.random() * (maxDelay - minDelay));
     }
+
+    const driftInterval = window.setInterval(() => {
+      setRuntime((current) => {
+        if (!current) return current;
+        const drifted = current.entries.map((entry) => {
+          if (entry.isYou || entry.isGhost) return entry;
+          return {
+            ...entry,
+            momentum: clamp(entry.momentum + (Math.random() - 0.5) * 0.2, 0, 1),
+          };
+        });
+        return composeRuntime(drifted, Date.now());
+      });
+    }, 8000);
+
+    scheduleNext();
 
     return () => {
-      window.clearTimeout(toastTimer);
-      window.clearTimeout(messageTimer);
+      active = false;
+      window.clearTimeout(timeoutId);
+      window.clearInterval(driftInterval);
     };
-  }, [leagueState.rank, leagueState.xp, leagueState.zone, youRowKey]);
+  }, [simulationKey]);
 
   useLayoutEffect(() => {
+    if (!runtime) return;
     const nextPositions = new Map<string, number>();
-    const movingKeys: string[] = [];
+    const movers: HTMLDivElement[] = [];
 
     rowRefs.current.forEach((node, key) => {
-      const top = node.getBoundingClientRect().top;
+      const top = node.offsetTop;
       nextPositions.set(key, top);
-
       const previousTop = rowTopRef.current.get(key);
       if (previousTop === undefined) return;
-
-      const delta = previousTop - top;
-      if (delta === 0) return;
-
-      movingKeys.push(key);
+      const deltaY = previousTop - top;
+      if (Math.abs(deltaY) < 1) return;
       node.style.transition = "none";
-      node.style.transform = `translateY(${delta}px)`;
-      node.style.willChange = "transform";
+      node.style.transform = `translateY(${deltaY}px)`;
+      movers.push(node);
     });
 
-    if (movingKeys.length > 0) {
-      const youKey = youRowKey;
-      if (youKey) {
-        const youNode = rowRefs.current.get(youKey);
-        if (youNode) {
-          youNode.style.animationPlayState = "paused";
-        }
-      }
+    rowTopRef.current = nextPositions;
 
+    if (movers.length === 0) return;
+
+    youBreathingRef.current?.pause();
+
+    window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
-        movingKeys.forEach((key) => {
-          const node = rowRefs.current.get(key);
-          if (!node) return;
+        movers.forEach((node) => {
           node.style.transition = `transform 500ms ${LEAGUE_EASE}`;
           node.style.transform = "translateY(0)";
         });
       });
-
-      const settleTimer = window.setTimeout(() => {
-        movingKeys.forEach((key) => {
-          const node = rowRefs.current.get(key);
-          if (!node) return;
-          node.style.transition = "";
-          node.style.willChange = "";
-        });
-
-        const youKey = youRowKey;
-        if (youKey) {
-          const youNode = rowRefs.current.get(youKey);
-          if (youNode) {
-            youNode.style.animationPlayState = "running";
-            youNode.style.transition = "background-color 400ms ease";
-            youNode.style.backgroundColor = "rgba(232,130,12,0.2)";
-            window.requestAnimationFrame(() => {
-              window.setTimeout(() => {
-                const latestNode = rowRefs.current.get(youKey);
-                if (!latestNode) return;
-                latestNode.style.backgroundColor = "rgba(232,130,12,0.09)";
-              }, 40);
-            });
-          }
-        }
-      }, 540);
-
-      return () => {
-        window.clearTimeout(settleTimer);
-      };
-    }
-
-    rowTopRef.current = nextPositions;
-    return;
-  }, [demotionRows, promotionRows, safeRows, youRowKey]);
-
-  useLayoutEffect(() => {
-    const positions = new Map<string, number>();
-    rowRefs.current.forEach((node, key) => {
-      positions.set(key, node.getBoundingClientRect().top);
     });
-    rowTopRef.current = positions;
-  });
 
-  if (loading || leaderboardLoading) {
+    const timer = window.setTimeout(() => {
+      movers.forEach((node) => {
+        node.style.transition = "";
+        node.style.transform = "";
+      });
+      youBreathingRef.current?.resume();
+    }, 520);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [runtime, runtimeOrderSignature]);
+
+  if (loading || leaderboardLoading || !runtime) {
     return (
       <>
         <style>{`
@@ -1811,7 +2273,73 @@ export default function LeagueTab({ membership, league, week, loading, onZoneCha
     return null;
   }
 
-  const subtitle = subtitleEndingSoon
+  const secondPlaceXp = runtime.entries[1]?.xp ?? null;
+  const firstPlaceXp = runtime.entries[0]?.xp ?? Math.max(runtime.state.xp, 1);
+  const promotionCutoffXp = runtime.entries[Math.max(promotionCutoffRank - 1, 0)]?.xp ?? runtime.state.xp;
+  const firstDemotionIndex = Math.max(totalPlayers - demotionCount, 0);
+  const demotionCutoffXp = runtime.entries[firstDemotionIndex]?.xp ?? runtime.state.xp;
+  const rival = runtime.entries.find((entry) => entry.isRival) ?? null;
+
+  const baseDistanceMessage = buildDistanceMessage(runtime.state, secondPlaceXp, distanceOverride);
+  const distanceMessage = (
+    <>
+      <span style={{ color: distanceTone === "promotion" ? STORM_THEME.accentGreen : distanceTone === "danger" ? STORM_THEME.accentRed : undefined }}>
+        {baseDistanceMessage}
+      </span>
+      {under24Hours ? (
+        <span style={{ color: STORM_THEME.accentRed }}> · Ending soon</span>
+      ) : null}
+    </>
+  );
+
+  const promotionRows = runtime.entries
+    .slice(0, promotionCutoffRank)
+    .map((entry) => ({
+      key: entry.id,
+      rank: entry.rank,
+      player: runtime.state.players[entry.rank - 1] ?? null,
+      entry,
+      zone: "promotion" as const,
+    }));
+
+  const safeRowRanks = getVisibleSafeRanks(runtime.state.rank, totalPlayers, promotionCutoffRank, demotionCount);
+  const safeRows = safeRowRanks.map((rank) => {
+    const entry = runtime.entries[rank - 1];
+    return {
+      key: entry?.id ?? `ghost-${rank}`,
+      rank,
+      player: runtime.state.players[rank - 1] ?? null,
+      entry: entry ?? {
+        id: `ghost-${rank}`,
+        name: "Ghost learner",
+        xp: 0,
+        rank,
+        avatarUrl: null,
+        isYou: false,
+        isRival: false,
+        isGhost: true,
+        rivalSurge: false,
+        momentum: 0,
+        recentActivity: [false, false, false, false, false],
+        seedOrder: rank,
+      },
+      zone: "safe" as const,
+    };
+  });
+
+  const demotionRows = runtime.entries
+    .slice(totalPlayers - demotionCount)
+    .map((entry) => ({
+      key: entry.id,
+      rank: entry.rank,
+      player: runtime.state.players[entry.rank - 1] ?? null,
+      entry,
+      zone: "demotion" as const,
+    }));
+
+  const ellipsisCount = Math.max(totalPlayers - promotionCutoffRank - demotionCount - safeRows.length, 0);
+  const promotionDividerLabel = runtime.state.eventActive?.type === "promotion_rush" ? "Promotion zone — top 15 this week" : "Promotion zone";
+  const subtitle = under24Hours
     ? (
         <>
           <span>Ending soon</span>
@@ -1819,35 +2347,29 @@ export default function LeagueTab({ membership, league, week, loading, onZoneCha
           <span
             style={{
               color: STORM_THEME.accentRed,
+              fontWeight: lastHour ? 700 : 500,
               animation: "leagueTimerPulse 1.5s ease-in-out infinite",
             }}
           >
-            {leagueState.hoursRemaining}h left
+            {runtime.state.hoursRemaining}h left
           </span>
           <span> · </span>
-          <span>{leagueState.players.length} competitors</span>
+          <span>{runtime.state.players.length} competitors</span>
         </>
       )
     : (
         <>
-          <span>Week {weekNumber}</span>
+          <span>Week {getWeekNumber(week.weekStart)}</span>
           <span> · </span>
-          <span>{leagueState.players.length} competitors</span>
+          <span>{runtime.state.players.length} competitors</span>
           <span> · </span>
-          <span>Resets in {daysRemaining}d {leagueState.hoursRemaining % 24}h</span>
+          <span>Resets in {Math.floor(runtime.state.hoursRemaining / 24)}d {runtime.state.hoursRemaining % 24}h</span>
         </>
       );
-
-  const promotionDividerLabel = leagueState.eventActive?.type === "promotion_rush" ? "Promotion zone (top 15 this week)" : "Promotion zone";
-  const ellipsisCount = Math.max(totalPlayers - 15 - safeRows.length, 0);
 
   return (
     <>
       <style>{`
-        @keyframes leagueYouBreathe {
-          0%, 100% { transform: scaleX(1); opacity: 1; }
-          50% { transform: scaleX(1.002); opacity: 0.92; }
-        }
         @keyframes leagueGhostShimmer {
           0% { background-position: 200% 0; }
           100% { background-position: -200% 0; }
@@ -1860,36 +2382,88 @@ export default function LeagueTab({ membership, league, week, loading, onZoneCha
           0%, 100% { opacity: 1; }
           50% { opacity: 0.7; }
         }
-        @keyframes leagueRivalNamePulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.72; }
-        }
-        @keyframes leagueToastParticle {
-          0% { opacity: 0; transform: translateY(0); }
-          20% { opacity: 1; }
-          100% { opacity: 0; transform: translateY(-18px); }
-        }
         @keyframes leagueShuffleFlash {
           0% { transform: translateX(-120%); opacity: 0; }
           20% { opacity: 1; }
           100% { transform: translateX(120%); opacity: 0; }
         }
+        @keyframes leagueToastIn {
+          from { transform: translateX(110%); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes leagueToastOut {
+          from { transform: translateX(0); opacity: 1; }
+          to { transform: translateX(110%); opacity: 0; }
+        }
+        @keyframes leagueTrailFade {
+          from { opacity: 1; }
+          to { opacity: 0; }
+        }
+        @keyframes leagueRowShake {
+          0%, 100% { transform: translateX(0); }
+          20% { transform: translateX(-4px); }
+          40% { transform: translateX(4px); }
+          60% { transform: translateX(-3px); }
+          80% { transform: translateX(2px); }
+        }
+        @keyframes leaguePromotionShimmer {
+          0% { transform: translateX(-140%); }
+          100% { transform: translateX(140%); }
+        }
+        @keyframes leagueRedSegmentPulse {
+          0%, 100% { opacity: 0.4; }
+          50% { opacity: 0.8; }
+        }
+        @keyframes leagueDotRingPulse {
+          0%, 100% { box-shadow: 0 0 0 2px rgba(232,130,12,0.3); }
+          50% { box-shadow: 0 0 0 6px rgba(232,130,12,0.18); }
+        }
+        @keyframes leagueBannerShimmer {
+          0% { transform: translateX(-140%); }
+          100% { transform: translateX(140%); }
+        }
+        @keyframes leagueRivalUrgency {
+          0%, 100% { border-color: rgba(112,144,204,0.20); }
+          50% { border-color: rgba(112,144,204,0.45); }
+        }
+        @keyframes leagueRivalUrgencyHigh {
+          0%, 100% { border-color: rgba(112,144,204,0.28); box-shadow: 0 0 0 0 rgba(112,144,204,0.18); }
+          50% { border-color: rgba(112,144,204,0.55); box-shadow: 0 0 0 3px rgba(112,144,204,0.14); }
+        }
+        @keyframes leagueDangerRowPulse {
+          0%, 100% { background: rgba(239,68,68,0.04); }
+          50% { background: rgba(239,68,68,0.10); }
+        }
+        @keyframes leagueMedalSweep {
+          0%, 93%, 100% { opacity: 0; transform: translateX(0); }
+          95% { opacity: 0.4; transform: translateX(0); }
+          99% { opacity: 0; transform: translateX(10px); }
+        }
+        .league-leaderboard-surface {
+          contain: layout style;
+          height: calc(100vh - 320px);
+          max-height: calc(100vh - 320px);
+          overflow-y: auto;
+          -webkit-overflow-scrolling: touch;
+          overflow-x: hidden;
+          scrollbar-gutter: stable;
+          transform: translateZ(0);
+          will-change: transform;
+        }
+        .league-leaderboard-surface * {
+          backface-visibility: hidden;
+        }
       `}</style>
 
-      <ToastPortal toasts={toasts} />
-
-      <div style={{ position: "relative" }}>
-        <canvas
-          ref={confettiCanvasRef}
-          style={{
-            inset: 0,
-            pointerEvents: "none",
-            position: "absolute",
-            width: "100%",
-            height: 220,
-            zIndex: 2,
-          }}
-        />
+      <div
+        style={{
+          background: lastHour ? "#0f0e0d" : "transparent",
+          borderRadius: 8,
+          padding: lastHour ? 4 : 0,
+          position: "relative",
+        }}
+      >
+        <ToastStack toasts={toasts} />
 
         <section
           style={{
@@ -1904,8 +2478,8 @@ export default function LeagueTab({ membership, league, week, loading, onZoneCha
         >
           <LeagueBadge
             leagueName={league.name}
-            shimmerIntervalMs={leagueState.zone === "promotion" ? 2000 : 4000}
-            pulse={leagueState.zone === "near_promotion"}
+            shimmerIntervalMs={runtime.state.zone === "promotion" ? 2000 : 4000}
+            pulse={runtime.state.zone === "near_promotion"}
           />
 
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -1923,8 +2497,8 @@ export default function LeagueTab({ membership, league, week, loading, onZoneCha
             </h1>
             <div
               style={{
-                background: subtitleEndingSoon ? "rgba(239,68,68,0.06)" : "transparent",
-                borderRadius: 4,
+                background: under24Hours ? "rgba(239,68,68,0.05)" : "transparent",
+                borderRadius: 3,
                 color: STORM_THEME.textSecondary,
                 display: "inline-flex",
                 fontFamily: LEAGUE_SANS_FONT,
@@ -1932,17 +2506,17 @@ export default function LeagueTab({ membership, league, week, loading, onZoneCha
                 fontWeight: 400,
                 lineHeight: 1.5,
                 marginTop: 8,
-                padding: subtitleEndingSoon ? "4px 8px" : 0,
+                padding: under24Hours ? "4px 8px" : 0,
               }}
             >
               {subtitle}
             </div>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: 24, marginTop: 14 }}>
-              <StatBlock ref={xpValueRef} label="This week" value={`${leagueState.xp.toLocaleString("en-US")} XP`} />
-              <StatBlock ref={rankValueRef} label="Your rank" value={`#${leagueState.rank}`} />
-              <div style={{ alignSelf: "flex-end", animation: leagueState.zone === "near_promotion" ? "leagueNearPromotionPulse 2s ease-in-out infinite" : undefined }}>
-                <StreakPill multiplier={`${leagueState.multiplier.toFixed(1)}×`} days={leagueState.streak} />
+              <StatBlock ref={xpValueRef} label="This week" value={`${runtime.state.xp.toLocaleString("en-US")} XP`} />
+              <StatBlock ref={rankValueRef} label="Your rank" value={`#${runtime.state.rank}`} />
+              <div style={{ alignSelf: "flex-end" }}>
+                <StreakPill multiplier={`${runtime.state.multiplier.toFixed(1)}×`} days={runtime.state.streak} />
               </div>
             </div>
           </div>
@@ -1960,20 +2534,21 @@ export default function LeagueTab({ membership, league, week, loading, onZoneCha
             padding: "16px",
           }}
         >
-          <StatBlock label="Rank" value={`#${leagueState.rank}`} />
+          <StatBlock label="Rank" value={`#${runtime.state.rank}`} />
           <StatBlock
-            label={leagueState.rank === 1 ? "Promotion" : "XP to promotion"}
-            value={leagueState.rank === 1 ? "Holding #1" : `${leagueState.xpToPromotion.toLocaleString("en-US")} XP`}
-            valueColor={leagueState.rank === 1 ? STORM_THEME.accentGreen : undefined}
+            label={runtime.state.rank === 1 ? "Promotion" : "XP to promotion"}
+            value={runtime.state.rank === 1 ? "Holding #1" : `${runtime.state.xpToPromotion.toLocaleString("en-US")} XP`}
+            valueColor={runtime.state.rank === 1 ? STORM_THEME.accentGreen : under6Hours && runtime.state.rank > promotionCutoffRank ? STORM_THEME.accentOrange : undefined}
           />
           <StatBlock
             label="XP to demotion"
-            value={`${leagueState.xpToDemotion.toLocaleString("en-US")} XP`}
-            valueColor={leagueState.zone === "demotion" || leagueState.zone === "near_demotion" ? STORM_THEME.accentRed : undefined}
+            value={`${runtime.state.xpToDemotion.toLocaleString("en-US")} XP`}
+            valueColor={runtime.state.zone === "demotion" || runtime.state.zone === "near_demotion" ? STORM_THEME.accentRed : undefined}
           />
         </section>
 
         <section
+          className="league-leaderboard-surface"
           style={{
             background: STORM_THEME.surface,
             border: `1px solid ${STORM_THEME.border}`,
@@ -1982,7 +2557,7 @@ export default function LeagueTab({ membership, league, week, loading, onZoneCha
             padding: "16px",
           }}
         >
-          {leagueState.xp === 0 ? (
+          {runtime.state.xp === 0 ? (
             <div
               style={{
                 color: STORM_THEME.textSecondary,
@@ -1996,28 +2571,27 @@ export default function LeagueTab({ membership, league, week, loading, onZoneCha
             </div>
           ) : (
             <ProgressBar
-              xp={leagueState.xp}
+              state={runtime.state}
               totalXP={firstPlaceXp}
               promotionCutoffXP={promotionCutoffXp}
               demotionCutoffXP={demotionCutoffXp}
-              zone={normalizedProgressZone}
               distanceMessage={distanceMessage}
-              promotionPulseToken={promotionPulseToken}
             />
           )}
         </section>
 
-        {leagueState.eventActive && dismissedEventKey !== leagueState.eventActive.key ? (
+        {runtime.state.eventActive && dismissedEventKey !== runtime.state.eventActive.key ? (
           <EventBanner
-            type={leagueState.eventActive.type}
-            expiresIn={leagueState.eventActive.expiresIn}
-            onDismiss={() => setDismissedEventKey(leagueState.eventActive?.key ?? null)}
+            type={runtime.state.eventActive.type}
+            expiresAt={runtime.state.eventActive.expiresAt}
+            finalHours={under6Hours}
+            onDismiss={() => setDismissedEventKey(runtime.state.eventActive?.key ?? null)}
           />
         ) : null}
 
-        {leagueState.zone === "demotion" || leagueState.zone === "near_demotion" ? <ComebackBanner /> : null}
+        {runtime.state.zone === "demotion" || runtime.state.zone === "near_demotion" ? <ComebackBanner /> : null}
 
-        {leagueState.xp > 0 && rival ? <RivalCard rival={rival} myXP={leagueState.xp} /> : null}
+        {runtime.state.xp > 0 && rival ? <RivalCard ref={rivalCardRef} rival={rival} myXP={runtime.state.xp} hoursRemaining={runtime.state.hoursRemaining} /> : null}
 
         <section
           style={{
@@ -2027,28 +2601,45 @@ export default function LeagueTab({ membership, league, week, loading, onZoneCha
             padding: "0 16px 16px",
           }}
         >
-          <ZoneDivider zone="promotion" label={promotionDividerLabel} />
-          {promotionRows.map((row) => (
-            <LeaderboardRow
-              key={row.key}
-              ref={(node) => {
-                if (node) {
-                  rowRefs.current.set(row.key, node);
-                } else {
-                  rowRefs.current.delete(row.key);
-                }
-              }}
-              rank={row.rank}
-              player={row.player}
-              isYou={Boolean(row.player?.isYou)}
-              isRival={Boolean(row.player?.isRival)}
-              zone={row.zone}
-              doubleXp={leagueState.eventActive?.type === "double_xp"}
-              shuffleFlash={shuffleFlash}
-            />
-          ))}
+          <div
+            ref={promotionSectionRef}
+            style={{
+              background: "linear-gradient(180deg, rgba(34,197,94,0), rgba(34,197,94,0.03) 4px, rgba(34,197,94,0.03) calc(100% - 4px), rgba(34,197,94,0))",
+              borderRadius: 4,
+            }}
+          >
+            <ZoneDivider zone="promotion" label={promotionDividerLabel} bright={lastHour} />
+            {promotionRows.map((row) => (
+              <LeaderboardRow
+                key={row.key}
+                ref={(node) => {
+                  if (node) {
+                    rowRefs.current.set(row.key, node);
+                  } else {
+                    rowRefs.current.delete(row.key);
+                  }
+                }}
+                onXpRef={(node) => {
+                  if (node) {
+                    rowXpRefs.current.set(row.key, node);
+                  } else {
+                    rowXpRefs.current.delete(row.key);
+                  }
+                }}
+                rank={row.rank}
+                rowKey={row.key}
+                player={row.player}
+                isYou={Boolean(row.player?.isYou)}
+                isRival={Boolean(row.player?.isRival)}
+                zone={row.zone}
+                doubleXp={runtime.state.eventActive?.type === "double_xp"}
+                shuffleFlash={runtime.state.eventActive?.type === "shuffle"}
+                medalSweep={row.rank <= 3}
+              />
+            ))}
+          </div>
 
-          <ZoneDivider zone="safe" label="Safe zone" />
+          <ZoneDivider zone="safe" label="Safe zone" bright={lastHour} />
           {safeRows.map((row, index) => (
             <Fragment key={row.key}>
               {index === 2 && ellipsisCount > 0 ? (
@@ -2075,37 +2666,63 @@ export default function LeagueTab({ membership, league, week, loading, onZoneCha
                     rowRefs.current.delete(row.key);
                   }
                 }}
+                onXpRef={(node) => {
+                  if (node) {
+                    rowXpRefs.current.set(row.key, node);
+                  } else {
+                    rowXpRefs.current.delete(row.key);
+                  }
+                }}
                 rank={row.rank}
+                rowKey={row.key}
                 player={row.player}
                 isYou={Boolean(row.player?.isYou)}
                 isRival={Boolean(row.player?.isRival)}
                 zone={row.zone}
-                doubleXp={leagueState.eventActive?.type === "double_xp"}
-                shuffleFlash={shuffleFlash}
+                doubleXp={runtime.state.eventActive?.type === "double_xp"}
+                shuffleFlash={runtime.state.eventActive?.type === "shuffle"}
               />
             </Fragment>
           ))}
 
-          <ZoneDivider zone="demotion" label="Demotion zone" />
-          {demotionRows.map((row) => (
-            <LeaderboardRow
-              key={row.key}
-              ref={(node) => {
-                if (node) {
-                  rowRefs.current.set(row.key, node);
-                } else {
-                  rowRefs.current.delete(row.key);
-                }
-              }}
-              rank={row.rank}
-              player={row.player}
-              isYou={Boolean(row.player?.isYou)}
-              isRival={Boolean(row.player?.isRival)}
-              zone={row.zone}
-              doubleXp={leagueState.eventActive?.type === "double_xp"}
-              shuffleFlash={shuffleFlash}
-            />
-          ))}
+          <div
+            style={{
+              background: runtime.state.zone === "demotion" || runtime.state.zone === "near_demotion"
+                ? "linear-gradient(180deg, rgba(239,68,68,0), rgba(239,68,68,0.07) 4px, rgba(239,68,68,0.07) calc(100% - 4px), rgba(239,68,68,0))"
+                : "linear-gradient(180deg, rgba(239,68,68,0), rgba(239,68,68,0.04) 4px, rgba(239,68,68,0.04) calc(100% - 4px), rgba(239,68,68,0))",
+              borderRadius: 4,
+            }}
+          >
+            <ZoneDivider zone="demotion" label="Demotion zone" bright={lastHour} />
+            {demotionRows.map((row) => (
+              <LeaderboardRow
+                key={row.key}
+                ref={(node) => {
+                  if (node) {
+                    rowRefs.current.set(row.key, node);
+                  } else {
+                    rowRefs.current.delete(row.key);
+                  }
+                }}
+                onXpRef={(node) => {
+                  if (node) {
+                    rowXpRefs.current.set(row.key, node);
+                  } else {
+                    rowXpRefs.current.delete(row.key);
+                  }
+                }}
+                rank={row.rank}
+                rowKey={row.key}
+                player={row.player}
+                isYou={Boolean(row.player?.isYou)}
+                isRival={Boolean(row.player?.isRival)}
+                zone={row.zone}
+                doubleXp={runtime.state.eventActive?.type === "double_xp"}
+                shuffleFlash={runtime.state.eventActive?.type === "shuffle"}
+                dangerPulse={row.rank === totalPlayers}
+              />
+            ))}
+          </div>
         </section>
       </div>
     </>

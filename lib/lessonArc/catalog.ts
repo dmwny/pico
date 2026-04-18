@@ -2,10 +2,11 @@ import { getCourseSections, normalizeLanguage, type LearningLanguage } from "@/l
 import { PYTHON_FOR_LOOPS_SEED } from "@/lib/lessonArc/seeds/pythonForLoops";
 import {
   getLessonTypePlan,
+  resolveQuestionType,
   type LessonArcLessonIndex,
   type LessonArcNodeDescriptor,
   type LessonArcQuestion,
-  type LessonArcQuestionType,
+  type LessonArcBaseQuestionType,
 } from "@/lib/lessonArc/types";
 
 function hashSeed(value: string) {
@@ -27,7 +28,7 @@ function seededSort<T>(items: T[], seed: string) {
 }
 
 function reorderWithoutAdjacentTypeRepeats(questions: LessonArcQuestion[], seed: string) {
-  const grouped = new Map<LessonArcQuestionType, LessonArcQuestion[]>();
+  const grouped = new Map<LessonArcQuestion["type"], LessonArcQuestion[]>();
 
   for (const question of seededSort(questions, `${seed}:grouped`)) {
     const bucket = grouped.get(question.type) ?? [];
@@ -103,21 +104,21 @@ export function resolveNodeDescriptor(
 
 function ensureMinimumTypeVariety(
   questions: LessonArcQuestion[],
-  allowedTypes: LessonArcQuestionType[],
+  allowedTypes: LessonArcBaseQuestionType[],
   count: number,
   seed: string,
 ) {
-  const perType = new Map<LessonArcQuestionType, LessonArcQuestion[]>();
+  const perType = new Map<LessonArcBaseQuestionType, LessonArcQuestion[]>();
 
   allowedTypes.forEach((type) => {
     perType.set(
       type,
-      seededSort(questions.filter((question) => question.type === type), `${seed}:${type}`),
+      seededSort(questions.filter((question) => resolveQuestionType(question.type) === type), `${seed}:${type}`),
     );
   });
 
   const chosen: LessonArcQuestion[] = [];
-  const typeCursor = new Map<LessonArcQuestionType, number>();
+  const typeCursor = new Map<LessonArcBaseQuestionType, number>();
 
   allowedTypes.forEach((type) => {
     typeCursor.set(type, 0);
@@ -151,12 +152,12 @@ export function pickQuestionsForLesson(
   const { count, allowedTypes, difficulty } = getLessonTypePlan(nodeType, lessonIndex);
   const targetDifficulty = difficulty;
   const exact = bank.filter(
-    (question) => question.difficulty === targetDifficulty && allowedTypes.includes(question.type),
+    (question) => question.difficulty === targetDifficulty && allowedTypes.includes(resolveQuestionType(question.type)),
   );
   const soft = bank.filter(
-    (question) => question.difficulty <= targetDifficulty && allowedTypes.includes(question.type),
+    (question) => question.difficulty <= targetDifficulty && allowedTypes.includes(resolveQuestionType(question.type)),
   );
-  const fallback = bank.filter((question) => allowedTypes.includes(question.type));
+  const fallback = bank.filter((question) => allowedTypes.includes(resolveQuestionType(question.type)));
   const source = exact.length >= count ? exact : soft.length >= count ? soft : fallback;
   const selected = ensureMinimumTypeVariety(source, allowedTypes, count, seed);
 

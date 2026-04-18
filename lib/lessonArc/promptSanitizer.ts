@@ -1,7 +1,7 @@
-import type { LessonArcQuestion } from "@/lib/lessonArc/types";
+import { resolveQuestionType, type LessonArcQuestion } from "@/lib/lessonArc/types";
 
 export function sanitizeLessonArcQuestion(question: LessonArcQuestion): LessonArcQuestion {
-  if (question.type !== "true_false") {
+  if (resolveQuestionType(question.type) !== "true_false") {
     return question;
   }
 

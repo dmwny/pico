@@ -1,6 +1,32 @@
+@import "./globals-themes.css";
 @import "tailwindcss";
 
 :root {
+  --theme-bg-primary: #F0EBE1;
+  --theme-bg-secondary: #E8E2D8;
+  --theme-bg-card: #FFFFFF;
+  --theme-bg-overlay: rgba(0,0,0,0.5);
+  --theme-text-primary: #1A1A2E;
+  --theme-text-secondary: #5A5A6E;
+  --theme-text-muted: #9A9AAE;
+  --theme-accent: #E8622A;
+  --theme-accent-hover: #C94E1C;
+  --theme-accent-text: #FFFFFF;
+  --theme-border: rgba(26,26,46,0.12);
+  --theme-border-strong: rgba(26,26,46,0.25);
+  --theme-card-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  --theme-radius: 8px;
+  --theme-radius-lg: 16px;
+  --theme-font-heading: inherit;
+  --theme-font-body: inherit;
+  --theme-font-mono: "JetBrains Mono","Courier New",monospace;
+  --theme-success: #10B981;
+  --theme-error: #EF4444;
+  --theme-warning: #F59E0B;
+  --theme-xp-color: #8B5CF6;
+  --theme-heart-color: #EF4444;
+  --theme-gold-color: #FFD700;
+  --theme-transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
   --pico-orange: #e8622a;
   --pico-cream: #f0ebe1;
   --pico-dark: #1a1a2e;
@@ -52,6 +78,7 @@ body {
   color: var(--pico-body);
   font-family: "Source Sans 3", sans-serif;
   letter-spacing: 0.01em;
+  transition: var(--theme-transition);
 }
 
 h1,
@@ -73,6 +100,15 @@ button {
     background-color 160ms ease,
     border-color 160ms ease,
     box-shadow 160ms ease;
+}
+
+body,
+.card,
+nav,
+button,
+input,
+textarea {
+  transition: var(--theme-transition);
 }
 
 button:hover,

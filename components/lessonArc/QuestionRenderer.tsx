@@ -1,11 +1,12 @@
 "use client";
 
 import type {
+  LessonArcBaseQuestionType,
   LessonArcQuestion,
-  LessonArcQuestionType,
   LessonCodeRunResult,
   QuestionAttemptAnswer,
 } from "@/lib/lessonArc/types";
+import { getQuestionTypeLabel, resolveQuestionType } from "@/lib/lessonArc/types";
 import {
   DndContext,
   closestCenter,
@@ -33,7 +34,7 @@ export function isQuestionAnswerReady(
   a: QuestionAttemptAnswer,
   run: LessonCodeRunResult | null,
 ): boolean {
-  switch (q.type) {
+  switch (resolveQuestionType(q.type)) {
     case "mc_concept":
     case "mc_output":
     case "true_false":
@@ -118,25 +119,41 @@ export default function QuestionRenderer({
     <div className="mx-auto w-full max-w-[1100px] px-6 py-10">
       {/* concept chip + hint */}
       <div className="mb-5 flex items-center justify-between">
-        <span className="font-mono text-[11px] uppercase tracking-[0.22em] text-[#e8761c]">
-          {question.concept}
+        <span className="font-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: "var(--theme-accent, #e8761c)" }}>
+          {getQuestionTypeLabel(question.type)} · {question.concept}
         </span>
         {question.hint && hintEnabled && !hintVisible && !locked ? (
           <button
             type="button"
             onClick={onRevealHint}
-            className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#1a1815]/55 underline-offset-4 hover:text-[#1a1815] hover:underline"
+            className="font-mono text-[11px] uppercase tracking-[0.18em] underline-offset-4 hover:underline"
+            style={{ color: "var(--theme-text-secondary, rgba(250,245,236,0.72))" }}
           >
             Show hint
           </button>
         ) : null}
       </div>
 
-      <h1 className="font-serif text-3xl leading-tight text-[#1a1815] sm:text-4xl">{question.prompt}</h1>
+      <h1
+        className="font-serif text-3xl leading-tight sm:text-4xl"
+        style={{
+          color: "#f8f3ea",
+          textShadow: "0 2px 24px rgba(0,0,0,0.32)",
+        }}
+      >
+        {question.prompt}
+      </h1>
 
       {hintVisible && question.hint ? (
-        <div className="mt-4 rounded-xl border border-[#e8761c]/40 bg-[#e8761c]/8 p-4 font-serif text-[15px] text-[#1a1815]/85">
-          <span className="mr-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[#c95f10]">Hint</span>
+        <div
+          className="mt-4 rounded-xl p-4 font-serif text-[15px]"
+          style={{
+            border: "1px solid color-mix(in srgb, var(--theme-accent, #e8761c) 40%, transparent)",
+            background: "color-mix(in srgb, var(--theme-accent, #e8761c) 10%, transparent)",
+            color: "#f8f3ea",
+          }}
+        >
+          <span className="mr-2 font-mono text-[10px] uppercase tracking-[0.2em]" style={{ color: "var(--theme-accent, #e8761c)" }}>Hint</span>
           {question.hint}
         </div>
       ) : null}
@@ -158,7 +175,7 @@ export default function QuestionRenderer({
 /* ---------- Body switch ---------- */
 
 function Body(p: QuestionBodyProps) {
-  const Component = QUESTION_COMPONENTS[p.question.type];
+  const Component = QUESTION_COMPONENTS[resolveQuestionType(p.question.type)];
   if (!Component) {
     return <FallbackQuestion question={p.question} />;
   }
@@ -1096,7 +1113,7 @@ function FallbackQuestion({ question }: { question: LessonArcQuestion }) {
   );
 }
 
-const QUESTION_COMPONENTS: Partial<Record<LessonArcQuestionType, React.ComponentType<QuestionBodyProps>>> = {
+const QUESTION_COMPONENTS: Partial<Record<LessonArcBaseQuestionType, React.ComponentType<QuestionBodyProps>>> = {
   mc_concept: MultipleChoice,
   mc_output: MultipleChoice,
   output_to_code: MultipleChoice,

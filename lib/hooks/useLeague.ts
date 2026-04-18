@@ -109,6 +109,15 @@ type CurrentGroupLeaderboardRow = {
   rank_in_group: number;
 };
 
+type GroupCacheRow = {
+  user_id: string;
+  play_style_tag: string | null;
+  total_xp: number | null;
+  weekly_xp: number | null;
+  username: string | null;
+  avatar_url: string | null;
+};
+
 type XpLeaderboardCacheRow = {
   user_id: string;
   username: string | null;
@@ -186,6 +195,45 @@ type MyLeagueMembershipRpcRow = {
   league: LeagueRow | null;
   week: LeagueWeekRow | null;
 };
+
+const GHOST_FIRST_NAMES = [
+  "Alex", "Jordan", "Sam", "Riley", "Morgan", "Taylor", "Casey", "Quinn", "Avery", "Drew",
+  "Blake", "Cameron", "Dakota", "Emery", "Finley", "Hayden", "Jamie", "Kendall", "Logan", "Parker",
+  "Peyton", "Reagan", "Rowan", "Sage", "Skyler", "Spencer", "Sydney", "Tatum", "Bailey", "Charlie",
+];
+
+const GHOST_LAST_INITIALS = ["A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", "P", "R", "S", "T", "V", "W", "Y"];
+const GHOST_AVATAR_STYLES = ["micah", "personas", "adventurer-neutral", "thumbs", "fun-emoji", "bottts-neutral"] as const;
+
+function hashSeed(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash) + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function getGhostIdentity(id: string) {
+  const seed = hashSeed(id);
+  const first = GHOST_FIRST_NAMES[seed % GHOST_FIRST_NAMES.length] ?? "Pico";
+  const last = GHOST_LAST_INITIALS[(seed >> 3) % GHOST_LAST_INITIALS.length] ?? "L";
+  const style = GHOST_AVATAR_STYLES[(seed >> 5) % GHOST_AVATAR_STYLES.length] ?? "micah";
+  const avatarSeed = `${first}-${last}-${seed}`;
+
+  return {
+    name: `${first} ${last}.`,
+    avatarUrl: `https://api.dicebear.com/7.x/${style}/svg?seed=${encodeURIComponent(avatarSeed)}`,
+  };
+}
+
+function resolveDisplayXp(rowXp: number, cache: GroupCacheRow | undefined) {
+  const candidates = [rowXp, cache?.weekly_xp ?? null, cache?.total_xp ?? null]
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+
+  if (candidates.length === 0) return Math.max(0, rowXp);
+  return Math.min(...candidates);
+}
 
 function toLeagueTier(value: string | null | undefined): LeagueTier {
   if (value && LEAGUE_NAMES.includes(value as LeagueTier)) {
@@ -365,7 +413,23 @@ export function useMyLeague() {
       if (!active) return;
 
       const row = rpcData as MyLeagueMembershipRpcRow | null;
-      setMembership(mapLeagueMembership(row?.membership ?? null));
+      const mappedMembership = mapLeagueMembership(row?.membership ?? null);
+      if (user?.id && mappedMembership) {
+        const { data: cacheRow } = await supabase
+          .from("xp_leaderboard_cache")
+          .select("user_id, play_style_tag, total_xp, weekly_xp, username, avatar_url")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (!active) return;
+        const safeXp = resolveDisplayXp(mappedMembership.xpEarnedThisWeek, (cacheRow as GroupCacheRow | null) ?? undefined);
+        setMembership({
+          ...mappedMembership,
+          xpEarnedThisWeek: safeXp,
+        });
+      } else {
+        setMembership(mappedMembership);
+      }
       setLeague(mapLeague(row?.league ?? null));
       setWeek(mapLeagueWeek(row?.week ?? null));
     } catch (queryError) {
@@ -467,37 +531,42 @@ export function useGroupLeaderboard(leagueGroupId: string | null) {
 
         const leaderboardRows = (data ?? []) as CurrentGroupLeaderboardRow[];
         const userIds = leaderboardRows.map((row) => row.user_id);
-        let playStyleMap = new Map<string, string | null>();
+        let cacheMap = new Map<string, GroupCacheRow>();
 
         if (userIds.length > 0) {
           const { data: cacheData, error: cacheError } = await supabase
             .from("xp_leaderboard_cache")
-            .select("user_id, play_style_tag")
+            .select("user_id, play_style_tag, total_xp, weekly_xp, username, avatar_url")
             .in("user_id", userIds);
 
           if (cacheError) throw cacheError;
-          playStyleMap = new Map(
-            ((cacheData ?? []) as Array<{ user_id: string; play_style_tag: string | null }>).map((row) => [
+          cacheMap = new Map(
+            ((cacheData ?? []) as GroupCacheRow[]).map((row) => [
               row.user_id,
-              row.play_style_tag,
+              row,
             ]),
           );
         }
 
         const myRivalId = leaderboardRows.find((row) => row.user_id === user?.id)?.rival_user_id ?? null;
         const nextEntries = sortLeaderboardEntries(
-          leaderboardRows.map((row) => ({
-            userId: row.user_id,
-            username: row.username ?? (row.is_ghost ? "Ghost learner" : "Pico learner"),
-            avatarUrl: row.avatar_url,
-            xpThisWeek: row.xp_earned_this_week,
-            rank: row.rank_in_group,
-            isMe: row.user_id === user?.id,
-            isRival: row.user_id === myRivalId,
-            isGhost: Boolean(row.is_ghost),
-            xpMultiplier: toNumber(row.xp_multiplier, 1),
-            playStyleTag: playStyleMap.get(row.user_id) ?? null,
-          })),
+          leaderboardRows.map((row) => {
+            const cache = cacheMap.get(row.user_id);
+            const ghostIdentity = row.is_ghost ? getGhostIdentity(row.user_id) : null;
+
+            return {
+              userId: row.user_id,
+              username: row.username ?? cache?.username ?? ghostIdentity?.name ?? "Pico learner",
+              avatarUrl: row.avatar_url ?? cache?.avatar_url ?? ghostIdentity?.avatarUrl ?? null,
+              xpThisWeek: resolveDisplayXp(row.xp_earned_this_week, cache),
+              rank: row.rank_in_group,
+              isMe: row.user_id === user?.id,
+              isRival: row.user_id === myRivalId,
+              isGhost: Boolean(row.is_ghost),
+              xpMultiplier: toNumber(row.xp_multiplier, 1),
+              playStyleTag: cache?.play_style_tag ?? null,
+            };
+          }),
         );
 
         const nextMyEntry = nextEntries.find((entry) => entry.isMe) ?? null;

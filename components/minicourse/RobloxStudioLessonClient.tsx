@@ -309,7 +309,7 @@ export default function RobloxStudioLessonClient() {
           <QuestionRenderer
             question={displayedQuestion}
             answer={answer}
-            onChange={setAnswer}
+            setAnswer={setAnswer}
             feedback={feedback}
             runResult={null}
             onRunCode={async () => {}}

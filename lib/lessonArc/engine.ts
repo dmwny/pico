@@ -4,6 +4,7 @@ import {
   PERFECT_LESSON_BONUS_XP,
   QUESTION_TYPE_XP_BONUS,
   SPEED_BONUS_XP,
+  resolveQuestionType,
   type LessonAdvanceResult,
   type LessonArcLessonIndex,
   type LessonArcNodeDescriptor,
@@ -86,19 +87,20 @@ function getFillSelectExpectedBlanks(question: LessonArcQuestion) {
 }
 
 function buildDisplayCorrectAnswer(question: LessonArcQuestion) {
-  if (question.type === "trace_steps" && question.traceSteps?.length) {
+  const questionType = resolveQuestionType(question.type);
+  if (questionType === "trace_steps" && question.traceSteps?.length) {
     return question.traceSteps.map((step) => step.expected).join(" / ");
   }
-  if (question.type === "slider_predict" && typeof question.numericTarget === "number") {
+  if (questionType === "slider_predict" && typeof question.numericTarget === "number") {
     return String(question.numericTarget);
   }
-  if (question.type === "find_token" && typeof question.wrongTokenIndex === "number") {
+  if (questionType === "find_token" && typeof question.wrongTokenIndex === "number") {
     return `Token ${question.wrongTokenIndex + 1}`;
   }
-  if (question.type === "code_diff" && question.correctAnswer) {
+  if (questionType === "code_diff" && question.correctAnswer) {
     return question.correctAnswer;
   }
-  if (question.type === "fill_select") {
+  if (questionType === "fill_select") {
     const blanks = getFillSelectExpectedBlanks(question);
     if (question.code && blanks.length > 0) {
       return fillCodeBlanks(question.code, blanks)
@@ -123,7 +125,7 @@ function buildDisplayCorrectAnswer(question: LessonArcQuestion) {
 }
 
 function xpForQuestion(question: LessonArcQuestion, elapsedMs: number) {
-  const baseBonus = QUESTION_TYPE_XP_BONUS[question.type] ?? question.xpBonus ?? 0;
+  const baseBonus = QUESTION_TYPE_XP_BONUS[resolveQuestionType(question.type)] ?? question.xpBonus ?? 0;
   const speedBonus = elapsedMs <= 5000 ? SPEED_BONUS_XP : 0;
   return {
     total: BASE_QUESTION_XP + baseBonus + speedBonus,
@@ -170,6 +172,7 @@ export function evaluateQuestionAttempt(
   runResult: LessonCodeRunResult | null = null,
 ): QuestionEvaluation {
   const correctDisplay = buildDisplayCorrectAnswer(question);
+  const questionType = resolveQuestionType(question.type);
   let correct = false;
   let normalizedAnswer = "";
   let wrongHighlights: string[] | undefined;
@@ -177,7 +180,7 @@ export function evaluateQuestionAttempt(
   let pairResults: QuestionEvaluation["pairResults"];
   let selectedVersion: "A" | "B" | undefined;
 
-  switch (question.type) {
+  switch (questionType) {
     case "mc_concept":
     case "mc_output":
     case "true_false": {

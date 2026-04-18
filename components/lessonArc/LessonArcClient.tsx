@@ -741,7 +741,7 @@ export default function LessonArcClient({
           <QuestionRenderer
             question={displayedQuestion}
             answer={answer}
-            onChange={setAnswer}
+            setAnswer={setAnswer}
             feedback={feedback}
             runResult={runResult}
             onRunCode={async () => {

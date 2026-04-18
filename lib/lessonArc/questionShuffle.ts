@@ -1,6 +1,6 @@
-import type { LessonArcQuestion } from "@/lib/lessonArc/types";
+import { resolveQuestionType, type LessonArcBaseQuestionType, type LessonArcQuestion } from "@/lib/lessonArc/types";
 
-const SHUFFLED_OPTION_TYPES = new Set<LessonArcQuestion["type"]>([
+const SHUFFLED_OPTION_TYPES = new Set<LessonArcBaseQuestionType>([
   "mc_concept",
   "mc_output",
   "true_false",
@@ -44,7 +44,7 @@ export function isTrueFalseOptionTrue(option: string) {
 
 export function shuffleQuestionOptions(question: LessonArcQuestion): LessonArcQuestion {
   if (
-    !SHUFFLED_OPTION_TYPES.has(question.type)
+    !SHUFFLED_OPTION_TYPES.has(resolveQuestionType(question.type))
     || !question.options?.length
     || typeof question.correctIndex !== "number"
     || question.correctIndex < 0

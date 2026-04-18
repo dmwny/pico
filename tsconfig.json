@@ -19,7 +19,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "zustand": ["./lib/vendor/zustand"],
+      "zustand/middleware": ["./lib/vendor/zustand/middleware"]
     }
   },
   "include": [
