@@ -29,6 +29,7 @@ import {
   type RowZone,
 } from "@/components/leagues/storm";
 import type { LeaderboardEntry, League, LeagueMembership, LeagueWeek } from "@/lib/types/leagues";
+import { useUserStore } from "@/store/userStore";
 
 type LeagueEventType = "double_xp" | "shuffle" | "rival_surge" | "promotion_rush";
 
@@ -199,6 +200,12 @@ function sanitizeName(name: string | null | undefined, isGhost: boolean) {
   const trimmed = name?.trim();
   if (trimmed) return trimmed;
   return isGhost ? "Ghost learner" : "Pico learner";
+}
+
+function resolveAuthoritativeXp(...values: Array<number | null | undefined>) {
+  const candidates = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+  if (candidates.length === 0) return 0;
+  return Math.min(...candidates);
 }
 
 function normalizeEventType(modifierType: string | null | undefined, modifierLabel: string | null | undefined): LeagueEventType | null {
@@ -1683,6 +1690,8 @@ export default function LeagueTab({ membership, league, week, loading, onZoneCha
   const { entries, myRank, myEntry, loading: leaderboardLoading } = useGroupLeaderboard(membership?.leagueGroupId ?? null);
   const { streak, multiplier } = useHotStreak();
   const { events } = useOvertakeEvents(membership?.leagueGroupId ?? null);
+  const storeXp = useUserStore((state) => state.xp);
+  const storeWeeklyXp = useUserStore((state) => state.weeklyXP);
   const [now, setNow] = useState(() => Date.now());
   const [dismissedEventKey, setDismissedEventKey] = useState<string | null>(null);
   const [runtime, setRuntime] = useState<LeagueRuntime | null>(null);
@@ -1723,7 +1732,17 @@ export default function LeagueTab({ membership, league, week, loading, onZoneCha
   const basePromotionCutoffRank = league?.promotionCutoff ?? 10;
   const promotionCutoffRank = eventType === "promotion_rush" ? Math.min(15, totalPlayers) : basePromotionCutoffRank;
   const demotionCount = league?.demotionCutoff ?? 5;
-  const fallbackXp = myEntry?.xpThisWeek ?? membership?.xpEarnedThisWeek ?? 0;
+  const authoritativeUserXp = resolveAuthoritativeXp(
+    myEntry?.xpThisWeek,
+    membership?.xpEarnedThisWeek,
+    storeWeeklyXp,
+    storeXp,
+  );
+  const adjustedEntries = useMemo<LeaderboardEntry[]>(
+    () => entries.map((entry) => (entry.isMe ? { ...entry, xpThisWeek: authoritativeUserXp } : entry)),
+    [authoritativeUserXp, entries],
+  );
+  const fallbackXp = authoritativeUserXp;
   const fallbackRank = myRank ?? membership?.peakRankThisWeek ?? totalPlayers;
   const hoursRemaining = computeHoursRemaining(week?.weekEnd ?? null, now);
   const under24Hours = hoursRemaining <= 24;
@@ -1958,7 +1977,7 @@ export default function LeagueTab({ membership, league, week, loading, onZoneCha
   useEffect(() => {
     if (!membership || !league || !week) return;
     const seedEntries = mergeDynamicEntryFields(
-      buildSeedEntries(entries, totalPlayers, promotionCutoffRank, demotionCount, eventType),
+      buildSeedEntries(adjustedEntries, totalPlayers, promotionCutoffRank, demotionCount, eventType),
       runtimeRef.current?.entries ?? null,
     );
     const nextRuntime = composeRuntime(seedEntries, Date.now());

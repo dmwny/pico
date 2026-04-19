@@ -12,9 +12,11 @@ import {
 } from "@/lib/courseContent";
 import { getApiMiniCourseKey, getApiMiniCourseLessons } from "@/lib/apiMiniCourses";
 import { buildUpdatedUserMetadata, enableInfiniteGems, getDefaultDevCheatState } from "@/lib/devCheats";
+import { setStoredDevLeagueOverride } from "@/lib/devLeagueOverride";
 import { getAllRobloxCourseLessons, getRobloxCourseKey } from "@/lib/robloxCourse";
 import { getTurtleLessonKey, getTurtleLessons } from "@/lib/turtleCourse";
 import { setStoredActiveLanguage, setStoredLanguageProgress } from "@/lib/progress";
+import { useUserStore } from "@/store/userStore";
 
 function parseCompletedLessons(raw: unknown) {
   if (Array.isArray(raw)) return raw.filter((item): item is string => typeof item === "string");
@@ -67,15 +69,34 @@ function getLanguageCompletionKeys(language: LearningLanguage) {
   return unique(keys);
 }
 
+const DEV_LEAGUE_OPTIONS = [
+  { id: 1, name: "Bronze" },
+  { id: 2, name: "Silver" },
+  { id: 3, name: "Gold" },
+  { id: 4, name: "Sapphire" },
+  { id: 5, name: "Ruby" },
+  { id: 6, name: "Emerald" },
+  { id: 7, name: "Amethyst" },
+  { id: 8, name: "Pearl" },
+  { id: 9, name: "Obsidian" },
+  { id: 10, name: "Diamond" },
+] as const;
+
 export default function CompleteAllClient() {
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [message, setMessage] = useState("Pick one action for this account.");
-  const [activeAction, setActiveAction] = useState<"unlock" | "gems" | "nothing" | null>(null);
+  const [activeAction, setActiveAction] = useState<"unlock" | "gems" | "league" | "nothing" | null>(null);
+  const [selectedLeagueId, setSelectedLeagueId] = useState<number>(3);
+  const hydrateUserStore = useUserStore((state) => state.hydrate);
 
   async function getSignedInUser() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const [{ data: authUser }, { data: sessionData }] = await Promise.all([
+      supabase.auth.getUser(),
+      supabase.auth.getSession(),
+    ]);
+
+    const user = authUser.user;
+    const accessToken = sessionData.session?.access_token ?? null;
 
     if (!user) {
       setStatus("error");
@@ -83,12 +104,13 @@ export default function CompleteAllClient() {
       return null;
     }
 
-    return user;
+    return { user, accessToken };
   }
 
   async function handleUnlockAllCourses() {
-    const user = await getSignedInUser();
-    if (!user) return;
+    const auth = await getSignedInUser();
+    if (!auth) return;
+    const { user } = auth;
 
     setStatus("loading");
     setActiveAction("unlock");
@@ -154,8 +176,9 @@ export default function CompleteAllClient() {
   }
 
   async function handleEnableInfiniteGems() {
-    const user = await getSignedInUser();
-    if (!user) return;
+    const auth = await getSignedInUser();
+    if (!auth) return;
+    const { user } = auth;
 
     setStatus("loading");
     setActiveAction("gems");
@@ -179,6 +202,61 @@ export default function CompleteAllClient() {
     enableInfiniteGems(user.id);
     setStatus("success");
     setMessage("Infinite gems are now enabled.");
+  }
+
+  async function handleSetLeagueTier() {
+    const auth = await getSignedInUser();
+    if (!auth) return;
+    const { user, accessToken } = auth;
+
+    const selectedLeague = DEV_LEAGUE_OPTIONS.find((league) => league.id === selectedLeagueId) ?? DEV_LEAGUE_OPTIONS[0];
+
+    setStatus("loading");
+    setActiveAction("league");
+    setMessage(`Moving this account into ${selectedLeague.name} League...`);
+
+    const lowerTier = selectedLeague.name.toLowerCase();
+    const response = await fetch("/api/dev/set-league", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+      body: JSON.stringify({
+        leagueId: selectedLeague.id,
+        leagueTier: lowerTier,
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null) as { error?: string } | null;
+      setStoredDevLeagueOverride(user.id, {
+        leagueId: selectedLeague.id,
+        leagueTier: lowerTier,
+      });
+      hydrateUserStore({
+        leagueTier: lowerTier,
+        highestLeagueTier: lowerTier,
+      });
+      setStatus("success");
+      setMessage(payload?.error
+        ? `Applied ${selectedLeague.name} locally for testing. Remote league sync still failed.`
+        : `Applied ${selectedLeague.name} locally for testing.`);
+      return;
+    }
+    const payload = await response.json().catch(() => null) as { warning?: string } | null;
+    setStoredDevLeagueOverride(user.id, {
+      leagueId: selectedLeague.id,
+      leagueTier: lowerTier,
+    });
+
+    hydrateUserStore({
+      leagueTier: lowerTier,
+      highestLeagueTier: lowerTier,
+    });
+
+    setStatus("success");
+    setMessage(payload?.warning ?? `This account is now set to ${selectedLeague.name} League.`);
   }
 
   function handleDoNothing() {
@@ -234,6 +312,41 @@ export default function CompleteAllClient() {
             </p>
           </button>
 
+          <div
+            className={`rounded-[1.5rem] border px-4 py-4 text-left transition ${
+              activeAction === "league"
+                ? "border-violet-300 bg-violet-50"
+                : "border-gray-200 bg-white hover:border-violet-200 hover:bg-violet-50/50"
+            } ${busy ? "opacity-70" : ""}`}
+          >
+            <p className="text-sm font-black uppercase tracking-[0.18em] text-gray-900">Set League</p>
+            <p className="mt-2 text-sm font-semibold leading-6 text-gray-600">
+              Force this account into a specific league tier for testing unlocks and league cosmetics.
+            </p>
+            <select
+              value={selectedLeagueId}
+              disabled={busy}
+              onChange={(event) => setSelectedLeagueId(Number(event.target.value))}
+              className="mt-3 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-800"
+            >
+              {DEV_LEAGUE_OPTIONS.map((league) => (
+                <option key={league.id} value={league.id}>
+                  {league.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => void handleSetLeagueTier()}
+              disabled={busy}
+              className={`mt-3 w-full rounded-[1rem] px-4 py-3 text-sm font-black uppercase tracking-[0.18em] ${
+                busy ? "cursor-wait bg-violet-200 text-violet-700" : "bg-violet-500 text-white hover:bg-violet-600"
+              }`}
+            >
+              Apply League
+            </button>
+          </div>
+
           <button
             type="button"
             onClick={handleDoNothing}
@@ -263,12 +376,16 @@ export default function CompleteAllClient() {
             : status === "loading"
               ? activeAction === "unlock"
                 ? "Updating your course rows in Supabase and local progress."
-                : "Syncing your dev-cheat settings."
+                : activeAction === "gems"
+                  ? "Syncing your dev-cheat settings."
+                  : "Updating your league membership and profile tier."
             : status === "success"
               ? activeAction === "unlock"
                 ? "Done. Open Learn to see the unlocked course map."
                 : activeAction === "gems"
                   ? "Done. Open Shop or Learn to use infinite gems."
+                  : activeAction === "league"
+                    ? "Done. Open Leagues or Shop to verify rank rewards and league cosmetics."
                   : "No account changes were applied."
               : "The unlock step did not finish."}
         </div>

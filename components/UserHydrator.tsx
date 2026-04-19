@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { getStoredDevLeagueOverride } from "@/lib/devLeagueOverride";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/lib/themes/useTheme";
 import { useUserStore } from "@/store/userStore";
@@ -61,8 +62,15 @@ export default function UserHydrator() {
         if (!active) return;
 
         if (response.ok) {
-          const payload = await response.json();
-          useUserStore.getState().hydrate(payload);
+          const payload = await response.json() as Record<string, unknown>;
+          const override = getStoredDevLeagueOverride(user.id);
+          useUserStore.getState().hydrate({
+            ...payload,
+            ...(override ? {
+              leagueTier: override.leagueTier,
+              highestLeagueTier: override.leagueTier,
+            } : {}),
+          });
           return;
         }
       } catch {
@@ -74,10 +82,15 @@ export default function UserHydrator() {
       }
 
       if (!active) return;
+      const override = getStoredDevLeagueOverride(user.id);
 
       useUserStore.getState().hydrate({
         userId: user.id,
         displayName: getDisplayName(user),
+        ...(override ? {
+          leagueTier: override.leagueTier,
+          highestLeagueTier: override.leagueTier,
+        } : {}),
         isHydrated: true,
       });
     };

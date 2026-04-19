@@ -187,6 +187,19 @@ function transformLegacyQuestion(
     });
   }
 
+  if ((question.codeLines?.length ?? 0) > 1) {
+    transformed.push({
+      id: `${baseId}:code-order`,
+      type: "code_order",
+      concept: node.concept,
+      difficulty: Math.min(5, difficulty + 1) as 1 | 2 | 3 | 4 | 5,
+      prompt: `Drag the lines into the correct order so the program works.`,
+      lines: question.codeLines ?? [],
+      correctOrder: (question.codeLines ?? []).map((_, lineIndex) => lineIndex),
+      explanation: question.explanation,
+    });
+  }
+
   return transformed;
 }
 

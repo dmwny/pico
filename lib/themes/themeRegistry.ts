@@ -218,3 +218,50 @@ export const THEMES: ThemeDefinition[] = [
 export function getThemeDefinition(id: ThemeId) {
   return THEMES.find((theme) => theme.id === id) ?? THEMES[0]!;
 }
+
+const LEAGUE_TIER_ORDER = [
+  "bronze",
+  "silver",
+  "gold",
+  "sapphire",
+  "ruby",
+  "emerald",
+  "amethyst",
+  "pearl",
+  "obsidian",
+  "diamond",
+] as const;
+
+const THEME_UNLOCK_RANK_ALIASES: Record<string, typeof LEAGUE_TIER_ORDER[number]> = {
+  bronze: "bronze",
+  silver: "silver",
+  gold: "gold",
+  platinum: "sapphire",
+  sapphire: "sapphire",
+  ruby: "ruby",
+  emerald: "emerald",
+  amethyst: "amethyst",
+  pearl: "pearl",
+  obsidian: "obsidian",
+  diamond: "diamond",
+  champion: "diamond",
+};
+
+export function normalizeLeagueTierName(value: string | null | undefined) {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  return THEME_UNLOCK_RANK_ALIASES[normalized] ?? "bronze";
+}
+
+export function getThemeUnlockRequirementLabel(theme: ThemeDefinition) {
+  if (theme.group !== "rank-reward" || !theme.unlockRank) return null;
+  const normalized = normalizeLeagueTierName(theme.unlockRank);
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+export function isThemeUnlockedByLeague(theme: ThemeDefinition, leagueTier?: string | null, highestLeagueTier?: string | null) {
+  if (theme.group !== "rank-reward" || !theme.unlockRank) return false;
+  const required = LEAGUE_TIER_ORDER.indexOf(normalizeLeagueTierName(theme.unlockRank));
+  const current = LEAGUE_TIER_ORDER.indexOf(normalizeLeagueTierName(leagueTier));
+  const highest = LEAGUE_TIER_ORDER.indexOf(normalizeLeagueTierName(highestLeagueTier));
+  return Math.max(current, highest) >= required;
+}

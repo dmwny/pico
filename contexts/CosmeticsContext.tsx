@@ -98,6 +98,7 @@ import {
   type StreakRiskState,
   type StreakWeekDay,
 } from "@/lib/streaks";
+import { useUserStore } from "@/store/userStore";
 
 type ToastTone = "info" | "success";
 
@@ -469,9 +470,32 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
     return true;
   }, [warnRemoteCosmeticsFallback]);
 
+  const syncUserStoreProgress = useCallback((
+    previousProgress: StoredLanguageProgress | null | undefined,
+    nextProgress: StoredLanguageProgress,
+    syncRemoteProfile = true,
+  ) => {
+    const store = useUserStore.getState();
+    const xpDelta = nextProgress.xp - (previousProgress?.xp ?? 0);
+    const nextTotalXp = Math.max(0, store.xp + xpDelta);
+    const nextWeeklyXp = Math.max(0, store.weeklyXP + xpDelta);
+
+    store.hydrate({
+      xp: nextTotalXp,
+      weeklyXP: nextWeeklyXp,
+      streak: nextProgress.streak,
+      lastActiveDate: nextProgress.last_played ?? nextProgress.streak_last_activity_date ?? store.lastActiveDate,
+    });
+
+    if (syncRemoteProfile) {
+      void store.syncToServer();
+    }
+  }, []);
+
   const applyPersistedSnapshots = useCallback(async ({
     userId,
     language,
+    previousProgress,
     nextProgress,
     nextCosmetics,
     syncRemoteProgress = true,
@@ -479,6 +503,7 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
   }: {
     userId: string;
     language: LearningLanguage;
+    previousProgress?: StoredLanguageProgress | null;
     nextProgress: StoredLanguageProgress;
     nextCosmetics: CosmeticsState;
     syncRemoteProgress?: boolean;
@@ -490,6 +515,7 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
     if (activeLanguage === language) {
       setProgress(nextProgress);
     }
+    syncUserStoreProgress(previousProgress, nextProgress, syncRemoteProgress);
 
     setStoredCosmetics(stampedCosmetics);
     setStoredCosmeticsState(userId, stampedCosmetics);
@@ -521,7 +547,7 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
       progress: nextProgress,
       cosmetics: stampedCosmetics,
     };
-  }, [activeLanguage, persistRemoteCosmetics]);
+  }, [activeLanguage, persistRemoteCosmetics, syncUserStoreProgress]);
 
   const syncLoadedStreakState = useCallback(async (
     userId: string,
@@ -555,6 +581,7 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
     return applyPersistedSnapshots({
       userId,
       language,
+      previousProgress: loadedProgress,
       nextProgress,
       nextCosmetics,
       syncRemoteProgress: progressChanged,
@@ -744,6 +771,7 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
         : getStoredLanguageProgress(viewerId, targetLanguage);
       const nextProgress = mergeProgressSnapshot(baseProgress, targetLanguage, updates);
       setStoredLanguageProgress(viewerId, targetLanguage, nextProgress);
+      syncUserStoreProgress(baseProgress, nextProgress, options.syncRemote !== false);
       if (targetLanguage === activeLanguage) {
         setProgress(nextProgress);
       }
@@ -766,15 +794,19 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
 
       return nextProgress;
     },
-    [activeLanguage, progress, viewerId],
+    [activeLanguage, progress, syncUserStoreProgress, viewerId],
   );
 
   const saveProgressSnapshot = useCallback(
     async (snapshot: StoredLanguageProgress, options: ProgressUpdateOptions = {}) => {
       const targetLanguage = options.language ?? activeLanguage ?? snapshot.language;
       if (!viewerId || !targetLanguage) return null;
+      const previousProgress = targetLanguage === activeLanguage
+        ? progress
+        : getStoredLanguageProgress(viewerId, targetLanguage);
 
       setStoredLanguageProgress(viewerId, targetLanguage, snapshot);
+      syncUserStoreProgress(previousProgress, snapshot, options.syncRemote !== false);
       if (targetLanguage === activeLanguage) {
         setProgress(snapshot);
       }
@@ -794,7 +826,7 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
 
       return snapshot;
     },
-    [activeLanguage, viewerId],
+    [activeLanguage, progress, syncUserStoreProgress, viewerId],
   );
 
   const persistCosmetics = useCallback(
@@ -852,6 +884,7 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
     await applyPersistedSnapshots({
       userId: viewerId,
       language,
+      previousProgress: baseProgress,
       nextProgress,
       nextCosmetics,
       syncRemoteProgress: true,
@@ -911,6 +944,7 @@ export function CosmeticsProvider({ children }: { children: React.ReactNode }) {
     await applyPersistedSnapshots({
       userId: viewerId,
       language: activeLanguage,
+      previousProgress: progress,
       nextProgress,
       nextCosmetics: consumed.nextState,
       syncRemoteProgress: true,

@@ -7,6 +7,7 @@ import { useThemeContext } from "@/contexts/ThemeContext";
 import { ProfileFlair } from "@/components/ProfileFlair";
 import { mixHex, withAlpha } from "@/lib/themes";
 import { StreakFlame } from "@/components/streak/StreakFlame";
+import { useUserStore } from "@/store/userStore";
 
 const NAV_LINKS = [
   { href: "/learn", label: "Learn" },
@@ -26,8 +27,10 @@ function formatCompactStat(value: number) {
 
 export default function AppTopNav() {
   const pathname = usePathname();
-  const { xp, gemBalance, infiniteGemsEnabled, streak, streakFreezeCount, xpBoostCountdown, loading, isHydrating, viewerName } = useCosmetics();
+  const { gemBalance, infiniteGemsEnabled, streakFreezeCount, xpBoostCountdown, loading, isHydrating, viewerName } = useCosmetics();
   const { pathTheme } = useThemeContext();
+  const totalXp = useUserStore((state) => state.xp);
+  const totalStreak = useUserStore((state) => state.streak);
   const usingDefaultTheme = pathTheme.id === "default";
   const navReadableText = usingDefaultTheme ? "#F8FAFC" : pathTheme.surfaceText;
   const navIdleText = usingDefaultTheme ? withAlpha("#F8FAFC", 0.82) : withAlpha(pathTheme.surfaceText, 0.74);
@@ -98,11 +101,16 @@ export default function AppTopNav() {
 
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
           <div
-            title={`${xp.toLocaleString("en-US")} XP`}
+            title={`${totalXp.toLocaleString("en-US")} XP`}
             className="inline-flex min-w-[5.25rem] shrink-0 items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-emerald-100"
+            style={{
+              borderColor: usingDefaultTheme ? "rgba(52,211,153,0.26)" : withAlpha(pathTheme.accentColor, 0.26),
+              background: usingDefaultTheme ? "rgba(52,211,153,0.14)" : withAlpha(pathTheme.accentColor, 0.14),
+              color: navReadableText,
+            }}
           >
-            <span className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-200/72">XP</span>
-            <span className="text-sm font-black">{formatCompactStat(xp)}</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.22em]" style={{ color: navIdleText }}>XP</span>
+            <span className="text-sm font-black">{formatCompactStat(totalXp)}</span>
           </div>
           <div
             title={infiniteGemsEnabled ? "Infinite gems enabled" : `${gemBalance.toLocaleString("en-US")} gems`}
@@ -111,34 +119,56 @@ export default function AppTopNav() {
               borderColor: withAlpha(pathTheme.accentColor, 0.36),
               background: withAlpha(pathTheme.accentColor, 0.18),
               boxShadow: `0 12px 26px ${withAlpha(pathTheme.accentColor, 0.18)}`,
+              color: navReadableText,
             }}
           >
-            <span className="text-[10px] font-black uppercase tracking-[0.22em]" style={{ color: withAlpha("#ffffff", 0.74) }}>
+            <span className="text-[10px] font-black uppercase tracking-[0.22em]" style={{ color: navIdleText }}>
               Gems
             </span>
             <span className="text-sm font-black">{infiniteGemsEnabled ? "∞" : formatCompactStat(gemBalance)}</span>
           </div>
           <div className="group relative">
             <div
-              title={`${streak.toLocaleString("en-US")} day streak • ${streakFreezeCount} freeze(s) remaining`}
+              title={`${totalStreak.toLocaleString("en-US")} day streak • ${streakFreezeCount} freeze(s) remaining`}
               className="inline-flex min-w-[6.4rem] shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-white"
               style={{
-                borderColor: streak > 0 ? withAlpha("#fb923c", 0.22) : withAlpha(pathTheme.surfaceText, 0.12),
-                background: streak > 0 ? "rgba(251,146,60,0.12)" : withAlpha("#ffffff", 0.06),
-                boxShadow: streak > 0 ? "0 12px 26px rgba(251,146,60,0.14)" : "none",
+                borderColor: totalStreak > 0
+                  ? withAlpha("#fb923c", 0.22)
+                  : withAlpha(pathTheme.surfaceText, 0.12),
+                background: totalStreak > 0
+                  ? "rgba(251,146,60,0.12)"
+                  : withAlpha("#ffffff", 0.06),
+                boxShadow: totalStreak > 0
+                  ? "0 12px 26px rgba(251,146,60,0.14)"
+                  : "none",
+                color: navReadableText,
               }}
             >
-              <StreakFlame streak={streak} freezeCount={streakFreezeCount} size={18} />
-              <span className="text-sm font-black">{formatCompactStat(streak)}</span>
+              <StreakFlame streak={totalStreak} freezeCount={streakFreezeCount} size={18} />
+              <span className="text-sm font-black">{formatCompactStat(totalStreak)}</span>
             </div>
-            <div className="pointer-events-none absolute right-0 top-[calc(100%+0.55rem)] hidden min-w-[13rem] rounded-[1rem] border border-white/10 bg-slate-950/92 px-3 py-2 text-xs font-semibold text-white/80 shadow-[0_18px_40px_rgba(2,6,23,0.32)] backdrop-blur group-hover:block group-focus-within:block">
-              <p className="font-black text-white">{streak.toLocaleString("en-US")} day streak</p>
+            <div
+              className="pointer-events-none absolute right-0 top-[calc(100%+0.55rem)] hidden min-w-[13rem] rounded-[1rem] border border-white/10 bg-slate-950/92 px-3 py-2 text-xs font-semibold text-white/80 shadow-[0_18px_40px_rgba(2,6,23,0.32)] backdrop-blur group-hover:block group-focus-within:block"
+              style={{
+                borderColor: withAlpha(pathTheme.accentColor, 0.18),
+                background: withAlpha("#020617", 0.92),
+                color: navIdleText,
+              }}
+            >
+              <p className="font-black" style={{ color: navReadableText }}>{totalStreak.toLocaleString("en-US")} day streak</p>
               <p className="mt-1">{streakFreezeCount} freeze{streakFreezeCount === 1 ? "" : "s"} remaining</p>
             </div>
           </div>
           {xpBoostCountdown && (
-            <div className="inline-flex shrink-0 items-center gap-2 rounded-full border border-fuchsia-400/20 bg-fuchsia-400/10 px-3 py-1.5 text-fuchsia-100">
-              <span className="text-[10px] font-black uppercase tracking-[0.22em] text-fuchsia-200/72">2x XP</span>
+            <div
+              className="inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-fuchsia-100"
+              style={{
+                borderColor: withAlpha(pathTheme.previewHighlight, 0.26),
+                background: withAlpha(pathTheme.previewHighlight, 0.12),
+                color: navReadableText,
+              }}
+            >
+              <span className="text-[10px] font-black uppercase tracking-[0.22em]" style={{ color: navIdleText }}>2x XP</span>
               <span className="text-sm font-black">{xpBoostCountdown}</span>
             </div>
           )}

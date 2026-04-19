@@ -7,5 +7,8 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
+    storage: typeof window !== "undefined" ? window.localStorage : undefined,
+    storageKey: "pico-auth-token",
+    detectSessionInUrl: true,
   },
 });

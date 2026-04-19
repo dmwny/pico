@@ -20,7 +20,8 @@ export async function applyTheme(id: ThemeId): Promise<void> {
     activeCleanup = null;
   }
 
-  document.documentElement.setAttribute("data-theme", id);
+  document.documentElement.setAttribute("data-interface-theme", id);
+  document.documentElement.removeAttribute("data-theme");
 
   if (theme.hasJsEffects && typeof window !== "undefined" && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
     try {

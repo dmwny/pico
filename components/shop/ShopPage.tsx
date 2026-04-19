@@ -12,6 +12,7 @@ import { SnowflakeIcon } from "@/components/streak/StreakFlame";
 import { useCosmetics } from "@/contexts/CosmeticsContext";
 import { useThemeContext } from "@/contexts/ThemeContext";
 import { toast } from "@/lib/toast";
+import { applyTheme } from "@/lib/themes/applyTheme";
 import {
   FunctionalProductId,
   HEART_REFILL_CAP,
@@ -25,7 +26,13 @@ import {
   SuccessfulThemePackOpenResult,
 } from "@/lib/cosmetics";
 import { PATH_THEME_IDS, PATH_THEMES, mixHex, withAlpha } from "@/lib/themes";
-import { getThemeDefinition, THEMES, type ThemeDefinition } from "@/lib/themes/themeRegistry";
+import {
+  getThemeDefinition,
+  getThemeUnlockRequirementLabel,
+  isThemeUnlockedByLeague,
+  THEMES,
+  type ThemeDefinition,
+} from "@/lib/themes/themeRegistry";
 import { useUserStore } from "@/store/userStore";
 
 const TAB_OPTIONS: { id: ShopTab; label: string }[] = [
@@ -208,6 +215,7 @@ function CustomizationThemeCard({
   owned,
   equipped,
   canAfford,
+  unlockRequirementLabel,
   onEquip,
   onUnlock,
   onViewLeagues,
@@ -216,6 +224,7 @@ function CustomizationThemeCard({
   owned: boolean;
   equipped: boolean;
   canAfford: boolean;
+  unlockRequirementLabel: string | null;
   onEquip: () => void;
   onUnlock: () => void;
   onViewLeagues: () => void;
@@ -295,7 +304,7 @@ function CustomizationThemeCard({
           {owned
             ? "Ready to equip"
             : theme.group === "rank-reward"
-              ? `Reach ${theme.unlockRank} League`
+              ? `Reach ${unlockRequirementLabel ?? theme.unlockRank} League`
               : `${theme.price ?? 0} gems`}
         </p>
         <p className="mt-1 text-xs font-semibold leading-5" style={{ color: withAlpha(pathTheme.surfaceText, 0.58) }}>
@@ -391,6 +400,8 @@ export default function ShopPage() {
   const interfaceThemeHydrated = useUserStore((state) => state.isHydrated);
   const unlockedInterfaceThemes = useUserStore((state) => state.unlockedThemes);
   const equippedInterfaceTheme = useUserStore((state) => state.equippedTheme);
+  const currentLeagueTier = useUserStore((state) => state.leagueTier);
+  const highestLeagueTier = useUserStore((state) => state.highestLeagueTier);
   const unlockInterfaceTheme = useUserStore((state) => state.unlockTheme);
   const equipInterfaceTheme = useUserStore((state) => state.equipTheme);
 
@@ -405,6 +416,12 @@ export default function ShopPage() {
   const [themeFlashVisible, setThemeFlashVisible] = useState(false);
   const displayedGemRef = useRef(gemBalance);
   const storeReady = !loading && !isHydrating;
+  const ownedInterfaceThemeIds = useMemo(
+    () => THEMES
+      .filter((theme) => unlockedInterfaceThemes.includes(theme.id) || isThemeUnlockedByLeague(theme, currentLeagueTier, highestLeagueTier))
+      .map((theme) => theme.id),
+    [currentLeagueTier, highestLeagueTier, unlockedInterfaceThemes],
+  );
 
   useEffect(() => {
     displayedGemRef.current = displayedGems;
@@ -439,13 +456,13 @@ export default function ShopPage() {
   const ownedThemes = cosmetics.owned.pathThemes.map((themeId) => PATH_THEMES[themeId]).slice(0, 10);
   const filteredCustomizationThemes = useMemo(() => {
     if (customizationFilter === "owned") {
-      return THEMES.filter((theme) => unlockedInterfaceThemes.includes(theme.id));
+      return THEMES.filter((theme) => ownedInterfaceThemeIds.includes(theme.id));
     }
     if (customizationFilter === "rank-reward") {
       return THEMES.filter((theme) => theme.group === "rank-reward");
     }
     return THEMES;
-  }, [customizationFilter, unlockedInterfaceThemes]);
+  }, [customizationFilter, ownedInterfaceThemeIds]);
   const activeInterfaceTheme = getThemeDefinition(
     (equippedInterfaceTheme || "default") as Parameters<typeof getThemeDefinition>[0],
   );
@@ -557,21 +574,37 @@ export default function ShopPage() {
   const handleEquipInterfaceTheme = (themeId: ThemeDefinition["id"]) => {
     setThemeFlashVisible(true);
     equipInterfaceTheme(themeId);
+    void applyTheme(themeId);
     toast.success("Theme equipped", `${getThemeDefinition(themeId).name} is now active.`);
     window.setTimeout(() => setThemeFlashVisible(false), 500);
   };
 
   const handleUnlockInterfaceTheme = (theme: ThemeDefinition) => {
     if (!theme.price || theme.group === "rank-reward") return;
-    if (gemBalance < theme.price) {
+    if (!infiniteGemsEnabled && gemBalance < theme.price) {
       toast.error("Not enough gems", `You need ${theme.price - gemBalance} more gems for ${theme.name}.`);
       return;
     }
 
     unlockInterfaceTheme(theme.id);
-    void updateProgress({ gems: gemBalance - theme.price }, { syncRemote: true });
+    if (!infiniteGemsEnabled) {
+      void updateProgress({ gems: gemBalance - theme.price }, { syncRemote: true });
+    }
     toast.success("Theme unlocked", `${theme.name} is now in your customization collection.`);
   };
+
+  useEffect(() => {
+    if (!interfaceThemeHydrated) return;
+    for (const theme of THEMES) {
+      if (
+        theme.group === "rank-reward"
+        && isThemeUnlockedByLeague(theme, currentLeagueTier, highestLeagueTier)
+        && !unlockedInterfaceThemes.includes(theme.id)
+      ) {
+        unlockInterfaceTheme(theme.id);
+      }
+    }
+  }, [currentLeagueTier, highestLeagueTier, interfaceThemeHydrated, unlockInterfaceTheme, unlockedInterfaceThemes]);
 
   return (
     <main className="relative min-h-screen overflow-hidden text-white" style={{ background: pathTheme.surfaceBackground }}>
@@ -886,7 +919,7 @@ export default function ShopPage() {
                 <div>
                   <p className="text-[0.68rem] font-black uppercase tracking-[0.28em] text-white/34">Theme Inventory</p>
                   <p className="mt-2 text-3xl font-black text-white">
-                    {unlockedInterfaceThemes.length} of {THEMES.length} interface themes owned
+                    {ownedInterfaceThemeIds.length} of {THEMES.length} interface themes owned
                   </p>
                   <p className="mt-2 text-sm font-semibold" style={{ color: withAlpha(pathTheme.surfaceText, 0.68) }}>
                     Direct unlock themes cost gems. Rank reward themes stay locked until your league tier reaches their requirement.
@@ -928,9 +961,9 @@ export default function ShopPage() {
               {interfaceThemeHydrated ? (
                 <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
                   {filteredCustomizationThemes.map((theme) => {
-                    const owned = unlockedInterfaceThemes.includes(theme.id);
+                    const owned = ownedInterfaceThemeIds.includes(theme.id);
                     const equipped = equippedInterfaceTheme === theme.id;
-                    const canAfford = typeof theme.price === "number" ? gemBalance >= theme.price : false;
+                    const canAfford = typeof theme.price === "number" ? (infiniteGemsEnabled || gemBalance >= theme.price) : false;
 
                     return (
                       <CustomizationThemeCard
@@ -939,6 +972,7 @@ export default function ShopPage() {
                         owned={owned}
                         equipped={equipped}
                         canAfford={canAfford}
+                        unlockRequirementLabel={getThemeUnlockRequirementLabel(theme)}
                         onEquip={() => handleEquipInterfaceTheme(theme.id)}
                         onUnlock={() => handleUnlockInterfaceTheme(theme)}
                         onViewLeagues={() => router.push("/leagues")}

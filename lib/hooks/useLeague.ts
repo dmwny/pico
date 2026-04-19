@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  getDevLeagueOverrideStorageKey,
+  getStoredDevLeagueOverride,
+  PICO_DEV_LEAGUE_OVERRIDE_EVENT,
+  type DevLeagueOverrideChangeDetail,
+} from "@/lib/devLeagueOverride";
 import { supabase } from "@/lib/supabase";
+import { useUserStore } from "@/store/userStore";
 import type {
   GlobalLeaderboardEntry,
   HotStreak,
@@ -413,7 +420,29 @@ export function useMyLeague() {
       if (!active) return;
 
       const row = rpcData as MyLeagueMembershipRpcRow | null;
-      const mappedMembership = mapLeagueMembership(row?.membership ?? null);
+      let mappedMembership = mapLeagueMembership(row?.membership ?? null);
+      let mappedLeague = mapLeague(row?.league ?? null);
+      const mappedWeek = mapLeagueWeek(row?.week ?? null);
+      const devOverride = user.id ? getStoredDevLeagueOverride(user.id) : null;
+
+      if (devOverride && (!mappedLeague || mappedLeague.id !== devOverride.leagueId)) {
+        const { data: overrideLeagueRow } = await supabase
+          .from("leagues")
+          .select("id, name, tier, promotion_cutoff, demotion_cutoff, color_hex, icon_emoji, bg_gradient_from, bg_gradient_to, perk_description, hard_mode_unlocked, animated_border")
+          .eq("id", devOverride.leagueId)
+          .maybeSingle();
+
+        if (!active) return;
+        mappedLeague = mapLeague((overrideLeagueRow as LeagueRow | null) ?? null) ?? mappedLeague;
+      }
+
+      if (devOverride && mappedMembership) {
+        mappedMembership = {
+          ...mappedMembership,
+          leagueId: devOverride.leagueId,
+        };
+      }
+
       if (user?.id && mappedMembership) {
         const { data: cacheRow } = await supabase
           .from("xp_leaderboard_cache")
@@ -430,8 +459,19 @@ export function useMyLeague() {
       } else {
         setMembership(mappedMembership);
       }
-      setLeague(mapLeague(row?.league ?? null));
-      setWeek(mapLeagueWeek(row?.week ?? null));
+      setLeague(mappedLeague);
+      setWeek(mappedWeek);
+      if (mappedLeague || devOverride) {
+        const normalizedTier = devOverride?.leagueTier ?? mappedLeague?.name.toLowerCase() ?? "bronze";
+        const store = useUserStore.getState();
+        const tierOrder = LEAGUE_NAMES.map((name) => name.toLowerCase());
+        const currentIndex = tierOrder.indexOf(normalizedTier);
+        const highestIndex = tierOrder.indexOf((store.highestLeagueTier || "bronze").toLowerCase());
+        useUserStore.setState({
+          leagueTier: normalizedTier,
+          highestLeagueTier: tierOrder[Math.max(currentIndex, highestIndex)] ?? normalizedTier,
+        });
+      }
     } catch (queryError) {
       if (!active) return;
       setMembership(null);
@@ -486,6 +526,31 @@ export function useMyLeague() {
 
     return () => {
       void supabase.removeChannel(membershipChannel);
+    };
+  }, [loadMyLeague, userId]);
+
+  useEffect(() => {
+    if (!userId) return undefined;
+    const currentUserId = userId;
+
+    function handleOverrideEvent(event: Event) {
+      const detail = (event as CustomEvent<DevLeagueOverrideChangeDetail>).detail;
+      if (!detail || detail.userId !== currentUserId) return;
+      void loadMyLeague();
+    }
+
+    function handleStorage(event: StorageEvent) {
+      if (event.storageArea !== window.localStorage) return;
+      if (event.key !== getDevLeagueOverrideStorageKey(currentUserId)) return;
+      void loadMyLeague();
+    }
+
+    window.addEventListener(PICO_DEV_LEAGUE_OVERRIDE_EVENT, handleOverrideEvent as EventListener);
+    window.addEventListener("storage", handleStorage);
+
+    return () => {
+      window.removeEventListener(PICO_DEV_LEAGUE_OVERRIDE_EVENT, handleOverrideEvent as EventListener);
+      window.removeEventListener("storage", handleStorage);
     };
   }, [loadMyLeague, userId]);
 

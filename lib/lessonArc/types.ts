@@ -556,19 +556,19 @@ export type QuestionTypePlan = {
 };
 
 export const TEACHING_LESSON_PLAN: Record<LessonArcLessonIndex, QuestionTypePlan> = {
-  0: { difficulty: 1, count: 15, allowedTypes: ["mc_concept", "true_false"] },
-  1: { difficulty: 1, count: 15, allowedTypes: ["mc_output", "fill_select", "true_false"] },
-  2: { difficulty: 2, count: 15, allowedTypes: ["word_bank", "arrange", "fill_select"] },
-  3: { difficulty: 2, count: 12, allowedTypes: ["fill_type", "predict_type"] },
-  4: { difficulty: 3, count: 10, allowedTypes: ["fill_type", "mc_output", "true_false", "spot_bug"] },
+  0: { difficulty: 1, count: 15, allowedTypes: ["mc_concept", "true_false", "mc_output"] },
+  1: { difficulty: 1, count: 15, allowedTypes: ["mc_output", "fill_select", "true_false", "arrange"] },
+  2: { difficulty: 2, count: 15, allowedTypes: ["word_bank", "arrange", "fill_select", "code_order"] },
+  3: { difficulty: 2, count: 12, allowedTypes: ["fill_type", "predict_type", "trace_steps", "code_diff"] },
+  4: { difficulty: 3, count: 10, allowedTypes: ["fill_type", "mc_output", "spot_bug", "code_order", "trace_steps", "debug"] },
 };
 
 export const PRACTICE_LESSON_PLAN: Record<LessonArcLessonIndex, QuestionTypePlan> = {
-  0: { difficulty: 2, count: 10, allowedTypes: ["spot_bug", "fill_type"] },
-  1: { difficulty: 2, count: 10, allowedTypes: ["predict_type", "word_bank"] },
-  2: { difficulty: 3, count: 10, allowedTypes: ["fill_type", "spot_bug"] },
-  3: { difficulty: 3, count: 10, allowedTypes: ["mc_output", "arrange"] },
-  4: { difficulty: 3, count: 10, allowedTypes: ["fill_type", "spot_bug", "predict_type", "mc_output"] },
+  0: { difficulty: 2, count: 10, allowedTypes: ["spot_bug", "fill_type", "code_diff"] },
+  1: { difficulty: 2, count: 10, allowedTypes: ["predict_type", "word_bank", "arrange"] },
+  2: { difficulty: 3, count: 10, allowedTypes: ["fill_type", "spot_bug", "trace_steps", "code_order"] },
+  3: { difficulty: 3, count: 10, allowedTypes: ["mc_output", "arrange", "code_order", "debug"] },
+  4: { difficulty: 3, count: 10, allowedTypes: ["fill_type", "spot_bug", "predict_type", "mc_output", "trace_steps", "debug"] },
 };
 
 export function getLessonTypePlan(nodeType: LessonNodeType, lessonIndex: LessonArcLessonIndex): QuestionTypePlan {

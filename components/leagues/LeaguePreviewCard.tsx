@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useDistanceToPromotion } from "@/lib/hooks/useLeague";
 import type { LeaderboardEntry, League, LeagueMembership, LeagueWeek } from "@/lib/types/leagues";
+import { useUserStore } from "@/store/userStore";
 import LeagueMark from "@/components/leagues/LeagueMark";
 
 const COLORS = {
@@ -57,12 +58,17 @@ export default function LeaguePreviewCard({
 }: LeaguePreviewCardProps) {
   const [hovered, setHovered] = useState(false);
   const [animateFill, setAnimateFill] = useState(false);
+  const totalXp = useUserStore((state) => state.xp);
+  const weeklyXp = useUserStore((state) => state.weeklyXP);
   const groupSize = entries.length || 30;
   const myRank = entries.find((entry) => entry.isMe)?.rank ?? membership?.peakRankThisWeek ?? groupSize;
-  const myXp = entries.find((entry) => entry.isMe)?.xpThisWeek ?? membership?.xpEarnedThisWeek ?? 0;
+  const myXp = [entries.find((entry) => entry.isMe)?.xpThisWeek, membership?.xpEarnedThisWeek, weeklyXp, totalXp]
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0)
+    .reduce((lowest, value) => Math.min(lowest, value), Number.POSITIVE_INFINITY);
+  const displayXp = Number.isFinite(myXp) ? myXp : 0;
   const promotionCutoff = league?.promotionCutoff ?? 10;
   const demotionCutoff = league?.demotionCutoff ?? 5;
-  const { xpToPromotion } = useDistanceToPromotion(myRank, myXp, entries);
+  const { xpToPromotion } = useDistanceToPromotion(myRank, displayXp, entries);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setAnimateFill(true), 80);
@@ -208,7 +214,7 @@ export default function LeaguePreviewCard({
             color: COLORS.navy,
           }}
         >
-          <span>{myXp} XP</span>
+          <span>{displayXp} XP</span>
           <span style={{ color: COLORS.muted }}>
             TOP {promotionCutoff} {xpToPromotion > 0 ? `| ${xpToPromotion} XP TO GO` : "| IN RANGE"}
           </span>
